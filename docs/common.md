@@ -33,3 +33,4 @@ Protocol:
 
 - T021 assistant: added sandbox limits tests; pending: none
 - T051 Muse: added docs/models.md (ModelRole, replay/ollama/openai-compatible/meta providers, per-role config, cost meter, recording/replay, Meta-models rule); pending: none
+- T052 Muse: documented the benchmark harness in docs/benchmark.md (corpus format, ablations, metrics, run instructions); pending: real-loop pipeline adapter not wired into python -m bench, oracle evaluation set not built
