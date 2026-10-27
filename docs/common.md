@@ -22,3 +22,4 @@ Protocol:
 - T032 Copilot: added live RecordingProvider wrapper and record-then-replay round-trip test; pending: none
 - T018 claude: added src/exhibit_a/sandbox/image.py (build_image/image_tag, python:3.11.9-slim, hash-tagged, reuse via docker image inspect) and tests/test_sandbox_image.py; pending: runner.py still uses its own BASE_IMAGE and does not use build_image yet
 - T033 Muse: hardened models/jsonschema.py (bounded depth/strings/containers, strict rules, no silent allows) + tests/test_jsonschema.py adversarial suite green; pending: sandbox suite needs Docker (docker info fails in this env)
+- T036 Muse: added bench/probe.py per-role schema-valid-JSON probe (real prompts, N repeats, summary.json/md) + tests/test_probe.py with fake provider green; pending: full suite has 17 pre-existing env failures (Docker down, local-socket PermissionError) plus stale test_meta_provider_is_explicitly_not_built_yet
