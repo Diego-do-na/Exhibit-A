@@ -11,6 +11,7 @@ from typing import Any
 
 from .base import ModelRole, Provider, Role
 from .cost import CostMeter, Pricing
+from .meta import META_PRICING, MetaProvider
 from .ollama import OllamaProvider
 from .openai_compat import OpenAICompatibleProvider
 from .replay import ReplayProvider
@@ -77,9 +78,27 @@ def _openai_compatible_factory(spec: RoleConfig) -> Provider:
     )
 
 
+def _meta_factory(spec: RoleConfig) -> Provider:
+    if not spec.model:
+        raise ValueError("meta provider needs a model name")
+    pricing = spec.pricing
+    if pricing.input_per_mtok == 0.0 and pricing.output_per_mtok == 0.0:
+        # No explicit pricing configured: fall back to the Meta pricing table
+        # (whose rates are UNVERIFIED placeholders; see meta.py).
+        pricing = META_PRICING.get(spec.model, pricing)
+    return MetaProvider(
+        spec.model,
+        base_url=spec.base_url,
+        api_key_env=spec.api_key_env,
+        pricing=pricing,
+        timeout=spec.timeout,
+    )
+
+
 register_provider("replay", _replay_factory)
 register_provider("ollama", _ollama_factory)
 register_provider("openai_compatible", _openai_compatible_factory)
+register_provider("meta", _meta_factory)
 
 
 def _coerce_pricing(raw: Pricing | Mapping[str, Any]) -> Pricing:
@@ -119,8 +138,6 @@ def build_roles(
         except ValueError as exc:
             raise ValueError(f"unknown role {key!r}") from exc
         spec = _coerce_spec(raw)
-        if spec.provider == "meta":
-            raise ValueError("meta provider is planned but not built yet")
         try:
             factory = PROVIDER_REGISTRY[spec.provider]
         except KeyError:
