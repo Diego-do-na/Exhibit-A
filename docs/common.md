@@ -30,3 +30,5 @@ Protocol:
 - T048 Copilot: bounded fixer file count/content and rejected symlink/archive path payloads with focused tests; pending: zip archives are not unpacked, but archive-like content is only bounded as text
 - T020 claude: sandbox run() takes canary_path/events_path/env, mounts oracle plugin read-only with PYTHONPATH + -p, events file is the only extra writable mount, oracle_events now populated (tests/test_sandbox_events.py); pending: oracle.py does not call run() with these yet (T026/T027)
 - T036 Muse: added bench/probe.py per-role schema-valid-JSON probe (real prompts, N repeats, summary.json/md) + tests/test_probe.py with fake provider green; pending: full suite has 17 pre-existing env failures (Docker down, local-socket PermissionError) plus stale test_meta_provider_is_explicitly_not_built_yet
+
+- T021 assistant: added sandbox limits tests; pending: none
