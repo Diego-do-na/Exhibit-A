@@ -13,3 +13,4 @@ Protocol:
 
 - T011 agy: bootstrapped bitacora and merge driver (docs/common.md, .gitattributes); pending: none
 - T013 Copilot: rewrote AGENTS.md with project thesis, module map, protocol, test command, sandbox prerequisites, and hard rules; pending: none
+- T017 Copilot: split cli.py into cli package modules and preserved both module entry points; pending: none
