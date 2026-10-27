@@ -1,0 +1,208 @@
+{
+  "cases": [
+    {
+      "id": "vuln-traversal",
+      "kind": "vulnerable",
+      "repo": "synthetic/files",
+      "commit": "v1",
+      "ground_truth": [
+        {
+          "class": "path_traversal",
+          "file": "app.py"
+        }
+      ],
+      "synthetic": {
+        "suspicions": [
+          {
+            "suspicion": {
+              "id": "t1",
+              "class": "path_traversal",
+              "location": {
+                "file": "app.py",
+                "line": 10
+              },
+              "entry_point": "GET /x",
+              "hypothesis": "h",
+              "source": "diff"
+            },
+            "outcome": {
+              "test_fails": true,
+              "oracle_effect": true,
+              "fix_passes": true,
+              "bypass": false
+            }
+          },
+          {
+            "suspicion": {
+              "id": "t2",
+              "class": "sql_injection",
+              "location": {
+                "file": "db.py",
+                "line": 10
+              },
+              "entry_point": "GET /x",
+              "hypothesis": "h",
+              "source": "diff"
+            },
+            "outcome": {
+              "test_fails": true,
+              "oracle_effect": false,
+              "fix_passes": false,
+              "bypass": false
+            }
+          },
+          {
+            "suspicion": {
+              "id": "t3",
+              "class": "xss",
+              "location": {
+                "file": "views.py",
+                "line": 10
+              },
+              "entry_point": "GET /x",
+              "hypothesis": "h",
+              "source": "diff"
+            },
+            "outcome": {
+              "test_fails": false,
+              "oracle_effect": false,
+              "fix_passes": false,
+              "bypass": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "vuln-authz",
+      "kind": "vulnerable",
+      "repo": "synthetic/notes",
+      "commit": "v2",
+      "ground_truth": [
+        {
+          "class": "broken_authorization",
+          "file": "views.py"
+        }
+      ],
+      "synthetic": {
+        "suspicions": [
+          {
+            "suspicion": {
+              "id": "a1",
+              "class": "broken_authorization",
+              "location": {
+                "file": "views.py",
+                "line": 10
+              },
+              "entry_point": "GET /x",
+              "hypothesis": "h",
+              "source": "diff"
+            },
+            "outcome": {
+              "test_fails": true,
+              "oracle_effect": true,
+              "fix_passes": true,
+              "bypass": true
+            }
+          },
+          {
+            "suspicion": {
+              "id": "a2",
+              "class": "path_traversal",
+              "location": {
+                "file": "util.py",
+                "line": 10
+              },
+              "entry_point": "GET /x",
+              "hypothesis": "h",
+              "source": "diff"
+            },
+            "outcome": {
+              "test_fails": true,
+              "oracle_effect": true,
+              "fix_passes": false,
+              "bypass": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "fixed-traversal",
+      "kind": "fixed",
+      "repo": "synthetic/files",
+      "commit": "f1",
+      "synthetic": {
+        "suspicions": [
+          {
+            "suspicion": {
+              "id": "f1",
+              "class": "path_traversal",
+              "location": {
+                "file": "app.py",
+                "line": 10
+              },
+              "entry_point": "GET /x",
+              "hypothesis": "h",
+              "source": "diff"
+            },
+            "outcome": {
+              "test_fails": false,
+              "oracle_effect": false,
+              "fix_passes": false,
+              "bypass": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "clean-diff",
+      "kind": "clean",
+      "repo": "synthetic/notes",
+      "commit": "c1",
+      "synthetic": {
+        "suspicions": [
+          {
+            "suspicion": {
+              "id": "c1",
+              "class": "xss",
+              "location": {
+                "file": "views.py",
+                "line": 10
+              },
+              "entry_point": "GET /x",
+              "hypothesis": "h",
+              "source": "diff"
+            },
+            "outcome": {
+              "test_fails": false,
+              "oracle_effect": false,
+              "fix_passes": false,
+              "bypass": false
+            }
+          },
+          {
+            "suspicion": {
+              "id": "c2",
+              "class": "sql_injection",
+              "location": {
+                "file": "db.py",
+                "line": 10
+              },
+              "entry_point": "GET /x",
+              "hypothesis": "h",
+              "source": "diff"
+            },
+            "outcome": {
+              "test_fails": true,
+              "oracle_effect": false,
+              "fix_passes": false,
+              "bypass": false
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
