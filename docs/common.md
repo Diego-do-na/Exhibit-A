@@ -21,3 +21,4 @@ Protocol:
 - T014 cursor-agent: <did>; pending: <left>
 - T032 Copilot: added live RecordingProvider wrapper and record-then-replay round-trip test; pending: none
 - T018 claude: added src/exhibit_a/sandbox/image.py (build_image/image_tag, python:3.11.9-slim, hash-tagged, reuse via docker image inspect) and tests/test_sandbox_image.py; pending: runner.py still uses its own BASE_IMAGE and does not use build_image yet
+- T019 claude: sandbox run() now takes requirements/image and uses image.build_image (pytest always included) instead of committing an image per run, isolation flags unchanged, exports build_image/image_tag/PYTEST_VERSION; pending: callers (oracle/case baseline) do not pass case requirements yet
