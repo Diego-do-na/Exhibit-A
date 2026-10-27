@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exhibit A — live view</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <h1>Exhibit A — live view</h1>
+    <p class="tagline">A thin window into the engine. Green means nothing could be proven, never safe.</p>
+  </div>
+  <div class="controls">
+    <label>Run
+      <select id="run">
+        <option value="">(all runs)</option>
+      </select>
+    </label>
+    <button id="connect" type="button">Watch live</button>
+    <button id="replay" type="button">Replay</button>
+    <label class="speed">Speed
+      <input id="speed" type="range" min="0.25" max="8" step="0.25" value="1">
+      <span id="speed-label">1&times;</span>
+    </label>
+    <button id="sample" type="button">Load sample</button>
+    <label class="file">Open ledger file
+      <input id="file" type="file" accept=".jsonl,.json,.log">
+    </label>
+    <span id="status" role="status">idle</span>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="panel">
+    <h2>Diff with suspect lines <span id="diff-count" class="muted"></span></h2>
+    <pre id="diff" class="code">No diff yet. Load the sample or watch a run.</pre>
+    <ul id="suspects" class="suspects"></ul>
+  </section>
+
+  <section class="panel">
+    <h2>Timeline <span id="event-count" class="muted"></span></h2>
+    <ol id="timeline" class="timeline"></ol>
+  </section>
+
+  <section class="panel">
+    <h2>Sandbox output</h2>
+    <pre id="sandbox" class="code">No sandbox output yet.</pre>
+  </section>
+
+  <section class="panel narrow">
+    <h2>Red-to-green</h2>
+    <div id="red-green" class="redgreen">
+      <span id="red" class="dot pending" title="Exploit fails on vulnerable code">RED</span>
+      <span id="green" class="dot pending" title="Exploit passes after the fix">GREEN</span>
+    </div>
+    <p id="redgreen-text" class="muted">Waiting for events.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Regression wall <span id="wall-count" class="muted"></span></h2>
+    <div id="wall" class="wall">
+      <p class="muted">Proven exploits accumulate here as regression tests.</p>
+    </div>
+  </section>
+
+  <section class="panel narrow">
+    <h2>Dropped suspicions</h2>
+    <p class="dropped"><span id="dropped">0</span></p>
+    <p class="muted">Suspicions dropped for lack of proof.</p>
+    <p id="verdicts" class="muted"></p>
+  </section>
+</main>
+
+<footer class="footer">
+  <p>Sandbox is isolated and resource-limited. Open any recorded <code>.jsonl</code> ledger above; no server needed for file replay.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
