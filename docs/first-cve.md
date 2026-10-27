@@ -15,7 +15,7 @@ upstream fix is one line: `commonprefix` becomes `commonpath`.
 ## Run it
 
 From the repository root, in an environment where `pip install -e ".[dev]"` was done and
-`anyio` is installed (the vendored Starlette needs it: `pip install "anyio>=3.4,<5"`):
+`anyio` comes with the `dev` extra (the vendored Starlette needs it):
 
 ```bash
 python -m exhibit_a.cli run \
