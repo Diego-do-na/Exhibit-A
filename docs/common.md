@@ -14,3 +14,4 @@ Protocol:
 - T011 agy: bootstrapped bitacora and merge driver (docs/common.md, .gitattributes); pending: none
 - T013 Copilot: rewrote AGENTS.md with project thesis, module map, protocol, test command, sandbox prerequisites, and hard rules; pending: none
 - T012 claude: pyproject console script exhibit-a, pytest markers docker/ollama/integration; no web extra (live server is stdlib only); pending: none
+- T016 claude: added .github/workflows/ci.yml (push/PR, Python 3.11, pip install -e '.[dev]', pytest -m 'not docker and not ollama and not integration', no secrets); pending: no test carries the docker/ollama/integration markers yet so the filter deselects nothing (sandbox tests run in CI), and the workflow has not run on GitHub yet
