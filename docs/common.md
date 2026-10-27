@@ -25,3 +25,4 @@ Protocol:
 - T015 agy: created docs/architecture.md with loop diagram-in-prose, public interfaces, JSON contracts, and sandbox/oracle/model boundaries; pending: none
 - T035 Copilot: added marked Ollama integration coverage for all four real role prompts and schemas; pending: none
 - T034 assistant: added bounded retries/backoff and strict timeout to post_json; pending: none
+- T019 claude: sandbox run() now takes requirements/image and uses image.build_image (pytest always included) instead of committing an image per run, isolation flags unchanged, exports build_image/image_tag/PYTEST_VERSION; pending: callers (oracle/case baseline) do not pass case requirements yet
