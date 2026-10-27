@@ -2,6 +2,9 @@
 
 Model answers come from the replay provider. A scripted provider records them into a JSONL
 file once; the loop is then also run from the recording alone, without any recorder.
+
+Execution goes through a fake ``TestRunner`` so these tests need no Docker; the tests marked
+``docker`` check that the default ``SandboxRunner`` really runs the baseline in the sandbox.
 """
 
 import json
@@ -14,9 +17,11 @@ from pathlib import Path
 import pytest
 
 from exhibit_a.ledger import Ledger
-from exhibit_a.loop import Roles, VerificationLoop
+from exhibit_a.loop import Roles, SandboxRunner, VerificationLoop
+from exhibit_a.loop import runner as loop_runner  # TestRunner by module, so pytest never collects it
 from exhibit_a.models import Completion, ModelRole, ReplayProvider, Role
 from exhibit_a.models.cost import Pricing
+from exhibit_a.oracle import run_oracle
 from exhibit_a.schemas import EventType
 
 FIXTURES = Path(__file__).parent / "fixtures" / "oracle"
@@ -102,27 +107,45 @@ class Scripted:
         return Completion(json.dumps(body), 10, 10, 1, model="scripted")
 
 
-def local_baseline(clone, test_path, timeout):
-    """Baseline without Docker: the project's own test, run by plain pytest."""
-    env = {"PATH": os.environ["PATH"], "PYTHONPATH": clone, "PYTHONDONTWRITEBYTECODE": "1"}
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", test_path],
-        cwd=clone, env=env, capture_output=True, timeout=timeout,
-    )
-    return {"outcome": "passed" if proc.returncode == 0 else "failed", "exit_code": proc.returncode,
-            "stdout": proc.stdout.decode(), "stderr": proc.stderr.decode(), "oracle_events": []}
+class FakeRunner:
+    """Runs without Docker: the baseline by plain pytest on the host, exploits by the oracle."""
+
+    def __init__(self, baseline_outcome=None):
+        self.baseline_outcome = baseline_outcome  # forced outcome, or None to really run
+        self.baselines = []
+
+    def run_baseline(self, clone, test_path, timeout):
+        self.baselines.append((clone, test_path))
+        if self.baseline_outcome is not None:
+            return {"outcome": self.baseline_outcome, "exit_code": 1, "stdout": "", "stderr": "",
+                    "oracle_events": []}
+        env = {"PATH": os.environ["PATH"], "PYTHONPATH": clone, "PYTHONDONTWRITEBYTECODE": "1"}
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", test_path],
+            cwd=clone, env=env, capture_output=True, timeout=timeout,
+        )
+        return {"outcome": "passed" if proc.returncode == 0 else "failed", "exit_code": proc.returncode,
+                "stdout": proc.stdout.decode(), "stderr": proc.stderr.decode(), "oracle_events": []}
+
+    def run_exploit(self, app_root, test_path, entry_points, *, timeout):
+        return run_oracle(app_root, test_path, entry_points, timeout=timeout)
 
 
-def make_loop(root, replay_path, recorder=None, *, baseline=local_baseline):
+def make_clone(root):
     clone = root / "clone"
     if not clone.exists():
         shutil.copytree(FIXTURES / "vulnerable", clone)
         (clone / "test_baseline.py").write_text(BASELINE_TEST)
+    return clone
+
+
+def make_loop(root, replay_path, recorder=None, *, runner=None):
+    clone = make_clone(root)
     provider = ReplayProvider(replay_path, recorder)
     roles = Roles(*(ModelRole(r, provider) for r in (Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
     ledger = Ledger(root / "ledger.jsonl")
     return VerificationLoop(clone, root / "out", ledger, roles, "test_baseline.py",
-                            run_id="r1", baseline_runner=baseline), ledger
+                            run_id="r1", runner=runner or FakeRunner()), ledger
 
 
 @pytest.fixture(scope="module")
@@ -130,7 +153,7 @@ def recorded(tmp_path_factory):
     root = tmp_path_factory.mktemp("loop")
     counter = root / "flaky.count"
     loop, ledger = make_loop(root, root / "replay.jsonl", Scripted(counter))
-    return root, counter, loop.run("app.py"), ledger
+    return root, counter, loop.run("app.py"), ledger, loop.runner
 
 
 def by_id(result, sid):
@@ -138,7 +161,7 @@ def by_id(result, sid):
 
 
 def test_proven_case_is_fixed_verified_and_packaged(recorded):
-    _, _, result, _ = recorded
+    _, _, result, _, _ = recorded
     proven = by_id(result, "S-PROVEN")
     assert proven.verdict.verdict == "proven"
     assert proven.verdict.evidence.runs == 3
@@ -152,7 +175,7 @@ def test_proven_case_is_fixed_verified_and_packaged(recorded):
 
 
 def test_discarded_case_is_dropped_and_counted(recorded):
-    _, _, result, _ = recorded
+    _, _, result, _, _ = recorded
     dropped = by_id(result, "S-DROP")
     assert dropped.verdict.verdict == "discarded_unproven"
     assert dropped.package_dir is None
@@ -161,14 +184,14 @@ def test_discarded_case_is_dropped_and_counted(recorded):
 
 
 def test_flaky_case_is_not_proven(recorded):
-    _, _, result, _ = recorded
+    _, _, result, _, _ = recorded
     flaky = by_id(result, "S-FLAKY")
     assert flaky.verdict.verdict == "flaky"
     assert flaky.package_dir is None
 
 
 def test_every_step_is_in_the_ledger(recorded):
-    _, _, _, ledger = recorded
+    _, _, _, ledger, _ = recorded
     types = {e.type for e in ledger.replay("r1")}
     assert types >= {
         EventType.BASELINE_DONE, EventType.SUSPICION_RAISED, EventType.EXPLOIT_WRITTEN,
@@ -181,7 +204,7 @@ def test_every_step_is_in_the_ledger(recorded):
 
 
 def test_loop_runs_from_the_recording_alone(recorded, tmp_path):
-    root, counter, first, _ = recorded
+    root, counter, first, _, _ = recorded
     counter.unlink(missing_ok=True)
     loop, _ = make_loop(tmp_path, root / "replay.jsonl")  # no recorder: a miss would raise
     again = loop.run("app.py")
@@ -190,10 +213,54 @@ def test_loop_runs_from_the_recording_alone(recorded, tmp_path):
 
 
 def test_failing_baseline_aborts_before_any_suspicion(tmp_path):
-    def broken(clone, test_path, timeout):
-        return {"outcome": "failed", "exit_code": 1, "stdout": "", "stderr": "", "oracle_events": []}
-
-    loop, ledger = make_loop(tmp_path, tmp_path / "replay.jsonl", baseline=broken)
+    loop, ledger = make_loop(tmp_path, tmp_path / "replay.jsonl", runner=FakeRunner("failed"))
     result = loop.run("app.py")
     assert not result.baseline_ok and result.results == []
     assert [e.type for e in ledger.read_all()] == [EventType.BASELINE_DONE]
+
+
+def test_baseline_runs_through_the_injected_runner(recorded):
+    root, _, _, _, runner = recorded
+    assert isinstance(runner, loop_runner.TestRunner)
+    clones = [Path(clone) for clone, _ in runner.baselines]
+    assert clones[0] == (root / "clone").resolve()  # the clean clone, before anything else
+    assert (root / "out" / "work" / "S-PROVEN" / "fixed").resolve() in clones  # VERIFY re-runs it
+    assert {test for _, test in runner.baselines} == {"test_baseline.py"}
+
+
+def test_default_runner_is_the_sandbox_with_the_case_requirements(tmp_path):
+    clone = make_clone(tmp_path)
+    loop = VerificationLoop(clone, tmp_path / "out", Ledger(tmp_path / "ledger.jsonl"), None,
+                            "test_baseline.py", requirements=["anyio>=3.4,<5"])
+    assert loop.runner == SandboxRunner(requirements=("anyio>=3.4,<5",))
+    assert isinstance(loop.runner, loop_runner.TestRunner)
+
+
+def test_sandbox_runner_hands_the_baseline_and_requirements_to_the_sandbox(monkeypatch):
+    calls = []
+
+    def fake_run(clone_path, test_path, timeout, requirements=None, image=None):
+        calls.append((clone_path, test_path, timeout, requirements, image))
+        return {"outcome": "passed", "exit_code": 0, "stdout": "", "stderr": "", "oracle_events": []}
+
+    monkeypatch.setattr("exhibit_a.sandbox.run", fake_run)
+    result = SandboxRunner(requirements=["anyio>=3.4,<5"]).run_baseline("/clone", "test_baseline.py", 30.0)
+    assert result["outcome"] == "passed"
+    assert calls == [("/clone", "test_baseline.py", 30.0, ["anyio>=3.4,<5"], None)]
+
+
+@pytest.mark.docker
+def test_sandbox_runner_runs_the_baseline_in_docker(tmp_path):
+    clone = make_clone(tmp_path)
+    result = SandboxRunner().run_baseline(str(clone), "test_baseline.py", 120.0)
+    assert result["outcome"] == "passed", result["stdout"] + result["stderr"]
+    assert "1 passed" in result["stdout"]
+
+
+@pytest.mark.docker
+def test_sandbox_runner_reports_a_failing_baseline_from_docker(tmp_path):
+    clone = make_clone(tmp_path)
+    (clone / "test_baseline.py").write_text("def test_broken():\n    assert False\n")
+    result = SandboxRunner().run_baseline(str(clone), "test_baseline.py", 120.0)
+    assert result["outcome"] == "failed"
+    assert "1 failed" in result["stdout"]
