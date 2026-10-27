@@ -18,16 +18,26 @@ each is captured when it happens:
   covered per task this way. A stack captured on the same thread is ignored, so code that
   runs where it was scheduled is judged by its real stack alone.
 
+The same holds for asyncio tasks on one thread. A coroutine awaited directly is on the real
+stack below its awaiter, but a coroutine run as a task of its own (``create_task``,
+``gather``, ``wait_for``, ``TaskGroup``) is driven by the event loop, so its real stack starts
+at the loop. ``BaseEventLoop.create_task`` is patched to capture the creator's stack; when a
+task's own frames run, the loop frames below them are replaced by that stack, separated by a
+task boundary pseudo-frame. The loop frames are dropped, not kept: whoever happens to drive
+the loop did not ask for the task, so they must not vouch for it.
+
 The module stays self-contained (stdlib only): the sandbox mounts it as a single file.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import json
 import os
 import sys
 import threading
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 
 ENV_CANARY = "EXHIBIT_A_CANARY"
@@ -35,14 +45,20 @@ ENV_EVENTS = "EXHIBIT_A_EVENTS"
 
 _MAX_FRAMES = 200
 _BOUNDARY = {"file": "<thread>", "function": "<thread boundary>", "qualname": "<thread boundary>"}
+_TASK_BOUNDARY = {"file": "<task>", "function": "<task boundary>", "qualname": "<task boundary>"}
+_TASK_EDGE = "task"
 
-# A captured stack is a tuple of code objects, outermost first; None marks a thread boundary.
+# A captured stack is a tuple of code objects, outermost first; None marks a thread boundary
+# and _TASK_EDGE a task boundary.
 # Code objects are cheap to collect and are only turned into paths when the canary is read.
 _ORIGIN: contextvars.ContextVar[tuple[int, tuple] | None] = contextvars.ContextVar(
     "exhibit_a_origin", default=None
 )
 _local = threading.local()
 _THREAD_ORIGIN = "_exhibit_a_origin"
+# Creator stacks keyed by the task's coroutine, registered before the task can run (eager
+# tasks run their first step inside create_task).
+_TASK_ORIGINS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 _installed = False
 
 
@@ -57,21 +73,48 @@ def _origin() -> tuple:
     return getattr(threading.current_thread(), _THREAD_ORIGIN, ())
 
 
+def _task_origin() -> tuple[object, tuple] | None:
+    """The running task's coroutine frame and creator stack, if one was captured."""
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        return None  # no event loop running on this thread
+    if task is None:
+        return None
+    coro = task.get_coro()
+    try:
+        origin = _TASK_ORIGINS.get(coro)
+    except TypeError:
+        return None  # not weak-referenceable, so never registered
+    frame = getattr(coro, "cr_frame", None)
+    if origin is None or frame is None:
+        return None
+    return frame, origin
+
+
 def _capture(frame) -> tuple:
     """The logical stack at ``frame``: inherited origin, boundary, then real frames."""
+    task = _task_origin()
     codes = []
     while frame is not None and len(codes) < _MAX_FRAMES:
         codes.append(frame.f_code)
+        if task is not None and frame is task[0]:
+            break  # the task's outermost frame: below it is only the loop
         frame = frame.f_back
     codes.reverse()
-    origin = _origin()
-    stack = (*origin, None, *codes) if origin else tuple(codes)
+    if task is not None and frame is task[0]:
+        stack = (*task[1], _TASK_EDGE, *codes)
+    else:
+        origin = _origin()
+        stack = (*origin, None, *codes) if origin else tuple(codes)
     return stack[-_MAX_FRAMES:]
 
 
 def _frame_dict(code) -> dict[str, str]:
     if code is None:
         return dict(_BOUNDARY)
+    if code is _TASK_EDGE:
+        return dict(_TASK_BOUNDARY)
     # Pseudo files such as "<frozen runpy>" must not be resolved against the cwd.
     name = code.co_filename
     return {
@@ -90,6 +133,7 @@ def _patch_handoffs() -> None:
     thread_start = threading.Thread.start
     pool_submit = ThreadPoolExecutor.submit
     copy_context = contextvars.copy_context
+    loop_create_task = asyncio.BaseEventLoop.create_task
 
     def start(self, *args, **kwargs):
         setattr(self, _THREAD_ORIGIN, _capture(sys._getframe(1)))
@@ -113,9 +157,17 @@ def _patch_handoffs() -> None:
         context.run(_ORIGIN.set, (threading.get_ident(), _capture(sys._getframe(1))))
         return context
 
+    def create_task(self, coro, *args, **kwargs):
+        try:
+            _TASK_ORIGINS[coro] = _capture(sys._getframe(1))
+        except TypeError:
+            pass  # not weak-referenceable: the task keeps its real stack
+        return loop_create_task(self, coro, *args, **kwargs)
+
     threading.Thread.start = start
     ThreadPoolExecutor.submit = submit
     contextvars.copy_context = copy_context_with_origin
+    asyncio.BaseEventLoop.create_task = create_task
 
 
 def _install(canary: str, events_path: str) -> None:
