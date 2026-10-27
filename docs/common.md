@@ -14,3 +14,4 @@ Protocol:
 - T011 agy: bootstrapped bitacora and merge driver (docs/common.md, .gitattributes); pending: none
 - T013 Copilot: rewrote AGENTS.md with project thesis, module map, protocol, test command, sandbox prerequisites, and hard rules; pending: none
 - T012 claude: pyproject console script exhibit-a, pytest markers docker/ollama/integration; no web extra (live server is stdlib only); pending: none
+- T030 Muse: per-role provider/model config with registry and build_roles (src/exhibit_a/models/config.py, tests/test_models_config.py); pending: none
