@@ -5,10 +5,13 @@ fails on the vulnerable code with the intended effect and valid provenance, and 
 every one of N repeated runs. Anything else is dropped with a non-proven verdict, which is
 counted. A green result means "nothing could be proven", never "safe".
 
-The two execution steps are injected so they can be swapped or faked:
+Execution goes through an injected ``TestRunner`` (see runner.py) so it can be swapped or
+faked. The default, ``SandboxRunner``, runs the project's own tests inside the hardened
+sandbox with the case's requirements, and exploit tests through the oracle. The older
+per-step seams still override one step each:
 
-* ``baseline_runner`` runs the project's own tests (default: the hardened sandbox);
-* ``judge`` runs an exploit test and decides what its failure means (default: the oracle).
+* ``baseline_runner`` runs the project's own tests;
+* ``judge`` runs an exploit test and decides what its failure means.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ import json
 import re
 import shutil
 import uuid
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,7 +30,8 @@ from typing import Any
 from exhibit_a.ledger import Ledger
 from exhibit_a.loop import prompts
 from exhibit_a.models import ModelRole, RoleResult, SchemaValidationError
-from exhibit_a.oracle import Judgement, run_oracle
+from exhibit_a.loop.runner import SandboxRunner, TestRunner
+from exhibit_a.oracle import Judgement
 from exhibit_a.schemas import (
     BypassAttempts,
     Evidence,
@@ -97,12 +101,6 @@ def classify(judgement: Judgement) -> VerdictValue:
     return VerdictValue.INVALID_TEST  # crashed, hung, wrong-reason failure or cheating
 
 
-def _default_baseline(clone: str, test_path: str, timeout: float) -> dict[str, Any]:
-    from exhibit_a.sandbox import run
-
-    return run(clone, test_path, timeout)
-
-
 def _slug(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", value).strip(".") or uuid.uuid4().hex[:8]
 
@@ -119,8 +117,10 @@ class VerificationLoop:
         runs: int = 3,
         timeout: float = 60.0,
         run_id: str | None = None,
-        baseline_runner: BaselineRunner = _default_baseline,
-        judge: Judge = run_oracle,
+        runner: TestRunner | None = None,
+        requirements: Sequence[str] = (),
+        baseline_runner: BaselineRunner | None = None,
+        judge: Judge | None = None,
     ) -> None:
         if runs < 1:
             raise ValueError("runs must be at least 1")
@@ -132,8 +132,10 @@ class VerificationLoop:
         self.runs = runs
         self.timeout = timeout
         self.run_id = run_id or uuid.uuid4().hex[:12]
-        self.baseline_runner = baseline_runner
-        self.judge = judge
+        # ``requirements`` only shape the default runner; an injected one carries its own.
+        self.runner = runner if runner is not None else SandboxRunner(requirements=tuple(requirements))
+        self.baseline_runner = baseline_runner or self.runner.run_baseline
+        self.judge = judge or self.runner.run_exploit
 
     # -- ledger -----------------------------------------------------------------------
 
