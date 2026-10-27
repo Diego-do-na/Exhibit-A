@@ -20,3 +20,4 @@ Protocol:
 - T031 Muse: Meta Model API adapter (src/exhibit_a/models/meta.py, registry in config.py, tests/test_meta.py); endpoint/structured-output/pricing UNVERIFIED, key from env only; pending: stale test_meta_provider_is_explicitly_not_built_yet in tests/test_models_config.py needs a scope exception to update
 - T014 cursor-agent: <did>; pending: <left>
 - T032 Copilot: added live RecordingProvider wrapper and record-then-replay round-trip test; pending: none
+- T018 claude: added src/exhibit_a/sandbox/image.py (build_image/image_tag, python:3.11.9-slim, hash-tagged, reuse via docker image inspect) and tests/test_sandbox_image.py; pending: runner.py still uses its own BASE_IMAGE and does not use build_image yet
