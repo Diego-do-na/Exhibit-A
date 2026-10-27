@@ -17,7 +17,7 @@ from exhibit_a.oracle import run_oracle
 from exhibit_a.schemas import EventType
 
 try:
-    import anyio  # noqa: F401  (the vendored Starlette needs it; install with `pip install anyio`)
+    import anyio  # noqa: F401  (the vendored Starlette needs it; declared in the dev extra of pyproject.toml)
 except ImportError:  # pragma: no cover
     pytest.fail("anyio is required by the Starlette case: pip install 'anyio>=3.4,<5'", pytrace=False)
 
