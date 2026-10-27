@@ -13,3 +13,4 @@ Protocol:
 
 - T011 agy: bootstrapped bitacora and merge driver (docs/common.md, .gitattributes); pending: none
 - T013 Copilot: rewrote AGENTS.md with project thesis, module map, protocol, test command, sandbox prerequisites, and hard rules; pending: none
+- T015 agy: created docs/architecture.md with loop diagram-in-prose, public interfaces, JSON contracts, and sandbox/oracle/model boundaries; pending: none
