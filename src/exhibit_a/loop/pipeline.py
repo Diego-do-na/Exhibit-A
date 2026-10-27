@@ -42,6 +42,10 @@ from exhibit_a.schemas import (
 BaselineRunner = Callable[[str, str, float], dict[str, Any]]
 Judge = Callable[..., Judgement]
 
+_MAX_FIX_FILES = 1_000
+_MAX_FIX_FILE_BYTES = 1_000_000
+_MAX_FIX_TOTAL_BYTES = 10_000_000
+
 
 @dataclass
 class Roles:
@@ -291,6 +295,28 @@ class VerificationLoop:
         """Copy the clone, write the proposed files, return a unified diff."""
         if not files:
             raise ValueError("fixer proposed no files")
+        if len(files) > _MAX_FIX_FILES:
+            raise ValueError(f"fixer proposed too many files: {len(files)}")
+        total_bytes = 0
+        for item in files:
+            content_bytes = len(item["content"].encode("utf-8"))
+            if content_bytes > _MAX_FIX_FILE_BYTES:
+                raise ValueError(f"fix content exceeds limit: {item['path']!r}")
+            total_bytes += content_bytes
+        if total_bytes > _MAX_FIX_TOTAL_BYTES:
+            raise ValueError("fix content exceeds total limit")
+        clone_root = self.clone.resolve()
+        for item in files:
+            rel = Path(item["path"])
+            if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
+                raise ValueError(f"invalid fix path: {item['path']!r}")
+            current = self.clone
+            for part in rel.parts[:-1]:
+                current /= part
+                if current.is_symlink():
+                    raise ValueError(f"fix path traverses symlink: {item['path']!r}")
+                if current.exists() and not current.is_dir():
+                    raise ValueError(f"fix path crosses a non-directory: {item['path']!r}")
         if fixed.exists():
             shutil.rmtree(fixed)
         shutil.copytree(self.clone, fixed)
@@ -298,7 +324,7 @@ class VerificationLoop:
         for item in files:
             rel = Path(item["path"])
             target = (fixed / rel).resolve()
-            if rel.is_absolute() or not target.is_relative_to(fixed.resolve()):
+            if not target.is_relative_to(fixed.resolve()) or not (self.clone / rel).resolve().is_relative_to(clone_root):
                 raise ValueError(f"fix path escapes the clone: {item['path']!r}")
             before = (self.clone / rel).read_text(encoding="utf-8") if (self.clone / rel).is_file() else ""
             target.parent.mkdir(parents=True, exist_ok=True)
