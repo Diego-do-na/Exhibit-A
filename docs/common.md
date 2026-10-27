@@ -16,3 +16,4 @@ Protocol:
 - T012 claude: pyproject console script exhibit-a, pytest markers docker/ollama/integration; no web extra (live server is stdlib only); pending: none
 - T030 Muse: per-role provider/model config with registry and build_roles (src/exhibit_a/models/config.py, tests/test_models_config.py); pending: none
 - T016 claude: added .github/workflows/ci.yml (push/PR, Python 3.11, pip install -e '.[dev]', pytest -m 'not docker and not ollama and not integration', no secrets); pending: no test carries the docker/ollama/integration markers yet so the filter deselects nothing (sandbox tests run in CI), and the workflow has not run on GitHub yet
+- T018 claude: added src/exhibit_a/sandbox/image.py (build_image/image_tag, python:3.11.9-slim, hash-tagged, reuse via docker image inspect) and tests/test_sandbox_image.py; pending: runner.py still uses its own BASE_IMAGE and does not use build_image yet
