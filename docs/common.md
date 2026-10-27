@@ -12,3 +12,4 @@ Protocol:
 ## Log
 
 - T011 agy: bootstrapped bitacora and merge driver (docs/common.md, .gitattributes); pending: none
+- T012 claude: pyproject console script exhibit-a, pytest markers docker/ollama/integration; no web extra (live server is stdlib only); pending: none
