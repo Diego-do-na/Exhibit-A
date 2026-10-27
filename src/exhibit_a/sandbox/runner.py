@@ -32,11 +32,35 @@ import uuid
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any
+import json
+from typing import Dict, Any, Mapping
 
 from .image import build_image
 
 PYTEST_VERSION = "pytest==7.3.2"
+
+# The oracle plugin is mounted read-only as a single module; only the events file is writable.
+_PLUGIN_SOURCE = Path(__file__).resolve().parent.parent / "oracle" / "plugin.py"
+_PLUGIN_MODULE = "exhibit_a_oracle_plugin"
+_PLUGIN_DIR = "/opt/exhibit_a_plugin"
+_CANARY_MOUNT = "/oracle/canary"
+_EVENTS_MOUNT = "/oracle/events.jsonl"
+_ENV_PREFIX = "EXHIBIT_A_"
+
+
+def _read_events(path: str) -> list:
+    """Parse the JSONL events file; malformed lines are dropped (the file is untrusted)."""
+    events = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return events
 
 
 def _check_docker_available() -> bool:
@@ -59,6 +83,9 @@ def run(
     timeout: float,
     requirements: list[str] | None = None,
     image: str | None = None,
+    canary_path: str | None = None,
+    events_path: str | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> Dict[str, Any]:
     """
     Execute pytest inside an ephemeral, hardened docker container.
@@ -69,6 +96,10 @@ def run(
         timeout: wall-time limit in seconds for the test run.
         requirements: extra pip requirements baked into the prebuilt image (pytest is always included).
         image: tag of an already built image; when given, `requirements` is ignored.
+        canary_path: optional host file exposed read-only inside the container as the canary.
+        events_path: optional host file that receives the oracle events written in the container; setting
+            it (or `canary_path`) loads the oracle plugin. It is the only extra writable mount.
+        env: extra `EXHIBIT_A_*` variables passed to the container; the canary/events paths are set by run().
 
     Returns:
         dict with outcome, exit_code, stdout, stderr, oracle_events.
@@ -93,6 +124,44 @@ def run(
             rel_test = test_path
 
         run_name = f"exhibit_a_run_{uuid.uuid4().hex[:8]}"
+
+        extra_env = dict(env or {})
+        bad = [k for k in extra_env if not k.startswith(_ENV_PREFIX)]
+        if bad:
+            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"env keys must start with {_ENV_PREFIX}: {bad}", "oracle_events": []}
+
+        observe = canary_path is not None or events_path is not None
+        events_file = os.path.join(tmpdir, "events.jsonl")
+        extra_args: list[str] = []
+        plugin_flag = ""
+        if observe:
+            # Private copies under tmpdir keep every mount bind-able and the host originals untouched.
+            Path(events_file).write_text("")
+            plugin_copy = os.path.join(tmpdir, f"{_PLUGIN_MODULE}.py")
+            shutil.copyfile(_PLUGIN_SOURCE, plugin_copy)
+            extra_args += ["-v", f"{plugin_copy}:{_PLUGIN_DIR}/{_PLUGIN_MODULE}.py:ro"]
+            extra_args += ["-v", f"{events_file}:{_EVENTS_MOUNT}:rw"]
+            extra_args += ["-e", f"PYTHONPATH={_PLUGIN_DIR}", "-e", f"EXHIBIT_A_EVENTS={_EVENTS_MOUNT}"]
+            if canary_path is not None:
+                canary_copy = os.path.join(tmpdir, "canary")
+                shutil.copyfile(canary_path, canary_copy)
+                extra_args += ["-v", f"{canary_copy}:{_CANARY_MOUNT}:ro", "-e", f"EXHIBIT_A_CANARY={_CANARY_MOUNT}"]
+            plugin_flag = f"-p {_PLUGIN_MODULE} "
+        for key, value in extra_env.items():
+            if key in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY") and observe:
+                continue
+            extra_args += ["-e", f"{key}={value}"]
+
+        def collect() -> list:
+            if not observe:
+                return []
+            events = _read_events(events_file)
+            if events_path is not None:
+                try:
+                    shutil.copyfile(events_file, events_path)
+                except OSError:
+                    pass
+            return events
 
         # 1) Resolve the prebuilt image (built once with network, reused across runs).
         if image is None:
@@ -129,6 +198,7 @@ def run(
             "0.5",
             "-v",
             f"{workspace}:/workspace:rw",
+            *extra_args,
             "--workdir",
             "/workspace",
             "--user",
@@ -136,7 +206,7 @@ def run(
             image,
             "bash",
             "-lc",
-            f"pytest -q -p no:cacheprovider /workspace/{rel_test}",
+            f"pytest -q -p no:cacheprovider {plugin_flag}/workspace/{rel_test}",
         ]
 
         try:
@@ -148,11 +218,11 @@ def run(
         except subprocess.TimeoutExpired as e:
             # ensure container is removed
             subprocess.run(["docker", "rm", "-f", run_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return {"outcome": "timeout", "exit_code": None, "stdout": e.stdout.decode() if e.stdout else "", "stderr": e.stderr.decode() if e.stderr else "", "oracle_events": []}
+            return {"outcome": "timeout", "exit_code": None, "stdout": e.stdout.decode() if e.stdout else "", "stderr": e.stderr.decode() if e.stderr else "", "oracle_events": collect()}
         except OSError as e:
             return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": str(e), "oracle_events": []}
 
-        return {"outcome": outcome, "exit_code": exit_code, "stdout": stdout, "stderr": stderr, "oracle_events": []}
+        return {"outcome": outcome, "exit_code": exit_code, "stdout": stdout, "stderr": stderr, "oracle_events": collect()}
     finally:
         # best-effort cleanup of the temp dir
         try:

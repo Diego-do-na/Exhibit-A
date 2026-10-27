@@ -28,3 +28,4 @@ Protocol:
 - T019 claude: sandbox run() now takes requirements/image and uses image.build_image (pytest always included) instead of committing an image per run, isolation flags unchanged, exports build_image/image_tag/PYTEST_VERSION; pending: callers (oracle/case baseline) do not pass case requirements yet
 - T036 assistant: added docs/sandbox.md; pending: none
 - T048 Copilot: bounded fixer file count/content and rejected symlink/archive path payloads with focused tests; pending: zip archives are not unpacked, but archive-like content is only bounded as text
+- T020 claude: sandbox run() takes canary_path/events_path/env, mounts oracle plugin read-only with PYTHONPATH + -p, events file is the only extra writable mount, oracle_events now populated (tests/test_sandbox_events.py); pending: oracle.py does not call run() with these yet (T026/T027)
