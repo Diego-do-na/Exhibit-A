@@ -17,3 +17,4 @@ Protocol:
 - T030 Muse: per-role provider/model config with registry and build_roles (src/exhibit_a/models/config.py, tests/test_models_config.py); pending: none
 - T016 claude: added .github/workflows/ci.yml (push/PR, Python 3.11, pip install -e '.[dev]', pytest -m 'not docker and not ollama and not integration', no secrets); pending: no test carries the docker/ollama/integration markers yet so the filter deselects nothing (sandbox tests run in CI), and the workflow has not run on GitHub yet
 - T017 Copilot: split cli.py into cli package modules and preserved both module entry points; pending: none
+- T031 Muse: Meta Model API adapter (src/exhibit_a/models/meta.py, registry in config.py, tests/test_meta.py); endpoint/structured-output/pricing UNVERIFIED, key from env only; pending: stale test_meta_provider_is_explicitly_not_built_yet in tests/test_models_config.py needs a scope exception to update
