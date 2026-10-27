@@ -33,3 +33,4 @@ Protocol:
 
 - T021 assistant: added sandbox limits tests; pending: none
 - T051 Muse: added docs/models.md (ModelRole, replay/ollama/openai-compatible/meta providers, per-role config, cost meter, recording/replay, Meta-models rule); pending: none
+ - T049 assistant: added sandbox security tests; pending: none
