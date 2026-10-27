@@ -19,3 +19,4 @@ Protocol:
 - T017 Copilot: split cli.py into cli package modules and preserved both module entry points; pending: none
 - T031 Muse: Meta Model API adapter (src/exhibit_a/models/meta.py, registry in config.py, tests/test_meta.py); endpoint/structured-output/pricing UNVERIFIED, key from env only; pending: stale test_meta_provider_is_explicitly_not_built_yet in tests/test_models_config.py needs a scope exception to update
 - T014 cursor-agent: <did>; pending: <left>
+- T032 Copilot: added live RecordingProvider wrapper and record-then-replay round-trip test; pending: none
