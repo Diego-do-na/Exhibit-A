@@ -32,3 +32,4 @@ Protocol:
 - T036 Muse: added bench/probe.py per-role schema-valid-JSON probe (real prompts, N repeats, summary.json/md) + tests/test_probe.py with fake provider green; pending: full suite has 17 pre-existing env failures (Docker down, local-socket PermissionError) plus stale test_meta_provider_is_explicitly_not_built_yet
 
 - T021 assistant: added sandbox limits tests; pending: none
+ - T049 assistant: added sandbox security tests; pending: none
