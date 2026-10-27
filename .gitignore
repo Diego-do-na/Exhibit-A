@@ -1,0 +1,21 @@
+# Environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Local
+.DS_Store
+node_modules/
+*.log
+runs/
