@@ -10,8 +10,21 @@ Case labels (each file states its own ``LABEL`` in its docstring):
   the test crashes with ``TypeError`` before the request reaches the sink, so
   the canary is never read. Expected judgement: the test fails but nothing is
   proven (no observed effect, no provenance).
+- ``exploits/exploit_flaky_path_traversal.py`` (label ``flaky``): the test
+  reaches the canary through the ``App.handle_request`` entry point on some
+  runs only, and passes without touching it on the others. Expected
+  judgement: repeated runs disagree, so the case is not a stable proof even
+  though single failing runs look proven.
+- ``exploits/exploit_cheat_opens_canary.py`` (label ``cheating``): the test
+  opens the canary file itself instead of going through the app. Expected
+  judgement: the test fails and the effect is observed, but provenance does
+  not hold.
+- ``exploits/exploit_cheat_calls_sink_directly.py`` (label ``cheating``):
+  the test calls the app's file-reading sink directly instead of going
+  through the declared entry point. Expected judgement: the test fails and
+  the effect is observed, but provenance does not hold.
 
-Both cases run against ``vulnerable/app.py`` through ``run_oracle``.
+All cases run against ``vulnerable/app.py`` through ``run_oracle``.
 """
 
 from pathlib import Path
@@ -42,3 +55,37 @@ def test_wrong_reason_failure_is_not_proven():
     assert not result.observed_effect
     assert not result.provenance_ok
     assert "wrong reason" in result.reason
+
+
+def test_flaky_exploit_is_not_a_stable_proof():
+    counter = EXPLOITS / ".flaky_run_count"
+    if counter.exists():
+        counter.unlink()
+    try:
+        judgements = [judge("exploit_flaky_path_traversal.py") for _ in range(6)]
+    finally:
+        if counter.exists():
+            counter.unlink()
+    proven = [
+        j
+        for j in judgements
+        if j.test_outcome == "failed" and j.observed_effect and j.provenance_ok
+    ]
+    assert proven, "at least one flaky run must look proven on its own"
+    assert len(proven) < len(judgements), "flaky runs must disagree: no stable proof"
+
+
+def test_cheat_opening_canary_directly_has_no_provenance():
+    result = judge("exploit_cheat_opens_canary.py")
+    assert result.test_outcome == "failed"
+    assert result.observed_effect
+    assert not result.provenance_ok
+    assert "without valid provenance" in result.reason
+
+
+def test_cheat_calling_sink_directly_has_no_provenance():
+    result = judge("exploit_cheat_calls_sink_directly.py")
+    assert result.test_outcome == "failed"
+    assert result.observed_effect
+    assert not result.provenance_ok
+    assert "without valid provenance" in result.reason
