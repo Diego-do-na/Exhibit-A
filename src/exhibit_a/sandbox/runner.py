@@ -31,6 +31,7 @@ import tempfile
 import uuid
 import os
 import sys
+from pathlib import Path
 from typing import Dict, Any
 
 BASE_IMAGE = "python:3.11.9-slim-bullseye"
@@ -66,9 +67,11 @@ def run(clone_path: str, test_path: str, timeout: float) -> Dict[str, Any]:
     if not _check_docker_available():
         return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": "docker not available", "oracle_events": []}
 
-    # Create a temporary copy of the clone. Place it under the current working
-    # directory so Docker on macOS/Colima can bind-mount the path reliably.
-    tmpdir = tempfile.mkdtemp(prefix="exhibit_a_sandbox_", dir=os.getcwd())
+    # Create a temporary copy of the clone. Place it under a directory inside the
+    # user's HOME so Colima (which shares $HOME) can bind-mount it reliably.
+    home_cache_root = os.path.join(Path.home(), ".cache", "exhibit-a", "sandbox")
+    os.makedirs(home_cache_root, exist_ok=True)
+    tmpdir = tempfile.mkdtemp(prefix="exhibit_a_sandbox_", dir=home_cache_root)
     try:
         # copy the repo into tmpdir/workspace
         workspace = os.path.join(tmpdir, "workspace")
@@ -146,7 +149,8 @@ def run(clone_path: str, test_path: str, timeout: float) -> Dict[str, Any]:
             f"{workspace}:/workspace:rw",
             "--workdir",
             "/workspace",
-            # run as default user in the container (root) so mounted workspaces are accessible
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
             image_tag,
             "bash",
             "-lc",
