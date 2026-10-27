@@ -25,3 +25,4 @@ Protocol:
 - T015 agy: created docs/architecture.md with loop diagram-in-prose, public interfaces, JSON contracts, and sandbox/oracle/model boundaries; pending: none
 - T035 Copilot: added marked Ollama integration coverage for all four real role prompts and schemas; pending: none
 - T034 assistant: added bounded retries/backoff and strict timeout to post_json; pending: none
+- T036 assistant: added docs/sandbox.md; pending: none
