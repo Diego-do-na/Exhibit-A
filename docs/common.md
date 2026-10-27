@@ -27,3 +27,4 @@ Protocol:
 - T034 assistant: added bounded retries/backoff and strict timeout to post_json; pending: none
 - T019 claude: sandbox run() now takes requirements/image and uses image.build_image (pytest always included) instead of committing an image per run, isolation flags unchanged, exports build_image/image_tag/PYTEST_VERSION; pending: callers (oracle/case baseline) do not pass case requirements yet
 - T036 assistant: added docs/sandbox.md; pending: none
+- T048 Copilot: bounded fixer file count/content and rejected symlink/archive path payloads with focused tests; pending: zip archives are not unpacked, but archive-like content is only bounded as text
