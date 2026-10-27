@@ -26,3 +26,4 @@ Protocol:
 - T035 Copilot: added marked Ollama integration coverage for all four real role prompts and schemas; pending: none
 - T034 assistant: added bounded retries/backoff and strict timeout to post_json; pending: none
 - T019 claude: sandbox run() now takes requirements/image and uses image.build_image (pytest always included) instead of committing an image per run, isolation flags unchanged, exports build_image/image_tag/PYTEST_VERSION; pending: callers (oracle/case baseline) do not pass case requirements yet
+- T020 claude: sandbox run() takes canary_path/events_path/env, mounts oracle plugin read-only with PYTHONPATH + -p, events file is the only extra writable mount, oracle_events now populated (tests/test_sandbox_events.py); pending: oracle.py does not call run() with these yet (T026/T027)
