@@ -211,3 +211,98 @@ def test_reused_anyio_worker_does_not_inherit_a_stale_stack(tmp_path):
     assert result.observed_effect
     assert not result.provenance_ok
     assert "called the sink directly" in result.reason
+
+
+# Async cases: the app opens the canary in a coroutine. When that coroutine runs in a task
+# of its own, its real stack starts at the event loop, so the oracle must stitch in the
+# stack that created the task, and drop the loop frames that would otherwise vouch for it.
+
+ASYNC_APP = FIXTURES / "async_app"
+ASYNC_ENTRY_POINTS = {"App.handle_request", "App.handle_sync"}
+
+ASYNC_EXPLOIT = '''
+import asyncio
+import os
+
+from app import App, read_async
+
+CANARY = os.environ["EXHIBIT_A_CANARY"]
+
+
+async def task_cheat():
+    # The test hands the sink to a task of its own: no entry point created it.
+    return await asyncio.create_task(read_async(CANARY))
+
+
+def loop_cheat(app):
+    # Park the sink on the app's loop, then let a real entry point run that loop. The read
+    # happens below the entry point on the real stack, but the entry point did not ask for it.
+    sneaky = app.loop.create_task(read_async(CANARY))
+    app.handle_sync("await", "public.txt")
+    return app.loop.run_until_complete(sneaky)
+
+
+def test_read_escapes_base_dir():
+    app = App(os.environ["EXHIBIT_A_ALLOWED_DIR"])
+    body = {call}
+    assert os.environ["EXHIBIT_A_CANARY_TOKEN"] not in body
+'''
+
+
+def judge_async(tmp_path, call, entry_points=ASYNC_ENTRY_POINTS):
+    test = tmp_path / "test_async.py"
+    test.write_text(ASYNC_EXPLOIT.replace("{call}", call), encoding="utf-8")
+    return run_oracle(ASYNC_APP, test, set(entry_points))
+
+
+# wait_for runs its coroutine in a child task on 3.11 and inline on 3.12+; both must prove.
+@pytest.mark.parametrize("how", ["create_task", "gather", "wait_for", "task_group", "nested"])
+def test_canary_read_in_child_task_has_provenance(tmp_path, how):
+    result = judge_async(tmp_path, f'asyncio.run(app.handle_request("{how}", {TRAVERSAL}))')
+    assert result.test_outcome == "failed"
+    assert result.observed_effect
+    assert result.provenance_ok, result.reason
+    stack = [f.qualname for f in result.events[0].stack]
+    assert stack.index("<task boundary>") < stack.index("App.handle_request")
+    assert stack[-1] == "read_async"
+    assert "<thread boundary>" not in stack
+    if how != "wait_for":
+        last_boundary = len(stack) - 1 - stack[::-1].index("<task boundary>")
+        assert "App.handle_request" in stack[:last_boundary]
+
+
+def test_canary_read_in_awaited_coroutine_has_provenance(tmp_path):
+    result = judge_async(tmp_path, f'asyncio.run(app.handle_request("await", {TRAVERSAL}))')
+    assert result.test_outcome == "failed"
+    assert result.provenance_ok, result.reason
+    stack = [f.qualname for f in result.events[0].stack]
+    assert stack.index("<task boundary>") < stack.index("App.handle_request")
+
+
+def test_canary_read_through_sync_front_has_provenance(tmp_path):
+    result = judge_async(tmp_path, f'app.handle_sync("gather", {TRAVERSAL})')
+    assert result.test_outcome == "failed"
+    assert result.provenance_ok, result.reason
+
+
+def test_child_task_with_undeclared_entry_point_fails_provenance(tmp_path):
+    result = judge_async(
+        tmp_path, f'asyncio.run(app.handle_request("gather", {TRAVERSAL}))', {"other"}
+    )
+    assert result.observed_effect
+    assert not result.provenance_ok
+
+
+def test_test_handing_the_sink_to_a_task_itself_fails_provenance(tmp_path):
+    result = judge_async(tmp_path, "asyncio.run(task_cheat())")
+    assert result.observed_effect
+    assert not result.provenance_ok
+    assert "called the sink directly" in result.reason
+
+
+def test_task_run_by_an_entry_points_loop_does_not_borrow_its_stack(tmp_path):
+    # The read sits below App.handle_sync on the real stack, yet the test created the task.
+    result = judge_async(tmp_path, "loop_cheat(app)")
+    assert result.observed_effect
+    assert not result.provenance_ok
+    assert "called the sink directly" in result.reason
