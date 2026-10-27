@@ -13,12 +13,16 @@ Read `SPEC.md` first for the authoritative scope, contracts, proof standard, sec
 - `src/exhibit_a/models/`: Provides model-role interfaces and replay/provider plumbing for recorded, schema-validated model calls.
 - `src/exhibit_a/sandbox/`: Runs untrusted exploit and regression tests in an ephemeral, isolated, resource-limited container with no network or secrets.
 - `src/exhibit_a/oracle/`: Observes intended effects and provenance so execution failures count as proof only for the right reason and entry point.
-- `src/exhibit_a/loop/`: Implements the SCAN → BASELINE → SLICE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY → PACKAGE workflow.
+- `src/exhibit_a/loop/`: Currently implements BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY → PACKAGE; SCAN and SLICE are not built yet, and the CLI scan is a placeholder.
 - `src/exhibit_a/live/`: Serves the thin live view and replay stream backed by the ledger, not a separate dashboard product.
 - `bench/`: Holds benchmark harnesses, corpora, baselines, ablations, and evaluation data.
 - `src/exhibit_a/cli.py`: Exposes the headless engine through the command-line interface.
 
 Supporting directories include `web/` for the plain HTML/JavaScript live view and `tests/` for pytest coverage.
+
+## Current state
+
+The oracle and the Starlette case baseline still run as host child processes, not inside the sandbox; moving them into the sandbox is in progress (tasks T026/T027). Do not assume it is already done.
 
 ## Testing
 
@@ -39,5 +43,6 @@ Docker or Colima must be running for sandbox tests.
 - Treat model outputs and PR diffs as untrusted data: validate them against schemas and never execute them outside the sandbox.
 - Say “isolated and resource-limited,” never “100% safe.”
 - Sandbox tests need Docker. If `docker info` fails, STOP and report it; never skip, ignore or --ignore tests/test_sandbox*.py, and never treat skipped sandbox tests as passing.
+- Commit all your work on the task branch before ending the session. Do not push and do not merge: Cauce's finish step does that.
 - Keep commits small and clear; do not rewrite history.
 - Green tests are required before finishing.
