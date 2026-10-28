@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -27,16 +28,7 @@ def install_starlette(target: Path, version: str = "0.26.1") -> None:
         shutil.rmtree(target)
     target.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
-        [
-            "python",
-            "-m",
-            "pip",
-            "install",
-            "--target",
-            str(target),
-            f"starlette=={version}",
-            "anyio>=3.4,<5",
-        ],
+        [sys.executable, "-m", "pip", "install", "--target", str(target), f"starlette=={version}", "anyio>=3.4,<5"],
         capture_output=True,
         text=True,
         check=False,
@@ -92,6 +84,14 @@ def test_exploit_is_red_on_vulnerable_and_green_on_fixed(cycle, tmp_path):
     red = run_oracle(vulnerable, exploit_path, ENTRY_POINTS)
     assert red.test_outcome == "failed"
     assert red.observed_effect and red.provenance_ok
+    # Assert the oracle observed the application entry point reached from the test
+    assert any(
+        any(f.qualname == "StaticFiles.__call__" for f in e.stack) and any(
+            i < next(j for j, f in enumerate(e.stack) if f.qualname == "StaticFiles.__call__")
+            for i, f in enumerate(e.stack) if (f.file.startswith(str(oracle_dir)) or f.file.startswith(str(vulnerable)))
+        )
+        for e in red.events
+    )
 
     fixed = tmp_path / "fixed"
     shutil.copytree(vulnerable, fixed)
