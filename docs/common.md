@@ -52,3 +52,4 @@ Protocol:
 - T039 Copilot: added run totals output using Ledger.totals after live-case runs; pending: none
  - T045 cursor-agent: removed anyio inline patch from exploit template and regenerated replay.jsonl
  - T054 assistant: added bench/loop_pipeline.py and tests/test_bench_loop.py; pending: none
+ - T042 cursor-agent: added tokens/cost attribution per proven finding to bench/metrics.py and tests/test_metrics.py; pending: none
