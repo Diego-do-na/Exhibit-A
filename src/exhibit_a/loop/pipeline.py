@@ -6,9 +6,12 @@ every one of N repeated runs. Anything else is dropped with a non-proven verdict
 counted. A green result means "nothing could be proven", never "safe".
 
 Execution goes through an injected ``TestRunner`` (see runner.py) so it can be swapped or
-faked. The default, ``SandboxRunner``, runs the project's own tests inside the hardened
-sandbox with the case's requirements, and exploit tests through the oracle. The older
-per-step seams still override one step each:
+faked. The default, ``SandboxRunner``, runs the project's own tests, the exploit runs on the
+vulnerable and fixed code, and the defender's bypass variants inside the isolated,
+resource-limited sandbox with the case's requirements; the oracle judges the events
+collected from inside the container. A sandbox that cannot run at all surfaces as
+``OSError`` and becomes ``env_failure``. The older per-step seams still override one step
+each:
 
 * ``baseline_runner`` runs the project's own tests;
 * ``judge`` runs an exploit test and decides what its failure means.
