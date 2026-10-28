@@ -115,6 +115,12 @@ def test_ledger_records_the_cycle(cycle):
     }
 
 
-def test_cli_needs_replay_for_a_case(capsys):
-    assert main(["run", "--case", str(CASE)]) == 2
-    assert "--replay" in capsys.readouterr().err
+def test_cli_without_replay_builds_live_roles(capsys, monkeypatch):
+    # T037: without --replay the CLI no longer exits 2, it builds real provider roles.
+    # Stub the role builder so the test never reaches a real provider.
+    def refuse(args, meter):
+        raise ValueError("stubbed: no live provider in tests")
+
+    monkeypatch.setattr("exhibit_a.cli.run._live_roles", refuse)
+    assert main(["run", "--case", str(CASE)]) == 1
+    assert "cannot build live roles" in capsys.readouterr().err
