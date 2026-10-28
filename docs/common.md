@@ -51,3 +51,4 @@ Protocol:
 - T038 Muse: live run catches BudgetExceeded separately (non-zero exit, 'run: budget exceeded' on stderr, ledger already fsync-flushed); tests/test_run_budget.py proves abort message plus baseline/suspicion events on disk; pending: pre-existing env failures remain (Docker down, local-socket PermissionError) and test_models_config meta test still stale (T031)
 - T039 Copilot: added run totals output using Ledger.totals after live-case runs; pending: none
  - T045 cursor-agent: removed anyio inline patch from exploit template and regenerated replay.jsonl
+ - T054 assistant: added bench/loop_pipeline.py and tests/test_bench_loop.py; pending: none
