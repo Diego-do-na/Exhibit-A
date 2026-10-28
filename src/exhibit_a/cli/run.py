@@ -13,7 +13,7 @@ from typing import Any
 
 from ..ledger import Ledger
 from ..loop import Roles, SandboxRunner, VerificationLoop
-from ..models import CostMeter, ModelError, ModelRole, ReplayProvider, Role
+from ..models import BudgetExceeded, CostMeter, ModelError, ModelRole, ReplayProvider, Role
 from ..models.config import RoleConfig, build_roles
 
 #: Provider and model used for live runs when the caller names none. They are
@@ -133,6 +133,11 @@ def _run_case(args: argparse.Namespace) -> int:
         )
     try:
         result = loop.run(settings["source_file"])
+    except BudgetExceeded as exc:
+        # The ledger appends every event with fsync, so events emitted
+        # before the abort are already on disk; report and exit non-zero.
+        print(f"run: budget exceeded: {exc}", file=sys.stderr)
+        return 1
     except ModelError as exc:
         print(f"run: model step failed: {exc}", file=sys.stderr)
         return 1
