@@ -162,6 +162,10 @@ def run(
                 canary_copy = os.path.join(tmpdir, "canary")
                 shutil.copyfile(canary_path, canary_copy)
                 if custom_mount:
+                    # Stays writable: the exploit's conftest fills the allowed directory here, and an
+                    # app's static files live in the writable /workspace. A test can therefore plant
+                    # symlinks next to them; the oracle plugin flags reads through links created
+                    # during the run (via_symlink) instead of relying on a read-only mount.
                     extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777"]
                 extra_args += ["-v", f"{canary_copy}:{mount}:ro", "-e", f"EXHIBIT_A_CANARY={mount}"]
             plugin_flag = f"-p {_PLUGIN_MODULE} "

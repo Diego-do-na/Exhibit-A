@@ -49,6 +49,14 @@ def test_true_exploit_is_proven():
     assert result.provenance_ok
 
 
+def test_legit_traversal_without_symlink_is_proven():
+    # The symlink check (finding A-2) must not touch a genuine '../' traversal.
+    result = judge("exploit_true_path_traversal.py")
+    assert result.test_outcome == "failed"
+    assert result.provenance_ok, result.reason
+    assert [event.via_symlink for event in result.events] == [False]
+
+
 def test_wrong_reason_failure_is_not_proven():
     result = judge("exploit_wrong_reason_crash.py")
     assert result.test_outcome == "failed"

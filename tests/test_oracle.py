@@ -1,10 +1,14 @@
 """Oracle tests: true exploit, wrong-reason failure, cheating tests, fixed app."""
 
+import os
+import time
 from pathlib import Path
 
 import pytest
 
-from exhibit_a.oracle import run_oracle
+from exhibit_a.oracle import OracleEvent, run_oracle
+from exhibit_a.oracle.oracle import _judge
+from exhibit_a.oracle.plugin import _SYMLINK_SLACK, _fresh_symlink
 
 FIXTURES = Path(__file__).parent / "fixtures" / "oracle"
 EXPLOITS = FIXTURES / "exploits"
@@ -306,3 +310,163 @@ def test_task_run_by_an_entry_points_loop_does_not_borrow_its_stack(tmp_path):
     assert result.observed_effect
     assert not result.provenance_ok
     assert "called the sink directly" in result.reason
+
+
+# Symlink cases: the canary must not count as read through the app when the path the app
+# opened goes through a symlink the test planted during the run (finding A-2). The app below
+# is lexically safe on ``handle_request``; ``handle_unchecked`` has a real traversal bug.
+
+SYMLINK_APP = '''
+import os
+
+
+def read_file(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+class App:
+    def __init__(self, base_dir):
+        self.base_dir = base_dir
+
+    def handle_request(self, name):
+        """Entry point: serve ``name`` from base_dir, refusing absolute names and '..'."""
+        if os.path.isabs(name) or ".." in name.split("/"):
+            raise ValueError(name)
+        return read_file(os.path.join(self.base_dir, name))
+
+    def handle_unchecked(self, name):
+        """Entry point: serve ``name`` joined under base_dir without any check (the bug)."""
+        return read_file(os.path.join(self.base_dir, name))
+'''
+
+SYMLINK_EXPLOIT = '''
+import os
+
+import app as app_module
+from app import App
+
+ALLOWED = os.environ["EXHIBIT_A_ALLOWED_DIR"]
+CANARY = os.environ["EXHIBIT_A_CANARY"]
+APP_ROOT = os.path.dirname(app_module.__file__)
+
+
+def test_read_stays_in_base_dir():
+    {setup}
+    body = App(ALLOWED).{call}
+    assert os.environ["EXHIBIT_A_CANARY_TOKEN"] not in body
+'''
+
+SYMLINK_ENTRY_POINTS = {"App.handle_request", "App.handle_unchecked"}
+
+
+def symlink_case(tmp_path, setup, call):
+    app_root = tmp_path / "app"
+    tests = tmp_path / "tests"
+    app_root.mkdir(exist_ok=True)
+    tests.mkdir(exist_ok=True)
+    (app_root / "app.py").write_text(SYMLINK_APP, encoding="utf-8")
+    test = tests / "test_symlink.py"
+    test.write_text(SYMLINK_EXPLOIT.replace("{setup}", setup).replace("{call}", call), encoding="utf-8")
+    return app_root, test
+
+
+PLANTED = {
+    "file_link": ('os.symlink(CANARY, os.path.join(ALLOWED, "innocent.txt"))', '"innocent.txt"'),
+    "relative_link": (
+        'os.symlink("../outside/canary.txt", os.path.join(ALLOWED, "innocent.txt"))',
+        '"innocent.txt"',
+    ),
+    "dir_link": ('os.symlink(os.path.dirname(CANARY), os.path.join(ALLOWED, "docs"))', '"docs/canary.txt"'),
+    "chained_links": (
+        'os.symlink(CANARY, os.path.join(ALLOWED, ".hidden")); '
+        'os.symlink(".hidden", os.path.join(ALLOWED, "innocent.txt"))',
+        '"innocent.txt"',
+    ),
+    # ctime cannot be set from user space, so backdating the link's mtime does not hide it.
+    "backdated_link": (
+        'os.symlink(CANARY, os.path.join(ALLOWED, "innocent.txt")); '
+        'os.utime(os.path.join(ALLOWED, "innocent.txt"), (0, 0), follow_symlinks=False)',
+        '"innocent.txt"',
+    ),
+}
+
+
+@pytest.mark.parametrize("planted", sorted(PLANTED))
+def test_cheat_symlink_planted_by_the_test_is_not_proven(tmp_path, planted):
+    setup, name = PLANTED[planted]
+    app_root, test = symlink_case(tmp_path, setup, f"handle_request({name})")
+    result = run_oracle(app_root, test, SYMLINK_ENTRY_POINTS)
+    assert result.test_outcome == "failed"
+    assert result.observed_effect
+    assert not result.provenance_ok
+    assert "symlink created during the run" in result.reason
+    assert result.events[0].via_symlink is True
+    allowed = Path(result.events[0].path).parent.parent / "allowed"
+    assert Path(result.events[0].symlink).parent == allowed
+    assert Path(result.events[0].symlink).name in {"innocent.txt", "docs", ".hidden"}
+
+
+def test_preexisting_symlink_does_not_set_via_symlink(tmp_path):
+    # A symlink that exists before the plugin is installed (e.g. committed in the repo) is
+    # part of the app, not planted by the test: a real traversal through it still proves.
+    app_root, test = symlink_case(
+        tmp_path,
+        "name = os.path.relpath(os.path.join(APP_ROOT, 'root') + CANARY, ALLOWED)",
+        "handle_unchecked(name)",
+    )
+    os.symlink("/", app_root / "root")
+    time.sleep(_SYMLINK_SLACK + 0.5)
+    result = run_oracle(app_root, test, SYMLINK_ENTRY_POINTS)
+    assert result.test_outcome == "failed"
+    assert result.provenance_ok, result.reason
+    assert result.events[0].via_symlink is False
+    assert result.events[0].symlink is None
+
+
+def test_fresh_symlink_follows_old_links_into_new_ones(tmp_path):
+    # An old link whose target goes through a link created later is still caught.
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "secret.txt").write_text("x", encoding="utf-8")
+    os.symlink("spot/secret.txt", tmp_path / "old")
+    time.sleep(0.1)
+    since = time.time()
+    time.sleep(0.1)
+    os.symlink(real, tmp_path / "spot")
+    found = _fresh_symlink(str(tmp_path / "old"), since)
+    assert found == (str(tmp_path / "spot"), str(real))
+
+
+def test_fresh_symlink_ignores_links_older_than_install(tmp_path):
+    (tmp_path / "secret.txt").write_text("x", encoding="utf-8")
+    os.symlink("secret.txt", tmp_path / "old")
+    time.sleep(0.1)
+    assert _fresh_symlink(str(tmp_path / "old"), time.time()) is None
+    assert _fresh_symlink(str(tmp_path / "secret.txt"), 0.0) is None
+
+
+def _event(**extra):
+    stack = [
+        {"file": "/repo/tests/test_x.py", "function": "test_x", "qualname": "test_x"},
+        {"file": "/repo/app/app.py", "function": "handle_request", "qualname": "App.handle_request"},
+        {"file": "/repo/app/app.py", "function": "read_file", "qualname": "read_file"},
+    ]
+    return OracleEvent.model_validate({"path": "/c/canary.txt", "mode": "r", "stack": stack, **extra})
+
+
+def test_event_without_via_symlink_is_judged_as_before():
+    # Events written by plugin versions that predate the field still prove.
+    event = _event()
+    assert event.via_symlink is False
+    result = _judge("failed", [event], Path("/repo/app"), Path("/repo/tests/test_x.py"), ENTRY_POINTS)
+    assert result.provenance_ok, result.reason
+    assert result.observed_effect
+
+
+def test_event_via_symlink_has_no_provenance():
+    event = _event(via_symlink=True, symlink="/repo/app/static/x", symlink_target="/c/canary.txt")
+    result = _judge("failed", [event], Path("/repo/app"), Path("/repo/tests/test_x.py"), ENTRY_POINTS)
+    assert result.observed_effect
+    assert not result.provenance_ok
+    assert "symlink created during the run" in result.reason
