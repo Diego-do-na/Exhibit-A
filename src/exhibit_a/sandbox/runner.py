@@ -31,7 +31,7 @@ import tempfile
 import uuid
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import json
 from typing import Dict, Any, Mapping
 
@@ -86,6 +86,7 @@ def run(
     canary_path: str | None = None,
     events_path: str | None = None,
     env: Mapping[str, str] | None = None,
+    canary_mount: str = _CANARY_MOUNT,
 ) -> Dict[str, Any]:
     """
     Execute pytest inside an ephemeral, hardened docker container.
@@ -100,6 +101,10 @@ def run(
         events_path: optional host file that receives the oracle events written in the container; setting
             it (or `canary_path`) loads the oracle plugin. It is the only extra writable mount.
         env: extra `EXHIBIT_A_*` variables passed to the container; the canary/events paths are set by run().
+        canary_mount: where the canary appears inside the container, as a real read-only file so code that
+            canonicalises paths sees the file itself. Besides the default it must have the shape
+            /tmp/<work>/<dir>/<file>; <work> then gets its own small writable tmpfs, so tests can lay out
+            directories around the canary.
 
     Returns:
         dict with outcome, exit_code, stdout, stderr, oracle_events.
@@ -130,6 +135,17 @@ def run(
         if bad:
             return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"env keys must start with {_ENV_PREFIX}: {bad}", "oracle_events": []}
 
+        mount = PurePosixPath(canary_mount)
+        canary_work = mount.parent.parent
+        custom_mount = mount != PurePosixPath(_CANARY_MOUNT)
+        if custom_mount and (
+            ".." in mount.parts
+            or "." in canary_mount.split("/")
+            or not canary_work.is_relative_to("/tmp")
+            or canary_work == PurePosixPath("/tmp")
+        ):
+            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"invalid canary_mount: {canary_mount!r}", "oracle_events": []}
+
         observe = canary_path is not None or events_path is not None
         events_file = os.path.join(tmpdir, "events.jsonl")
         extra_args: list[str] = []
@@ -145,7 +161,9 @@ def run(
             if canary_path is not None:
                 canary_copy = os.path.join(tmpdir, "canary")
                 shutil.copyfile(canary_path, canary_copy)
-                extra_args += ["-v", f"{canary_copy}:{_CANARY_MOUNT}:ro", "-e", f"EXHIBIT_A_CANARY={_CANARY_MOUNT}"]
+                if custom_mount:
+                    extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777"]
+                extra_args += ["-v", f"{canary_copy}:{mount}:ro", "-e", f"EXHIBIT_A_CANARY={mount}"]
             plugin_flag = f"-p {_PLUGIN_MODULE} "
         for key, value in extra_env.items():
             if key in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY") and observe:
