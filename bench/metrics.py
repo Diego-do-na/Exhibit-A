@@ -25,7 +25,10 @@ def case_metrics(ledger: Ledger, run_id: str, case: Case, naive: bool) -> CaseMe
     """Score one run. Naive runs report every suspicion; others only proven verdicts."""
     suspicions: dict[str, dict] = {}
     proven_ids: list[str] = []
-    for event in ledger.replay(run_id):
+    # Read all events for this run so we can both discover proven ids and
+    # attribute tokens/cost to proven suspicions only.
+    events = list(ledger.replay(run_id))
+    for event in events:
         if event.type == EventType.SUSPICION_RAISED:
             suspicions[event.payload["id"]] = event.payload
         elif event.type == EventType.VERDICT and event.payload.get("verdict") == "proven":
@@ -42,7 +45,12 @@ def case_metrics(ledger: Ledger, run_id: str, case: Case, naive: bool) -> CaseMe
             true_pos += 1
             found.add(key)
 
+    # Totals come from the ledger totals for the whole run. Per-proven metrics
+    # are derived later (Row.tokens_per_proven and Row.cost_per_proven) as
+    # totals / proven. The real cost of discarded suspicions and adversary work
+    # is included in the totals (requirement).
     totals = ledger.totals(run_id)
+
     return CaseMetrics(
         reported=len(reported_ids),
         proven=len(proven_ids),
