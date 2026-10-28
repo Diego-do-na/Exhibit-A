@@ -12,8 +12,44 @@ from pathlib import Path
 from typing import Any
 
 from ..ledger import Ledger
-from ..loop import Roles, VerificationLoop
-from ..models import ModelError, ModelRole, ReplayProvider, Role
+from ..loop import Roles, SandboxRunner, VerificationLoop
+from ..models import CostMeter, ModelError, ModelRole, ReplayProvider, Role
+from ..models.config import RoleConfig, build_roles
+
+#: Provider and model used for live runs when the caller names none. They are
+#: dev defaults (a local Ollama model); pass explicit values once the argument
+#: parser exposes --provider/--model flags.
+LIVE_PROVIDER_DEFAULT = "ollama"
+LIVE_MODEL_DEFAULT = "llama3.1:8b"
+
+
+def _live_roles(args: argparse.Namespace, meter: CostMeter | None) -> Roles:
+    """Build one role per model backend through the provider registry.
+
+    The provider/model pair comes from the parsed args when present and falls
+    back to the dev defaults otherwise, so this keeps working before and after
+    the parser gains explicit flags. Every role shares one cost meter, which
+    enforces the --budget-usd hard stop.
+    """
+    provider_name = getattr(args, "provider", None) or LIVE_PROVIDER_DEFAULT
+    model = getattr(args, "model", None) or LIVE_MODEL_DEFAULT
+    config = {
+        role: RoleConfig(provider=provider_name, model=model) for role in Role
+    }
+    by_role = build_roles(config, meter)
+    return Roles(
+        by_role[Role.ADVERSARY],
+        by_role[Role.TEST_WRITER],
+        by_role[Role.FIXER],
+        by_role[Role.DEFENDER],
+    )
+
+
+def _cost_meter(args: argparse.Namespace) -> CostMeter | None:
+    """Wrap --budget-usd in a CostMeter; None means spending is unbounded."""
+    if args.budget_usd is None:
+        return None
+    return CostMeter(args.budget_usd)
 
 
 def _local_baseline(clone: str, test_path: str, timeout: float) -> dict[str, Any]:
@@ -44,13 +80,12 @@ def _local_baseline(clone: str, test_path: str, timeout: float) -> dict[str, Any
 
 
 def _run_case(args: argparse.Namespace) -> int:
-    """Run the verification loop on one benchmark case from its recorded answers."""
-    if not args.replay:
-        print(
-            "run: --case needs --replay; live providers are not wired to the CLI yet",
-            file=sys.stderr,
-        )
-        return 2
+    """Run the verification loop on one benchmark case.
+
+    With --replay the roles answer from the case recording; without it they
+    call real providers (built through the provider registry) and every test
+    runs in the sandbox-backed runner.
+    """
     case_file = Path(args.case)
     if case_file.is_dir():
         case_file /= "case.json"
@@ -69,14 +104,33 @@ def _run_case(args: argparse.Namespace) -> int:
     shutil.copytree(root / settings["tree"], clone)
     shutil.copyfile(root / settings["baseline_test"], clone / "test_baseline.py")
 
-    provider = ReplayProvider(root / settings["recording"])
-    roles = Roles(*(ModelRole(r, provider) for r in (
-        Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
     ledger = Ledger(out / "ledger.jsonl")
-    loop = VerificationLoop(
-        clone, out, ledger, roles, "test_baseline.py",
-        run_id=case_id, baseline_runner=_local_baseline,
-    )
+    if args.replay:
+        provider = ReplayProvider(root / settings["recording"])
+        roles = Roles(*(ModelRole(r, provider) for r in (
+            Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
+        loop = VerificationLoop(
+            clone, out, ledger, roles, "test_baseline.py",
+            run_id=case_id, baseline_runner=_local_baseline,
+        )
+    else:
+        try:
+            meter = _cost_meter(args)
+        except ValueError as exc:
+            print(f"run: invalid --budget-usd: {exc}", file=sys.stderr)
+            return 1
+        try:
+            roles = _live_roles(args, meter)
+        except ValueError as exc:
+            print(f"run: cannot build live roles: {exc}", file=sys.stderr)
+            return 1
+        loop = VerificationLoop(
+            clone, out, ledger, roles, "test_baseline.py",
+            run_id=case_id,
+            runner=SandboxRunner(
+                requirements=tuple(settings.get("requirements", ()))
+            ),
+        )
     try:
         result = loop.run(settings["source_file"])
     except ModelError as exc:
