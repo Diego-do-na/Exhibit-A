@@ -79,6 +79,16 @@ def _local_baseline(clone: str, test_path: str, timeout: float) -> dict[str, Any
     }
 
 
+def _install_requirements(target: Path, requirements: list[str]) -> None:
+    """Install the case's pinned dependencies into a local app root for the host and sandbox."""
+    if not requirements:
+        return
+    install = [sys.executable, "-m", "pip", "install", "--target", str(target), *requirements]
+    proc = subprocess.run(install, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "pip install failed")
+
+
 def _run_case(args: argparse.Namespace) -> int:
     """Run the verification loop on one benchmark case.
 
@@ -101,7 +111,17 @@ def _run_case(args: argparse.Namespace) -> int:
     clone = out / "clone"
     if clone.exists():
         shutil.rmtree(clone)
-    shutil.copytree(root / settings["tree"], clone)
+    clone.mkdir(parents=True, exist_ok=True)
+    source_tree = root / settings["tree"]
+    if source_tree.exists():
+        shutil.copytree(source_tree, clone, dirs_exist_ok=True)
+    requirements = [str(item) for item in settings.get("requirements", [])]
+    if requirements:
+        try:
+            _install_requirements(clone, requirements)
+        except RuntimeError as exc:
+            print(f"run: cannot install case requirements: {exc}", file=sys.stderr)
+            return 1
     shutil.copyfile(root / settings["baseline_test"], clone / "test_baseline.py")
 
     ledger = Ledger(out / "ledger.jsonl")
@@ -112,6 +132,7 @@ def _run_case(args: argparse.Namespace) -> int:
         loop = VerificationLoop(
             clone, out, ledger, roles, "test_baseline.py",
             run_id=case_id, baseline_runner=_local_baseline,
+            requirements=requirements,
         )
     else:
         try:
