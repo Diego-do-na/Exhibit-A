@@ -45,6 +45,11 @@ class OracleEvent(StrictModel):
     path: str
     mode: str
     stack: list[Frame]
+    # Set when the opened path went through a symlink created during the run; such a read
+    # has no provenance. Missing in events from older plugins, which means False.
+    via_symlink: bool = False
+    symlink: str | None = None
+    symlink_target: str | None = None
 
 
 class Judgement(StrictModel):
@@ -202,6 +207,10 @@ def _provenance_problem(
     event: OracleEvent, app_root: Path, test_dir: Path, entry_points: set[str]
 ) -> str | None:
     """Why this read does not count as an exploit through the app, or None if it does."""
+    if event.via_symlink:
+        # The test can plant a link inside the app's directory; a lexically safe app that
+        # follows it shows nothing about the app. Links older than the run are not flagged.
+        return f"canary reached through a symlink created during the run ({event.symlink})"
     # Test code wins over app code: the tests directory may live inside the app root.
     test_idx = [i for i, f in enumerate(event.stack) if _under(f.file, test_dir)]
     app_idx = [

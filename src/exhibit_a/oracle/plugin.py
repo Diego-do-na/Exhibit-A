@@ -26,6 +26,10 @@ task's own frames run, the loop frames below them are replaced by that stack, se
 task boundary pseudo-frame. The loop frames are dropped, not kept: whoever happens to drive
 the loop did not ask for the task, so they must not vouch for it.
 
+An open that reaches the canary through a symlink created during the run is flagged
+``via_symlink``: a test can plant such a link inside the app's own directory and make a
+lexically safe app follow it, which proves nothing about the app (see ``_fresh_symlink``).
+
 The module stays self-contained (stdlib only): the sandbox mounts it as a single file.
 """
 
@@ -35,8 +39,10 @@ import asyncio
 import contextvars
 import json
 import os
+import stat
 import sys
 import threading
+import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 
@@ -47,6 +53,13 @@ _MAX_FRAMES = 200
 _BOUNDARY = {"file": "<thread>", "function": "<thread boundary>", "qualname": "<thread boundary>"}
 _TASK_BOUNDARY = {"file": "<task>", "function": "<task boundary>", "qualname": "<task boundary>"}
 _TASK_EDGE = "task"
+# A symlink counts as created during the run if its ctime or mtime is no older than the
+# install time minus this many seconds. The margin covers coarse filesystem timestamps and
+# small clock skew (e.g. a bind mount timestamped by the host clock); it errs towards
+# flagging, which can only turn a proof into a non-proof, never the other way round.
+_SYMLINK_SLACK = 2.0
+_MAX_SYMLINK_HOPS = 40
+_MAX_FIELD = 512
 
 # A captured stack is a tuple of code objects, outermost first; None marks a thread boundary
 # and _TASK_EDGE a task boundary.
@@ -170,11 +183,68 @@ def _patch_handoffs() -> None:
     asyncio.BaseEventLoop.create_task = create_task
 
 
+def _fresh_symlink(path: str, since: float) -> tuple[str, str] | None:
+    """The first symlink created at or after ``since`` that opening ``path`` goes through.
+
+    ``path`` is absolute and not normalised. It is resolved the way the kernel does: one
+    component at a time, following every symlink met (including links inside other links'
+    targets) and applying ``..`` to the physical directory reached so far. A link counts as
+    created during the run if ``max(st_ctime, st_mtime) >= since``; ctime cannot be set
+    back from user space, so backdating a link's mtime does not hide it. Symlinks older than
+    ``since``, such as ones committed in the repository and checked out before the run, are
+    followed but not reported. Returns ``(link, target)`` or ``None``.
+    """
+    parts = path.split("/")
+    parts.reverse()  # a stack: the next component to resolve is last
+    resolved = "/"
+    hops = 0
+    while parts:
+        name = parts.pop()
+        if name in ("", "."):
+            continue
+        if name == "..":
+            resolved = os.path.dirname(resolved)
+            continue
+        candidate = os.path.join(resolved, name)
+        st = os.lstat(candidate)
+        if not stat.S_ISLNK(st.st_mode):
+            resolved = candidate
+            continue
+        target = os.readlink(candidate)
+        if max(st.st_ctime, st.st_mtime) >= since:
+            return candidate, target
+        hops += 1
+        if hops > _MAX_SYMLINK_HOPS:
+            raise OSError("too many levels of symbolic links")
+        if target.startswith("/"):
+            resolved = "/"
+        parts.extend(reversed(target.split("/")))
+    return None
+
+
+def _symlink_fields(requested: str, since: float) -> dict[str, object]:
+    """``via_symlink`` and, if set, the offending link and its target as short strings.
+
+    If the path cannot be walked the event is flagged too (fail closed): the oracle must
+    not vouch for a read it could not check.
+    """
+    try:
+        absolute = requested if os.path.isabs(requested) else os.path.join(os.getcwd(), requested)
+        found = _fresh_symlink(absolute, since)
+    except (OSError, ValueError) as exc:
+        found = (f"<unverified: {type(exc).__name__}>", "")
+    if found is None:
+        return {"via_symlink": False}
+    link, target = found
+    return {"via_symlink": True, "symlink": link[:_MAX_FIELD], "symlink_target": target[:_MAX_FIELD]}
+
+
 def _install(canary: str, events_path: str) -> None:
     global _installed
     if _installed:
         return
     _installed = True
+    since = time.time() - _SYMLINK_SLACK
     canary = os.path.realpath(canary)
 
     def hook(event: str, args: tuple) -> None:
@@ -184,11 +254,13 @@ def _install(canary: str, events_path: str) -> None:
         if not isinstance(target, (str, bytes, os.PathLike)):
             return  # an integer file descriptor, not a path
         try:
-            if os.path.realpath(os.fsdecode(target)) != canary:
+            requested = os.fsdecode(target)
+            if os.path.realpath(requested) != canary:
                 return
         except (OSError, ValueError):
             return
         record = {"path": canary, "mode": str(args[1]), "stack": _stack(sys._getframe(1))}
+        record.update(_symlink_fields(requested, since))
         with open(events_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
 
