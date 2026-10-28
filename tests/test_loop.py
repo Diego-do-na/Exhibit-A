@@ -4,7 +4,8 @@ Model answers come from the replay provider. A scripted provider records them in
 file once; the loop is then also run from the recording alone, without any recorder.
 
 Execution goes through a fake ``TestRunner`` so these tests need no Docker; the tests marked
-``docker`` check that the default ``SandboxRunner`` really runs the baseline in the sandbox.
+``docker`` check that the default ``SandboxRunner`` really runs the baseline, the exploits and
+the defender's variants in the sandbox, judged from the oracle events of the container.
 """
 
 import json
@@ -12,7 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -264,3 +265,186 @@ def test_sandbox_runner_reports_a_failing_baseline_from_docker(tmp_path):
     result = SandboxRunner().run_baseline(str(clone), "test_baseline.py", 120.0)
     assert result["outcome"] == "failed"
     assert "1 failed" in result["stdout"]
+
+
+def test_sandbox_runner_stages_the_exploit_with_a_canary_and_judges_container_events(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(clone_path, test_path, timeout, requirements=None, image=None,
+                 canary_path=None, events_path=None, env=None, canary_mount=None):
+        stage = Path(clone_path)
+        calls.append({
+            "files": {p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()},
+            "test_path": test_path, "requirements": requirements, "canary_mount": canary_mount,
+            "canary": Path(canary_path).read_text().strip(), "env": dict(env),
+        })
+        oracle_dir = test_path.split("/")[0]
+        stack = [
+            {"file": f"/workspace/{oracle_dir}/test_exploit.py", "function": "test_x", "qualname": "test_x"},
+            {"file": "/workspace/app.py", "function": "handle_request", "qualname": "App.handle_request"},
+            {"file": "/workspace/app.py", "function": "read_file", "qualname": "read_file"},
+        ]
+        events = [{"path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "stack": stack}, {"garbage": True}]
+        return {"outcome": "failed", "exit_code": 1, "stdout": "", "stderr": "", "oracle_events": events}
+
+    monkeypatch.setattr("exhibit_a.sandbox.run", fake_run)
+    clone = make_clone(tmp_path)
+    exploit = tmp_path / "test_exploit.py"
+    exploit.write_text(TRAVERSAL % "../outside/canary.txt")
+    judgement = SandboxRunner(requirements=["anyio>=3.4,<5"]).run_exploit(clone, exploit, {ENTRY}, timeout=30.0)
+
+    assert judgement.test_outcome == "failed" and judgement.observed_effect and judgement.provenance_ok
+    assert len(judgement.events) == 1  # the malformed container event is dropped
+    (call,) = calls
+    oracle_dir = call["test_path"].split("/")[0]
+    assert call["test_path"] == f"{oracle_dir}/test_exploit.py"
+    assert {"app.py", "test_baseline.py", f"{oracle_dir}/test_exploit.py", f"{oracle_dir}/conftest.py"} <= call["files"]
+    assert call["requirements"] == ["anyio>=3.4,<5"]
+    assert call["env"]["EXHIBIT_A_CANARY_TOKEN"] == call["canary"]
+    # The canary sits beside the allowed directory, as with the host oracle.
+    allowed = PurePosixPath(call["env"]["EXHIBIT_A_ALLOWED_DIR"])
+    assert PurePosixPath(call["canary_mount"]) == allowed.parent / "outside" / "canary.txt"
+    assert not (clone / oracle_dir).exists()  # the clone itself is never written to
+
+
+def test_sandbox_runner_judges_provenance_by_container_paths(monkeypatch, tmp_path):
+    def fake_run(clone_path, test_path, timeout, **kwargs):
+        oracle_dir = test_path.split("/")[0]
+        stack = [  # the test called the sink directly: no entry point on the stack
+            {"file": f"/workspace/{oracle_dir}/test_exploit.py", "function": "test_x", "qualname": "test_x"},
+            {"file": "/workspace/app.py", "function": "read_file", "qualname": "read_file"},
+        ]
+        events = [{"path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "stack": stack}]
+        return {"outcome": "failed", "exit_code": 1, "stdout": "", "stderr": "", "oracle_events": events}
+
+    monkeypatch.setattr("exhibit_a.sandbox.run", fake_run)
+    exploit = tmp_path / "test_exploit.py"
+    exploit.write_text("def test_x():\n    pass\n")
+    judgement = SandboxRunner().run_exploit(make_clone(tmp_path), exploit, {ENTRY}, timeout=30.0)
+    assert judgement.observed_effect and not judgement.provenance_ok
+    assert "entry point" in judgement.reason
+
+
+@pytest.mark.parametrize("result, outcome", [
+    ({"outcome": "passed", "exit_code": 0}, "passed"),
+    ({"outcome": "failed", "exit_code": 1}, "failed"),
+    ({"outcome": "failed", "exit_code": 2}, "error"),  # collection or usage error, not a failure
+    ({"outcome": "timeout", "exit_code": None}, "timeout"),
+])
+def test_sandbox_runner_reads_pytest_exit_codes_like_the_host_oracle(monkeypatch, tmp_path, result, outcome):
+    monkeypatch.setattr("exhibit_a.sandbox.run", lambda *a, **k: {
+        **result, "stdout": "", "stderr": "", "oracle_events": []})
+    exploit = tmp_path / "test_exploit.py"
+    exploit.write_text("def test_x():\n    pass\n")
+    judgement = SandboxRunner().run_exploit(make_clone(tmp_path), exploit, {ENTRY}, timeout=30.0)
+    assert judgement.test_outcome == outcome and not judgement.observed_effect
+
+
+def test_sandbox_that_cannot_run_the_exploit_is_an_env_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr("exhibit_a.sandbox.run", lambda *a, **k: {
+        "outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": "docker not available",
+        "oracle_events": []})
+    exploit = tmp_path / "test_exploit.py"
+    exploit.write_text("def test_x():\n    pass\n")
+    with pytest.raises(OSError, match="docker not available"):
+        SandboxRunner().run_exploit(make_clone(tmp_path), exploit, {ENTRY}, timeout=30.0)
+
+
+class _BaselineOnlyOnHost(FakeRunner):
+    """Host baseline, sandboxed exploits: isolates the exploit path for the loop test below."""
+
+    def run_exploit(self, app_root, test_path, entry_points, *, timeout):
+        return SandboxRunner().run_exploit(app_root, test_path, entry_points, timeout=timeout)
+
+
+def test_loop_turns_a_sandbox_env_failure_into_an_env_failure_verdict(recorded, tmp_path, monkeypatch):
+    root = recorded[0]
+    monkeypatch.setattr("exhibit_a.sandbox.run", lambda *a, **k: {
+        "outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": "docker not available",
+        "oracle_events": []})
+    loop, _ = make_loop(tmp_path, root / "replay.jsonl", runner=_BaselineOnlyOnHost())
+    result = loop.run("app.py")
+    assert {r.verdict.verdict for r in result.results} == {"env_failure"}
+
+
+@pytest.mark.docker
+@pytest.mark.parametrize("app, exploit, outcome, effect, provenance", [
+    ("vulnerable", "exploit_traversal.py", "failed", True, True),
+    ("fixed", "exploit_traversal.py", "passed", False, False),
+    ("vulnerable", "exploit_crashes_early.py", "failed", False, False),
+    ("vulnerable", "exploit_cheating.py", "failed", True, False),
+    ("vulnerable", "exploit_reads_itself.py", "failed", True, False),
+])
+def test_sandbox_runner_judges_exploits_run_in_docker(app, exploit, outcome, effect, provenance):
+    judgement = SandboxRunner().run_exploit(
+        FIXTURES / app, FIXTURES / "exploits" / exploit, {ENTRY}, timeout=120.0)
+    assert (judgement.test_outcome, judgement.observed_effect, judgement.provenance_ok) == (
+        outcome, effect, provenance), judgement.reason
+    for event in judgement.events:
+        app_frames = [f.file for f in event.stack if f.file.endswith("/app.py")]
+        assert set(app_frames) <= {"/workspace/app.py"}  # judged by container paths
+
+
+@pytest.mark.docker
+def test_loop_proves_fixes_and_defends_in_docker(recorded, tmp_path):
+    root = recorded[0]
+    loop, ledger = make_loop(tmp_path, root / "replay.jsonl", runner=SandboxRunner())
+    result = loop.run("app.py")
+    assert result.baseline_ok
+    proven = by_id(result, "S-PROVEN")
+    assert proven.verdict.verdict == "proven", proven.reason
+    assert proven.fix_verified
+    assert proven.verdict.bypass_attempts.tried == 1
+    assert proven.verdict.bypass_attempts.succeeded == 0
+    assert by_id(result, "S-DROP").verdict.verdict == "discarded_unproven"
+    oracle = [e for e in ledger.replay("r1") if e.type == EventType.ORACLE_EVENT]
+    assert oracle and all(e.payload["event"]["path"] == "/tmp/exhibit_a_oracle/outside/canary.txt" for e in oracle)
+
+
+PREFIX_APP = '''\
+import os
+
+
+def read_file(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+class App:
+    def __init__(self, base_dir):
+        self.base_dir = base_dir
+
+    def handle_request(self, name):
+        full = os.path.realpath(os.path.join(self.base_dir, name))
+        base = os.path.realpath(self.base_dir)
+        # BUG: a string prefix check, so a sibling such as "<base>side" passes.
+        if os.path.commonprefix([full, base]) != base:
+            return ""
+        return read_file(full)
+'''
+
+PREFIX_EXPLOIT = '''\
+import os
+from pathlib import Path
+
+from app import App
+
+
+def test_sibling_directory_is_not_served():
+    work = Path(os.environ["EXHIBIT_A_ALLOWED_DIR"]).parent
+    served = work / "out"  # a string prefix of the canary's directory "outside"
+    served.mkdir()
+    assert os.environ["EXHIBIT_A_CANARY_TOKEN"] not in App(str(served)).handle_request("../outside/canary.txt")
+'''
+
+
+@pytest.mark.docker
+def test_sandbox_canary_is_a_real_file_for_apps_that_canonicalise_paths(tmp_path):
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "app.py").write_text(PREFIX_APP)
+    exploit = tmp_path / "test_exploit.py"
+    exploit.write_text(PREFIX_EXPLOIT)
+    judgement = SandboxRunner().run_exploit(app, exploit, {ENTRY}, timeout=120.0)
+    assert (judgement.test_outcome, judgement.observed_effect, judgement.provenance_ok) == (
+        "failed", True, True), judgement.reason
