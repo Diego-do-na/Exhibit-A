@@ -167,6 +167,8 @@ def _run_case(args: argparse.Namespace) -> int:
         return 1
 
     print(f"run {result.run_id}: {json.dumps(result.counts())} dropped={result.dropped}")
+    totals = ledger.totals(result.run_id)
+    print(f"run {result.run_id} totals: {json.dumps(totals, sort_keys=True)}")
     packaged = [r for r in result.proven if r.package_dir is not None]
     for r in packaged:
         print(f"PACKAGE {r.package_dir} fix_verified={r.fix_verified}")
