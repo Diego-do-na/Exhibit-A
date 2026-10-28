@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -27,16 +28,7 @@ def install_starlette(target: Path, version: str = "0.26.1") -> None:
         shutil.rmtree(target)
     target.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
-        [
-            "python",
-            "-m",
-            "pip",
-            "install",
-            "--target",
-            str(target),
-            f"starlette=={version}",
-            "anyio>=3.4,<5",
-        ],
+        [sys.executable, "-m", "pip", "install", "--target", str(target), f"starlette=={version}", "anyio>=3.4,<5"],
         capture_output=True,
         text=True,
         check=False,
