@@ -15,6 +15,12 @@ each:
 
 * ``baseline_runner`` runs the project's own tests;
 * ``judge`` runs an exploit test and decides what its failure means.
+
+Every verification module sits behind a flag so the loop can be ablated (SPEC section 11),
+with the same switches as ``bench/flags.py``: ``naive`` reports every suspicion without any
+exploit or verdict, ``oracle`` off accepts a plain failing test, ``differential`` off skips
+the exploit re-run on the fixed code, and ``defender`` off skips the bypass variants. Only the
+full system (the default) meets the proof standard; the others exist to be measured.
 """
 
 from __future__ import annotations
@@ -28,7 +34,7 @@ from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from exhibit_a.ledger import Ledger
 from exhibit_a.loop import prompts
@@ -54,6 +60,41 @@ _MAX_FIX_FILE_BYTES = 1_000_000
 _MAX_FIX_TOTAL_BYTES = 10_000_000
 
 
+class LoopFlags(Protocol):
+    """Ablation switches; ``bench.flags.Flags`` satisfies this as it is."""
+
+    @property
+    def naive(self) -> bool: ...  # report every suspicion: no exploit test, no verdicts
+
+    @property
+    def oracle(self) -> bool: ...  # the exploit must fail for the intended reason
+
+    @property
+    def differential(self) -> bool: ...  # the exploit must pass again after the fix
+
+    @property
+    def defender(self) -> bool: ...  # the defender tries bypass variants of the fix
+
+
+@dataclass(frozen=True)
+class FullSystem:
+    """Every module switched on: the only setting that meets the proof standard."""
+
+    naive: bool = False
+    oracle: bool = True
+    differential: bool = True
+    defender: bool = True
+
+
+def _flags_payload(flags: LoopFlags) -> dict[str, bool]:
+    return {
+        "naive": flags.naive,
+        "oracle": flags.oracle,
+        "differential": flags.differential,
+        "defender": flags.defender,
+    }
+
+
 @dataclass
 class Roles:
     adversary: ModelRole
@@ -77,6 +118,15 @@ class LoopResult:
     baseline_ok: bool
     results: list[SuspicionResult] = field(default_factory=list)
     aborted: str = ""
+    naive: bool = False
+    suspicions: list[Suspicion] = field(default_factory=list)  # every valid one raised
+
+    @property
+    def reported(self) -> list[Suspicion]:
+        """What this run reports: every suspicion when naive, otherwise only proven ones."""
+        if self.naive:
+            return list(self.suspicions)
+        return [r.suspicion for r in self.proven]
 
     @property
     def proven(self) -> list[SuspicionResult]:
@@ -94,9 +144,14 @@ class LoopResult:
         return counts
 
 
-def classify(judgement: Judgement) -> VerdictValue:
-    """Map one oracle judgement to the verdict it supports on its own."""
+def classify(judgement: Judgement, *, oracle: bool = True) -> VerdictValue:
+    """Map one oracle judgement to the verdict it supports on its own.
+
+    With ``oracle`` off (an ablation) any plain test failure counts, whatever its reason.
+    """
     outcome = judgement.test_outcome
+    if not oracle and outcome == "failed":
+        return VerdictValue.PROVEN
     if outcome == "failed" and judgement.observed_effect and judgement.provenance_ok:
         return VerdictValue.PROVEN
     if outcome == "passed":
@@ -124,6 +179,7 @@ class VerificationLoop:
         requirements: Sequence[str] = (),
         baseline_runner: BaselineRunner | None = None,
         judge: Judge | None = None,
+        flags: LoopFlags | None = None,
     ) -> None:
         if runs < 1:
             raise ValueError("runs must be at least 1")
@@ -139,6 +195,10 @@ class VerificationLoop:
         self.runner = runner if runner is not None else SandboxRunner(requirements=tuple(requirements))
         self.baseline_runner = baseline_runner or self.runner.run_baseline
         self.judge = judge or self.runner.run_exploit
+        self.flags: LoopFlags = flags if flags is not None else FullSystem()
+
+    def _classify(self, judgement: Judgement) -> VerdictValue:
+        return classify(judgement, oracle=self.flags.oracle)
 
     # -- ledger -----------------------------------------------------------------------
 
@@ -167,11 +227,14 @@ class VerificationLoop:
 
     def run(self, source_file: str) -> LoopResult:
         """Run the whole loop over one source file of the clone."""
-        result = LoopResult(run_id=self.run_id, baseline_ok=False)
+        result = LoopResult(run_id=self.run_id, baseline_ok=False, naive=self.flags.naive)
 
         base = self.baseline_runner(str(self.clone), self.baseline_test, self.timeout)
         result.baseline_ok = base.get("outcome") == "passed"
-        self._emit(EventType.BASELINE_DONE, ok=result.baseline_ok, outcome=base.get("outcome"))
+        self._emit(
+            EventType.BASELINE_DONE, ok=result.baseline_ok, outcome=base.get("outcome"),
+            flags=_flags_payload(self.flags),
+        )
         if not result.baseline_ok:
             result.aborted = f"baseline did not pass ({base.get('outcome')})"
             return result
@@ -195,7 +258,9 @@ class VerificationLoop:
                 continue
             seen.add(suspicion.id)
             self._emit(EventType.SUSPICION_RAISED, raised, suspicion=json.loads(suspicion.to_json()))
-            result.results.append(self._process(suspicion))
+            result.suspicions.append(suspicion)
+            if not self.flags.naive:  # naive reports what was raised: no exploit, no verdict
+                result.results.append(self._process(suspicion))
         return result
 
     def _process(self, suspicion: Suspicion) -> SuspicionResult:
@@ -232,10 +297,10 @@ class VerificationLoop:
             judgements.append(judgement)
             for event in judgement.events:
                 self._emit(EventType.ORACLE_EVENT, suspicion_id=suspicion.id, run=n + 1, event=event.model_dump())
-            if classify(judgement) != VerdictValue.PROVEN:
+            if self._classify(judgement) != VerdictValue.PROVEN:
                 break  # nothing to stabilise: a non-proof on any run ends the attempt
 
-        verdicts = [classify(j) for j in judgements]
+        verdicts = [self._classify(j) for j in judgements]
         if verdicts[0] != VerdictValue.PROVEN:
             return done(verdicts[0], judgements[0].reason)
         if any(v != VerdictValue.PROVEN for v in verdicts):
@@ -248,8 +313,16 @@ class VerificationLoop:
             fails_on="vulnerable",
             passes_on="",
             runs=self.runs,
-            oracle={"reason": first.reason, "events": [e.model_dump() for e in first.events]},
-            provenance={"ok": True, "entry_point": suspicion.entry_point},
+            oracle={
+                "reason": first.reason,
+                "events": [e.model_dump() for e in first.events],
+                "checked": self.flags.oracle,
+            },
+            provenance={
+                "ok": first.provenance_ok,
+                "checked": self.flags.oracle,
+                "entry_point": suspicion.entry_point,
+            },
         )
         outcome = done(VerdictValue.PROVEN, first.reason, evidence)
         self._fix_verify_package(outcome, source, exploit_src, exploit, entry_points, work)
@@ -284,11 +357,15 @@ class VerificationLoop:
 
         tried = succeeded = 0
         if patch_text:
-            exploit_passes = self._exploit_passes_on_fixed(exploit, fixed, entry_points, suspicion.id)
+            # Without differential verification nothing shows the fix stops the exploit.
+            exploit_passes = self.flags.differential and self._exploit_passes_on_fixed(
+                exploit, fixed, entry_points, suspicion.id
+            )
             baseline = self.baseline_runner(str(fixed), self.baseline_test, self.timeout)
             baseline_ok = baseline.get("outcome") == "passed"
             self._emit(EventType.BASELINE_DONE, suspicion_id=suspicion.id, on="fixed", ok=baseline_ok)
-            tried, succeeded = self._defend(suspicion, fixed, exploit_src, entry_points, work)
+            if self.flags.defender:
+                tried, succeeded = self._defend(suspicion, fixed, exploit_src, entry_points, work)
             outcome.fix_verified = exploit_passes and baseline_ok
             if outcome.fix_verified:
                 verdict.evidence.passes_on = "fixed"
@@ -382,7 +459,7 @@ class VerificationLoop:
             except OSError:
                 self._emit(EventType.BYPASS_RESULT, suspicion_id=suspicion.id, name=variant["name"], bypassed=False, error=True)
                 continue
-            bypassed = classify(judgement) == VerdictValue.PROVEN
+            bypassed = self._classify(judgement) == VerdictValue.PROVEN
             succeeded += bypassed
             self._emit(EventType.BYPASS_RESULT, suspicion_id=suspicion.id, name=variant["name"], bypassed=bypassed)
         return tried, succeeded
@@ -402,6 +479,7 @@ class VerificationLoop:
             "suspicion": json.loads(outcome.suspicion.to_json()),
             "reason": outcome.reason,
             "fix_verified": outcome.fix_verified,
+            "flags": _flags_payload(self.flags),
             "bypass_attempts": verdict.bypass_attempts.model_dump() if verdict.bypass_attempts else {},
             "evidence": verdict.evidence.model_dump() if verdict.evidence else {},
         }
