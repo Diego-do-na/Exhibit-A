@@ -74,3 +74,39 @@ def test_non_exhibit_env_is_rejected(tmp_path: Path):
     repo = _repo(tmp_path, "def test_a():\n    pass\n")
     r = run(str(repo), "tests/test_x.py", timeout=60, env={"PATH": "/x"})
     assert r["outcome"] == "env_failure"
+
+
+def test_canary_can_be_mounted_as_a_real_file_under_tmp(tmp_path: Path):
+    body = (
+        "import os\n"
+        "def read_secret():\n"
+        "    return open(os.environ['EXHIBIT_A_CANARY']).read()\n"
+        "def test_real_file():\n"
+        "    path = os.environ['EXHIBIT_A_CANARY']\n"
+        "    assert path == '/tmp/oracle_work/outside/canary.txt'\n"
+        "    assert not os.path.islink(path) and os.path.realpath(path) == path\n"
+        "    os.mkdir('/tmp/oracle_work/allowed')  # the tree around it stays writable\n"
+        "    assert read_secret() == 'TOKEN'\n"
+        "    try:\n"
+        "        open(path, 'a')\n"
+        "        raise AssertionError('canary is writable')\n"
+        "    except OSError:\n"
+        "        pass\n"
+    )
+    repo = _repo(tmp_path, body)
+    canary = tmp_path / "canary.txt"
+    canary.write_text("TOKEN")
+    r = run(str(repo), "tests/test_x.py", timeout=60, canary_path=str(canary),
+            events_path=str(tmp_path / "events.jsonl"), canary_mount="/tmp/oracle_work/outside/canary.txt")
+    assert r["outcome"] == "passed", r
+    assert {ev["path"] for ev in r["oracle_events"]} == {"/tmp/oracle_work/outside/canary.txt"}
+
+
+@pytest.mark.parametrize("mount", ["relative/a/canary", "/workspace/a/canary", "/tmp/../workspace/a/x",
+                                   "/oracle/events.jsonl", "/opt/exhibit_a_plugin/a/x", "/tmp/a/canary"])
+def test_canary_mount_cannot_shadow_the_clone_or_the_oracle(tmp_path: Path, mount: str):
+    repo = _repo(tmp_path, "def test_a():\n    pass\n")
+    canary = tmp_path / "canary.txt"
+    canary.write_text("TOKEN")
+    r = run(str(repo), "tests/test_x.py", timeout=60, canary_path=str(canary), canary_mount=mount)
+    assert r["outcome"] == "env_failure" and "canary_mount" in r["stderr"]
