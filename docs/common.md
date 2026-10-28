@@ -56,3 +56,4 @@ Protocol:
 - T046 Muse: added fixed Starlette corpus case (starlette-cve-2023-29159-fixed, kind fixed, commit 1797de46, pinned starlette==0.27.0 install) with record.py/replay.jsonl keyed on the fixed source plus tests/test_e2e_cve_fixed.py asserting the loop yields no proven finding; pending: Docker was down here so the e2e ran the env_failure path (still zero proven); re-run with Docker to also cover the discarded_unproven path
  - T042 cursor-agent: added tokens/cost attribution per proven finding to bench/metrics.py and tests/test_metrics.py; pending: none
 - T043 cursor-agent: added false-positive and recall metrics and tests; pending: none
+- T054 assistant: ran full verification and benchmark smoke; pending: investigate test_meta_provider_is_explicitly_not_built_yet (T031)
