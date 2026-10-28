@@ -87,9 +87,17 @@ Verdict values: `proven`, `discarded_unproven`, `invalid_test`, `flaky`, `env_fa
 - `ollama` (plumbing and debugging only)
 - Meta Model API, and Meta open-weight models through an inference partner
   (OpenAI-compatible endpoint)
+ 
+Implemented provider registry and factories: `replay`, `ollama`, `openai_compatible`, and
+`meta` (see `src/exhibit_a/models/config.py`). The code consumes provider implementations
+through an OpenAI-compatible request shape and exposes a `MetaProvider` subclass that
+reuses the OpenAI-compatible plumbing.
 
-**All benchmark and demo numbers must come from Meta models.** Every model call is recorded
-and replayable. A cost meter enforces a hard stop below the credit limit.
+UNVERIFIED: whether the Meta Model API accepts the `response_format` structured-output
+field, the exact base URL, and the model pricing are recorded but remain unverified
+(see `src/exhibit_a/models/meta.py` and section 14).
+
+Every model call is recorded and replayable. A cost meter enforces a hard stop below the credit limit.
 
 ## 6. Contracts
 
@@ -136,6 +144,10 @@ Three classes, chosen by what can be proven by execution with a clear oracle:
 
 Final choice is an open decision (section 14).
 
+Status update: the path-traversal / canary style class is implemented and exercised by
+the project's first real-case corpus entry (Starlette `StaticFiles` path traversal,
+CVE-2023-29159). The other classes remain in scope for v1 but are not fully realised yet.
+
 ## 8. Surfaces
 
 1. **PR diff** (core).
@@ -177,9 +189,19 @@ Every module sits behind a flag so it can be ablated.
 
 ## 12. Scope tiers
 
-**Core**: the loop, clone sandbox, baseline check, oracle with provenance, differential
-verification, repeated runs, 3 vulnerability classes, PR-diff surface, ledger, benchmark
-with ablations, minimal live view, CLI.
+**Core**: what the implementation aims to provide. Current status:
+
+- loop: implemented (BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY → PACKAGE).
+- clone sandbox: implemented (hardened Docker runner with image build); tests require Docker.
+- baseline check: implemented (local/host baseline runner present; some corpus cases still run baseline as a host child process).
+- oracle with provenance: implemented (canary + stack-provenance checks).
+- differential verification & repeated runs: implemented in the loop (N runs, fix/verify).
+- vulnerability classes: path-traversal/SSRF class implemented and exercised (1 of 3).
+- PR-diff surface: placeholder in CLI; core wiring for PR-diff is not yet implemented.
+- ledger: implemented (append-only JSONL).
+- benchmark with ablations: bench corpus and probe tooling present; replay-driven cases work.
+- minimal live view: minimal replay-backed live pieces implemented.
+- CLI: `run` command wired to replay cases; live providers not yet fully wired.
 
 **Should**: CVE reachability, attack-surface map, open-weight models for adversary and test
 writer, GitHub Action, replay mode, defender bypass, cost meter, oracle evaluation set.
@@ -207,10 +229,28 @@ adapter is what allows a second language later.
 
 - Final three vulnerability classes.
 - First target project and CVE.
-- Which Meta model serves each role (decided by measurement).
 - Whether Meta's API is OpenAI-compatible with structured outputs (reported, **unverified**:
   check dev.meta.ai). Pricing of Muse Spark models is also unverified.
 - Provider data terms.
+- Whether multimodal ingestion is built.
+Resolved / updated:
+
+- First target project and CVE: resolved — the first real-case exercised end-to-end is
+  Starlette `StaticFiles` path traversal (CVE-2023-29159), see `docs/first-cve.md` and the
+  `bench/corpus/starlette-cve-2023-29159` case. The test package produced by the run is
+  validated by `tests/test_e2e_cve.py`.
+
+- Provider shape: resolved — the implementation uses an OpenAI-compatible request shape
+  with provider factories and a `MetaProvider` subclass that delegates to the
+  OpenAI-compatible client (see `src/exhibit_a/models/config.py` and
+  `src/exhibit_a/models/meta.py`). HOWEVER, Meta endpoint specifics, the `response_format`
+  structured-output support, and the pricing table remain UNVERIFIED and must be checked
+  against `dev.meta.ai` before relying on them.
+
+Still open / UNVERIFIED:
+- Final three vulnerability classes (only path-traversal/SSRF is realised so far).
+- Which specific Meta model serves each role (to be decided by measurement and gating).
+- Provider data terms and full pricing confirmation.
 - Whether multimodal ingestion is built.
 
 ## 15. Hackathon rules compliance
