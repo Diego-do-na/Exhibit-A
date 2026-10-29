@@ -11,9 +11,6 @@ see `docs/audit-integration.md` section 2 for the negatives the original set mis
 P6, P7) and `docs/oracle-provenance.md` section 7 for the declared residual limits R1-R6. The set
 was regenerated after T079 (A-23): precision 1.000, recall 1.000, FP = 0.
 
-Note: `tests/test_oracle_eval_archive.py` rewrites this file on every run and does not carry this
-paragraph, so it must be re-added after running the suite.
-
 ## Cases
 
 | case | class | label | actual | predicted | proven runs | oracle reason |
