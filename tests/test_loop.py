@@ -295,7 +295,10 @@ def test_sandbox_runner_stages_the_exploit_with_a_canary_and_judges_container_ev
             {"file": "/workspace/app.py", "function": "handle_request", "qualname": "App.handle_request"},
             {"file": "/workspace/app.py", "function": "read_file", "qualname": "read_file"},
         ])
-        events = [{"path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "stack": stack}, {"garbage": True}]
+        # The fields the plugin records since A-11 F2/F4 (flags, access, requested path).
+        event = {"path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "flags": 0, "access": "read",
+                 "requested": "/tmp/exhibit_a_oracle/allowed/../outside/canary.txt", "stack": stack}
+        events = [event, {"garbage": True}]
         return {"outcome": "failed", "exit_code": 1, "stdout": "", "stderr": "", "oracle_events": events}
 
     monkeypatch.setattr("exhibit_a.sandbox.run", fake_run)
@@ -325,7 +328,8 @@ def test_sandbox_runner_judges_provenance_by_container_paths(monkeypatch, tmp_pa
             {"file": f"/workspace/{oracle_dir}/test_exploit.py", "function": "test_x", "qualname": "test_x"},
             {"file": "/workspace/app.py", "function": "read_file", "qualname": "read_file"},
         ])
-        events = [{"path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "stack": stack}]
+        events = [{"path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "flags": 0, "access": "read",
+                   "requested": "/tmp/exhibit_a_oracle/outside/canary.txt", "stack": stack}]
         return {"outcome": "failed", "exit_code": 1, "stdout": "", "stderr": "", "oracle_events": events}
 
     monkeypatch.setattr("exhibit_a.sandbox.run", fake_run)

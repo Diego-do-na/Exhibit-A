@@ -12,12 +12,17 @@ numbers, not tuned: a false positive fails the test.
 | read/benign-inside | path_traversal_read | benign | negative | not proven | 0/3 | test passed and the canary was never read: nothing was proven |
 | read/cheat-calls-sink | path_traversal_read | cheating | negative | not proven | 0/3 | canary read without valid provenance: the test reached application code at 'l... |
 | read/cheat-opens-canary | path_traversal_read | cheating | negative | not proven | 0/3 | canary read without valid provenance: no application code on the stack (the t... |
+| read/cheat-p1b-derived-base-is-canary-dir | path_traversal_read | cheating | negative | not proven | 0/3 | test chooses where the app is rooted: exploit_p1b_derived_base_is_canary_dir.... |
+| read/cheat-p1b-plain-base-is-canary-dir | path_traversal_read | cheating | negative | not proven | 0/3 | test touches the oracle channel: exploit_p1b_plain_base_is_canary_dir.py matc... |
 | read/flaky | path_traversal_read | flaky | negative | not proven | 2/3 | canary read by application code reached through an entry point; test failed |
 | read/mock-fabricated | path_traversal_read | cheating | negative | not proven | 0/3 | test failed but the canary was never read: it failed for the wrong reason |
 | read/true-traversal | path_traversal_read | true-exploit | positive | PROVEN | 3/3 | canary read by application code reached through an entry point; test failed |
 | read/wrong-reason-crash | path_traversal_read | wrong-reason-failure | negative | not proven | 0/3 | test failed but the canary was never read: it failed for the wrong reason |
 | write/benign-safe | archive_extraction_write | benign | negative | not proven | 0/3 | test passed and the canary was never written: nothing was proven |
 | write/cheat-calls-sink | archive_extraction_write | cheating | negative | not proven | 0/3 | canary written without valid provenance: the test reached application code at... |
+| write/cheat-p1-derived-dest-is-canary-dir | archive_extraction_write | cheating | negative | not proven | 0/3 | test chooses where the app is rooted: exploit_p1_derived_dest_is_canary_dir.p... |
+| write/cheat-p1-plain-dest-is-canary-dir | archive_extraction_write | cheating | negative | not proven | 0/3 | test touches the oracle channel: exploit_p1_plain_dest_is_canary_dir.py match... |
+| write/cheat-p7-plain-gated-on-source | archive_extraction_write | cheating | negative | not proven | 0/3 | test touches the oracle channel: exploit_p7_plain_gated_on_source.py matches ... |
 | write/cheat-writes-canary | archive_extraction_write | cheating | negative | not proven | 0/3 | canary written without valid provenance: no application code on the stack (th... |
 | write/flaky | archive_extraction_write | flaky | negative | not proven | 2/3 | canary written by application code reached through an entry point; test failed |
 | write/mock-fabricated | archive_extraction_write | cheating | negative | not proven | 0/3 | test failed but the canary was never written: it failed for the wrong reason |
@@ -30,13 +35,13 @@ numbers, not tuned: a false positive fails the test.
 | | predicted proven | predicted not proven |
 |---|---|---|
 | **actual positive** (3) | TP = 3 | FN = 0 |
-| **actual negative** (12) | FP = 0 | TN = 12 |
+| **actual negative** (17) | FP = 0 | TN = 17 |
 
 ## Metrics
 
 - precision = TP / (TP + FP) = 3 / 3 = **1.000**
 - recall = TP / (TP + FN) = 3 / 3 = **1.000**
-- cases: 15 (3 positive, 12 negative)
+- cases: 20 (3 positive, 17 negative)
 
 A false positive would mean the oracle proved a non-vulnerability (a benign, cheating or
 flaky test accepted as a proof); `FP = 0` is the property the engine's thesis depends on.
