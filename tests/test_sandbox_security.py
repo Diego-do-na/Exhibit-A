@@ -13,7 +13,7 @@ def _write_test_file(path: Path, content: str) -> None:
     path.write_text(textwrap.dedent(content))
 
 
-@pytest.mark.skipif(not runner._check_docker_available(), reason="Docker not available")
+@pytest.mark.docker
 def test_no_host_env_secrets(tmp_path: Path) -> None:
     """The sandbox must not inherit arbitrary host env vars (only explicit EXHIBIT_A_* keys)."""
     # Simulate a secret on the host
@@ -37,7 +37,7 @@ def test_no_host_env_secrets(tmp_path: Path) -> None:
     assert res["outcome"] == "passed", f"unexpected outcome: {res}"
 
 
-@pytest.mark.skipif(not runner._check_docker_available(), reason="Docker not available")
+@pytest.mark.docker
 def test_cannot_reach_docker_socket(tmp_path: Path) -> None:
     """Container must not be able to access the Docker socket at /var/run/docker.sock."""
     clone = tmp_path / "repo2"
@@ -63,7 +63,7 @@ def test_cannot_reach_docker_socket(tmp_path: Path) -> None:
     assert res["outcome"] == "passed", f"unexpected outcome: {res}"
 
 
-@pytest.mark.skipif(not runner._check_docker_available(), reason="Docker not available")
+@pytest.mark.docker
 def test_cannot_see_host_paths_outside_clone(tmp_path: Path) -> None:
     """The sandbox must only see the copied clone; host files outside the clone must be invisible."""
     # Create a host-side file outside the clone we will check for from inside the container.
