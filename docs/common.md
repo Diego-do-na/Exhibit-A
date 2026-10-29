@@ -70,3 +70,4 @@ Protocol:
 - T050 assistant: added docs/sandbox.md; pending: none
 - T014 cursor-agent: added README.md with project overview, setup, CLI usage, architecture, licensing, and security notes; pending: none
 - A-7 correction: earlier `T054 assistant: added bench/loop_pipeline.py and tests/test_bench_loop.py; pending: none` should be T040, earlier `T036 assistant: added docs/sandbox.md; pending: none` should be T050, and `T014 cursor-agent: <did>; pending: <left>` should be the README entry above
+- T063 assistant: added deterministic Markdown and self-contained HTML finding reports with escaped package content and report tests; pending: none
