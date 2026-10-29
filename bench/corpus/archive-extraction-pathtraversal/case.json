@@ -1,0 +1,54 @@
+{
+  "cases": [
+    {
+      "id": "archive-extraction-pathtraversal",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "archive_extraction_path_traversal",
+          "file": "vulnerable/archive.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "real_world_analog": {
+    "cve": "CVE-2007-4559",
+    "summary": "Directory traversal in Python's tarfile extract/extractall: a member name with '..' (or an absolute path) escapes the destination directory on extraction.",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2007-4559",
+    "advisory": "https://bugzilla.redhat.com/show_bug.cgi?id=263261",
+    "fix": "The upstream fix is the extraction filter added in Python 3.11.4 (PEP 706); using filter='data' rejects unsafe members. This case uses an original, equivalent containment check.",
+    "verification": "CVE number and fix confirmed via web search on 2026-10-29; the vulnerable app in this case is original synthetic code, not vendored tarfile."
+  },
+  "note": "Self-contained oracle case. Unlike the Starlette case it installs no third-party package and is not replay-driven: it is proven directly by run_oracle with effect='canary_write'. No upstream repo/commit applies because the vulnerable code is original synthetic code written for this case.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_write",
+    "entry_points": ["App.handle_request"],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "archive.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "exploits": [
+      {"file": "exploits/exploit_true_relative.py", "label": "true-exploit"},
+      {"file": "exploits/exploit_true_absolute.py", "label": "true-exploit"},
+      {"file": "exploits/exploit_benign_safe_archive.py", "label": "benign"},
+      {"file": "exploits/exploit_wrong_reason_crash.py", "label": "wrong-reason-failure"},
+      {"file": "exploits/exploit_cheat_writes_canary.py", "label": "cheating"},
+      {"file": "exploits/exploit_cheat_calls_sink_directly.py", "label": "cheating"},
+      {"file": "exploits/exploit_mock_fabricated_escape.py", "label": "cheating"},
+      {"file": "exploits/exploit_flaky_escape.py", "label": "flaky"}
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_absolute.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: the absolute-path member defeats the '..'-only screen, so the incomplete fix must not be accepted as fixed."
+    }
+  }
+}

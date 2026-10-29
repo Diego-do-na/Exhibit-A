@@ -383,7 +383,14 @@ def _fresh_symlink(path: str, since: float) -> tuple[str, str] | None:
             resolved = os.path.dirname(resolved)
             continue
         candidate = os.path.join(resolved, name)
-        st = os.lstat(candidate)
+        try:
+            st = os.lstat(candidate)
+        except FileNotFoundError:
+            # A name that does not exist cannot be a symlink. This is the normal case for the
+            # final component of an open for writing (the file is being created now), so it
+            # must not be flagged; other OSErrors still propagate and fail closed.
+            resolved = candidate
+            continue
         if not stat.S_ISLNK(st.st_mode):
             resolved = candidate
             continue
