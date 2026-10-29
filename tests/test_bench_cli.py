@@ -35,8 +35,8 @@ def test_main_defaults_to_real_loop(tmp_path, monkeypatch):
     corpus = _case_json(tmp_path)
     seen = {}
 
-    def fake_make_pipeline(provider):
-        seen["provider"] = provider
+    def fake_make_pipeline(providers):
+        seen["providers"] = providers
         return "real-pipeline"
 
     monkeypatch.setattr(loop_pipeline, "make_pipeline", fake_make_pipeline)
@@ -45,7 +45,38 @@ def test_main_defaults_to_real_loop(tmp_path, monkeypatch):
     monkeypatch.setattr(bench_main, "render_table", lambda rows: "")
 
     assert bench_main.main(["--corpus", str(corpus), "--out", str(tmp_path / "out")]) == 0
-    assert seen["provider"].path == tmp_path / "replay.jsonl"
+    assert seen["providers"]["demo"].path == tmp_path / "replay.jsonl"
+
+
+def test_main_accepts_directory_corpus(tmp_path, monkeypatch):
+    case_dir = tmp_path / "corpus" / "demo-case"
+    case_dir.mkdir(parents=True)
+    payload = {
+        "cases": [
+            {
+                "id": "demo-case",
+                "kind": "vulnerable",
+                "repo": "https://example.invalid/demo",
+                "commit": "deadbeef",
+            }
+        ],
+        "run": {"recording": "replay.jsonl"},
+    }
+    (case_dir / "case.json").write_text(json.dumps(payload), encoding="utf-8")
+    (case_dir / "replay.jsonl").write_text("", encoding="utf-8")
+    seen = {}
+
+    def fake_make_pipeline(providers):
+        seen["providers"] = providers
+        return "real-pipeline"
+
+    monkeypatch.setattr(loop_pipeline, "make_pipeline", fake_make_pipeline)
+    monkeypatch.setattr(bench_main, "run_benchmark", lambda *args, **kwargs: [])
+    monkeypatch.setattr(bench_main, "write_results", lambda *args, **kwargs: None)
+    monkeypatch.setattr(bench_main, "render_table", lambda rows: "")
+
+    assert bench_main.main(["--corpus", str(tmp_path / "corpus"), "--out", str(tmp_path / "out")]) == 0
+    assert seen["providers"]["demo-case"].path == case_dir / "replay.jsonl"
 
 
 def test_main_keeps_synthetic_smoke_run(tmp_path, monkeypatch):
