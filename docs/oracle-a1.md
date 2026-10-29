@@ -120,13 +120,14 @@ event through that descriptor. The path is not kept anywhere a test can look it 
 
   Layer 2 is what makes knowing the path useless.
 
-`EXHIBIT_A_CANARY` is removed from the documented test contract and is popped by the
-plugin after install. The plugin still provides an allowed directory and the canary token
-to the staged app (via `EXHIBIT_A_ALLOWED_DIR` and `EXHIBIT_A_CANARY_TOKEN`), and the
-oracle observes `canary_read` / `canary_write` effects against that allowed directory.
-Tests and shipped exploits no longer rely on `EXHIBIT_A_CANARY` being present in the
-test's environment. Note: an obfuscated test-chosen app root (residual limit R6) remains a
-declared limit; see `docs/oracle-provenance.md` §7.6 for details.
+Since T079, `EXHIBIT_A_CANARY` is *not* part of the test contract (the contract is
+`EXHIBIT_A_ALLOWED_DIR` and `EXHIBIT_A_CANARY_TOKEN`) and the plugin pops it from
+`os.environ` after install, as it does `EXHIBIT_A_EVENTS`. It used to be kept because a test
+could derive it from `EXHIBIT_A_ALLOWED_DIR` anyway, but a test that knows the canary's path
+can root a safe app at the canary's directory (audit F2). Shipped exploits now reach the
+canary from `EXHIBIT_A_ALLOWED_DIR` (`../outside/canary.txt`), and the guard treats any
+mention of `EXHIBIT_A_CANARY` as a hit of `exhibit_a_env`. What remains is residual limit R6,
+an obfuscated test-chosen app root (`docs/oracle-provenance.md` §7.6).
 
 ### Layer 4: static guard (`oracle/guard.py`)
 
@@ -138,7 +139,7 @@ Before running, `run_oracle` parses the exploit test and a `conftest.py` next to
 
 | rule | looks for |
 |---|---|
-| `exhibit_a_env` | any `EXHIBIT_A_*` name or string except the test contract (`ALLOWED_DIR`, `CANARY_TOKEN`, `CANARY`) |
+| `exhibit_a_env` | any `EXHIBIT_A_*` name or string except the test contract (`ALLOWED_DIR`, `CANARY_TOKEN`) |
 | `plugin_module` | `exhibit_a_oracle_plugin` (the sandbox module name) |
 | `oracle_package_import` / `oracle_package_string` | importing or naming `exhibit_a.oracle` |
 | `addaudithook` | `sys.addaudithook` |
@@ -204,4 +205,6 @@ because they are easy:
   the first drop reason) to `_judge`, so forged lines count on the sandbox path too.
 - The in-process introspection bypass above is now demonstrated end to end and pinned by a
   strict xfail (`tests/test_oracle_residual.py`, R1).
+- T079 added residual limit R6 (obfuscated test-chosen app root,
+  `docs/oracle-provenance.md` §7.6), also pinned by a strict xfail.
 - An out-of-process observer (separate task) is the only real fix for the residual list.
