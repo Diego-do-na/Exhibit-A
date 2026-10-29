@@ -107,28 +107,6 @@ class SandboxRunner:
         *,
         timeout: float,
     ) -> Judgement:
-        return self._run_exploit(app_root, test_path, entry_points, timeout=timeout, effect="canary_read")
-
-    def run_exploit_effect(
-        self,
-        app_root: Path,
-        test_path: Path,
-        entry_points: Collection[str],
-        *,
-        timeout: float,
-        effect: str,
-    ) -> Judgement:
-        return self._run_exploit(app_root, test_path, entry_points, timeout=timeout, effect=effect)
-
-    def _run_exploit(
-        self,
-        app_root: Path,
-        test_path: Path,
-        entry_points: Collection[str],
-        *,
-        timeout: float,
-        effect: str,
-    ) -> Judgement:
         """Run the exploit in the sandbox and judge it; raises ``OSError`` if it could not run."""
         from exhibit_a.sandbox import run
 
@@ -156,22 +134,17 @@ class SandboxRunner:
                 manifest = app_manifest(stage, {oracle_dir})
             except ManifestError as exc:
                 raise OSError(f"cannot hash the staged app: {exc}") from exc
-            run_options = dict(
-                canary_path=str(canary) if effect == "canary_read" else None,
-                canary_mount=_CANARY_MOUNT,
-                events_path=str(Path(tmp) / "events.jsonl"),
-                env={ENV_CANARY_TOKEN: token, ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed"},
-                manifest=manifest,
-            )
-            if effect != "canary_read":
-                run_options["effect"] = effect
             result = run(
                 str(stage),
                 f"{oracle_dir}/test_exploit.py",
                 timeout,
                 requirements=list(self.requirements),
                 image=self.image,
-                **run_options,
+                canary_path=str(canary),
+                canary_mount=_CANARY_MOUNT,
+                events_path=str(Path(tmp) / "events.jsonl"),
+                env={ENV_CANARY_TOKEN: token, ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed"},
+                manifest=manifest,
             )
             if result["outcome"] == "env_failure":
                 raise OSError(f"sandbox could not run the exploit: {result['stderr']}")
@@ -185,7 +158,6 @@ class SandboxRunner:
                 forged_reason=result.get("oracle_forged_reason", ""),
                 app_tree=AppTree(str(_WORKSPACE), stage, manifest),
                 app_tree_changes=result.get("app_tree_changes", []),
-                effect=effect,
             )
 
 
