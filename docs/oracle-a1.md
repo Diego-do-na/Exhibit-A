@@ -120,10 +120,13 @@ event through that descriptor. The path is not kept anywhere a test can look it 
 
   Layer 2 is what makes knowing the path useless.
 
-`EXHIBIT_A_CANARY` is deliberately *not* removed. It is the target, not the channel, and an
-exploit derives it from `EXHIBIT_A_ALLOWED_DIR` anyway. The existing cheat fixtures that read
-it directly exercise the provenance check, and removing it would turn them into
-wrong-reason crashes instead.
+`EXHIBIT_A_CANARY` is removed from the documented test contract and is popped by the
+plugin after install. The plugin still provides an allowed directory and the canary token
+to the staged app (via `EXHIBIT_A_ALLOWED_DIR` and `EXHIBIT_A_CANARY_TOKEN`), and the
+oracle observes `canary_read` / `canary_write` effects against that allowed directory.
+Tests and shipped exploits no longer rely on `EXHIBIT_A_CANARY` being present in the
+test's environment. Note: an obfuscated test-chosen app root (residual limit R6) remains a
+declared limit; see `docs/oracle-provenance.md` §7.6 for details.
 
 ### Layer 4: static guard (`oracle/guard.py`)
 

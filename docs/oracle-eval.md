@@ -5,6 +5,9 @@ run 3 times; a case counts as *proven* only if every run is a stable proof. Posi
 are genuine exploits (`true-exploit`); every other label must NOT be proven. These are real
 numbers, not tuned: a false positive fails the test.
 
+Note: these numbers are for this self-authored 15-case set; see `docs/audit-integration.md` §2
+for negatives the evaluation set misses.
+
 ## Cases
 
 | case | class | label | actual | predicted | proven runs | oracle reason |

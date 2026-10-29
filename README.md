@@ -21,14 +21,14 @@ Running the CLI (Starlette benchmark case)
 The CLI entry point is `python -m exhibit_a.cli`. The repository includes a benchmark case for the Starlette CVE:
 
 ```bash
-# run the Starlette replay case (the CLI requires --replay for benchmark cases)
-python -m exhibit_a.cli run --case bench/corpus/starlette-cve-2023-29159 --replay
+# run the Starlette replay case (replay mode is available but not required)
+python -m exhibit_a.cli run --case bench/corpus/starlette-cve-2023-29159 [--replay]
 ```
 
 This will copy the case tree to `runs/case/clone`, run the verification loop in replay mode using the recorded model answers, and write outputs (ledger, packages) to the `--out` directory (default `runs/case`).
 
 Architecture overview
-- `src/exhibit_a/cli.py` — skeleton CLI that drives scans, runs, and ledger introspection.
+- `src/exhibit_a/cli/` — CLI package that drives scans, runs, and ledger introspection.
 - `src/exhibit_a/loop/` — core verification loop and orchestration of roles.
 - `src/exhibit_a/sandbox/` — isolated, ephemeral runner for exploit/regression tests (no network, no secrets, pinned image, CPU/memory/time limits).
 - `src/exhibit_a/oracle/` — observes intended effects and verifies provenance for proof.
@@ -50,4 +50,6 @@ Getting help
 - See `AGENTS.md` for project thesis, module map, and hard rules.
 
 # Exhibit-A
-Proof before accusation. An adversarial agent must write an exploit test that actually fails against an isolated clone before any vulnerability is reported. Failing test, then fix, then green, then a permanent regression guard. Suspicions that can't be proven are dropped silently. Built on Meta models.
+Proof before accusation. An adversarial agent must write an exploit test that actually fails against an isolated clone before any vulnerability is reported. Failing test, then fix, then green, then a permanent regression guard. Suspicions that can't be proven are dropped silently.
+
+Declared residual limits (see `docs/oracle-provenance.md`): R1–R5 (introspection, sitecustomize, subprocess and native-read recall gaps, obfuscated dependency monkeypatch) and R6 (obfuscated test-chosen app root).
