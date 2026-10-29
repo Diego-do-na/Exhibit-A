@@ -7,6 +7,10 @@ import argparse
 from .ledger import cmd_ledger
 from .run import cmd_run
 from .scan import cmd_scan
+from .advisories import cmd_advisories
+from .dashboard import cmd_dashboard
+from .report import cmd_report
+from .runs import cmd_runs
 from ..models.config import PROVIDER_REGISTRY
 
 NOT_WIRED_YET = "not wired yet"
@@ -25,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="exhibit_a.cli",
         description="Exhibit A skeleton CLI: proof before accusation.",
+        epilog="Exit codes: 0 success; 1 runtime error; 2 usage or input error.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -101,5 +106,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the append-only JSONL ledger (default: ledger.jsonl).",
     )
     ledger.set_defaults(func=cmd_ledger)
-    return parser
+
+    report = sub.add_parser("report", help="Render a finding package as Markdown or HTML.")
+    report.add_argument("package_dir")
+    report.add_argument("--format", choices=("md", "html"), default="md")
+    report.add_argument("--out", default=None, metavar="FILE")
+    report.set_defaults(func=cmd_report)
+
+    runs = sub.add_parser("runs", help="Print the table of past runs.")
+    runs.add_argument("--index", default="runs.jsonl")
+    runs.add_argument("--json", action="store_true")
+    runs.set_defaults(func=cmd_runs)
+
+    advisories = sub.add_parser("advisories", help="Look up OSV advisories (hint, not proof).")
+    advisories.add_argument("--requirements", default=None, metavar="FILE")
+    advisories.add_argument("--pyproject", default=None, metavar="FILE")
+    advisories.add_argument("--offline", default=None, metavar="FIXTURE")
+    advisories.add_argument("--json", action="store_true")
+    advisories.set_defaults(func=cmd_advisories)
+
+    dashboard = sub.add_parser("dashboard", help="Serve the optional local dashboard.")
+    dashboard.add_argument("--source", required=True, help="Dashboard source, such as local:RUNS.")
+    dashboard.add_argument("--port", type=int, default=8765)
+    dashboard.set_defaults(func=cmd_dashboard)
     return parser
