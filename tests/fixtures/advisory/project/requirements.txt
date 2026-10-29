@@ -1,0 +1,7 @@
+# Synthetic project for advisory tests; every package name is fictional.
+Fictional_WebKit==2.3.0  # vulnerable to SYNTH-2026-0001 and -0002
+fictional-yamlish==1.4.2
+fictional-gitonly==1.0.0
+fictional-tiny==0.2.0
+fictional-prerel==1.0.0
+fictional-safe>=1.0
