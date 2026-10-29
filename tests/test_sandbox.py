@@ -4,6 +4,8 @@ import uuid
 
 import pytest
 
+pytestmark = pytest.mark.docker
+
 # Ensure `src/` is on sys.path so `exhibit_a` can be imported when tests run from project root.
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
