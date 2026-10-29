@@ -6,10 +6,16 @@ request shape, so this provider reuses
 adds Meta-specific defaults: the API key env var, the base-URL resolution,
 and a per-model pricing table.
 
-UNVERIFIED (SPEC section 14): the default endpoint URL below, whether the
-Meta Model API accepts the ``response_format`` structured-output field, and
-every rate in ``META_PRICING`` are all unverified. Check dev.meta.ai before
-relying on any of them. The schema is therefore sent both as
+Verified on 2026-10-29 with a real key, for model ``muse-wonder-1.0`` only:
+the default endpoint below answers the exact chat-completions request this
+provider sends (system + user messages + ``response_format`` json_schema, no
+``max_tokens``) with HTTP 200 and the JSON answer in ``message.content``.
+The model reasons, and its reasoning tokens count in ``completion_tokens``,
+so never set a small ``max_tokens``. Its rates in ``META_PRICING`` were read
+from the dev.meta.ai Models page on the same day.
+
+UNVERIFIED (SPEC section 14): any other model id, and whether other models
+honour ``response_format``. The schema is therefore still sent both as
 ``response_format`` and inside the system message, and ``ModelRole``
 validates the answer either way.
 
@@ -31,11 +37,16 @@ BASE_URL_ENV = "META_BASE_URL"
 #: Fallback base URL. UNVERIFIED: confirm the real endpoint at dev.meta.ai.
 DEFAULT_BASE_URL = "https://api.meta.ai/v1"
 
-#: USD per one million tokens, keyed by model id. UNVERIFIED: every rate
-#: below is a placeholder (unknown rates meter as zero cost); confirm real
-#: pricing before enforcing budgets against Meta models.
+#: USD per one million tokens, keyed by model id. Unknown models fall back to
+#: the zero-cost "default" entry, which cannot enforce a budget.
+#:
+#: ``muse-wonder-1.0`` ("Muse Wonder"): input $4.00, output $20.00, from the
+#: dev.meta.ai Models page (2026-10-29). Reasoning tokens are billed as output.
+#: The page also lists cached input at $0.20; ``Pricing`` has no cached-input
+#: rate, so every input token is metered at the full rate (slightly pessimistic).
 META_PRICING: dict[str, Pricing] = {
     "default": Pricing(input_per_mtok=0.0, output_per_mtok=0.0),
+    "muse-wonder-1.0": Pricing(input_per_mtok=4.0, output_per_mtok=20.0),
 }
 
 

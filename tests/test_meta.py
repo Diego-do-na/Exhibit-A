@@ -198,3 +198,9 @@ def test_docstring_flags_endpoint_and_structured_output_as_unverified():
     doc = inspect.getdoc(meta_module) or ""
     assert "UNVERIFIED" in doc
     assert "response_format" in doc
+
+
+def test_muse_wonder_pricing_is_the_published_rate():
+    # dev.meta.ai Models page, 2026-10-29: $4 input / $20 output per million tokens.
+    assert pricing_for("muse-wonder-1.0") == Pricing(4.0, 20.0)
+    assert pricing_for("muse-wonder-1.0").cost(1_000_000, 100_000) == pytest.approx(6.0)
