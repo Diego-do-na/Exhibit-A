@@ -339,6 +339,16 @@ def test_write_effect_mounts_no_canary_and_gives_outside_a_size_capped_tmpfs(doc
     assert r["outside_listing"] == [{"path": "outside/canary.txt", "kind": "file", "size": 40}]
 
 
+def test_swap_cannot_extend_the_memory_limit(docker, tmp_path):
+    """--memory alone lets the container use memory+swap (2x) on hosts with swap (CI runners)."""
+    fake = docker(exit_code=0)
+    repo, canary = _repo(tmp_path)
+    run(str(repo), "tests/test_x.py", timeout=60, image="fake", canary_path=str(canary))
+    cmd = fake.runs[0]["cmd"]
+    assert cmd[cmd.index("--memory") + 1] == "512m"
+    assert cmd[cmd.index("--memory-swap") + 1] == cmd[cmd.index("--memory") + 1]
+
+
 def test_the_read_effect_command_and_result_are_unchanged(docker, tmp_path):
     fake = docker(exit_code=0)
     repo, canary = _repo(tmp_path)

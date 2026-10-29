@@ -16,10 +16,12 @@ def _run_python_one_liner(code, timeout=30):
 
 def test_memory_limit_enforced():
     """
-    Attempt to allocate ~600MB inside a subprocess. The sandbox sets --memory=512m,
-    so the allocation should fail (process exit code != 0 or be killed).
+    Attempt to allocate and write ~600MB inside a subprocess. The sandbox sets
+    --memory=512m and --memory-swap=512m, so the allocation should fail (process
+    exit code != 0 or be killed). The bytes are written on purpose: a bare
+    bytearray(n) is calloc-backed and untouched pages are never charged to the cgroup.
     """
-    code = "a = bytearray(600 * 1024 * 1024); print('allocated')"
+    code = "a = b'x' * (600 * 1024 * 1024); print('allocated', len(a))"
     rc, out, err = _run_python_one_liner(code, timeout=20)
     assert rc is not None and rc != 0, f"Allocation subprocess returned {rc}; memory limit may be missing. stdout={out!r} stderr={err!r}"
 
