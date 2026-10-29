@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shutil
 import stat
 import subprocess
 import sys
@@ -61,6 +62,8 @@ Effect = Literal["canary_read", "canary_write"]
 _ACCEPTED_ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}
 # A write effect reads at most this much of the canary after the run to find the token.
 _MAX_CANARY_READ = 1 << 20
+_PLUGIN_MODULE = "exhibit_a_oracle_plugin"
+_PLUGIN_SOURCE = Path(__file__).resolve().parent / "plugin.py"
 
 
 def _access(event: OracleEvent) -> str:
@@ -256,11 +259,18 @@ def _run_test(
     ``key=None`` stdin is ``/dev/null`` and the plugin runs unsigned (only useful to test that
     the judge refuses such events).
     """
-    package_src = str(Path(__file__).resolve().parents[2])
+    # A private per-run copy of the plugin (stdlib only), read-only, as the sandbox does: the test
+    # cannot reach, or modify through the import path, the package source in the repository.
+    plugin_dir = Path(work) / "plugin"
+    plugin_dir.mkdir()
+    plugin_copy = plugin_dir / f"{_PLUGIN_MODULE}.py"
+    shutil.copyfile(_PLUGIN_SOURCE, plugin_copy)
+    plugin_copy.chmod(0o400)
+    plugin_dir.chmod(0o500)
     # Scrubbed environment: no inherited secrets, only what the run needs.
     env = {
         "PATH": os.environ.get("PATH", ""),
-        "PYTHONPATH": os.pathsep.join([str(app_root), package_src]),
+        "PYTHONPATH": os.pathsep.join([str(app_root), str(plugin_dir)]),
         "PYTHONDONTWRITEBYTECODE": "1",
         ENV_ALLOWED_DIR: str(allowed),
         ENV_CANARY: str(canary),
@@ -272,7 +282,7 @@ def _run_test(
         "-m",
         "pytest",
         "-p",
-        "exhibit_a.oracle.plugin",
+        _PLUGIN_MODULE,
         "-p",
         "no:cacheprovider",
         "-c",
