@@ -195,16 +195,12 @@ def test_model_without_provider_uses_default_provider(tmp_path, monkeypatch, cap
         seen.append(spec)
         return FakeLive(spec)
 
-    PROVIDER_REGISTRY["ollama"] = ollama_factory
-    try:
-        rc = cli_main(["run", "--case", str(case_file), "--out", str(out), "--model", "some-model", "--budget-usd", "10.0"])
-        assert rc == 0
-        assert seen
-        assert all(spec.provider == "ollama" for spec in seen)
-        assert all(spec.model == "some-model" for spec in seen)
-    finally:
-        # restore
-        del PROVIDER_REGISTRY["ollama"]
+    monkeypatch.setitem(PROVIDER_REGISTRY, "ollama", ollama_factory)
+    rc = cli_main(["run", "--case", str(case_file), "--out", str(out), "--model", "some-model", "--budget-usd", "10.0"])
+    assert rc == 0
+    assert seen
+    assert all(spec.provider == "ollama" for spec in seen)
+    assert all(spec.model == "some-model" for spec in seen)
 
 
 def test_live_run_proves_and_packages(tmp_path, monkeypatch, fake_provider, capsys) -> None:
