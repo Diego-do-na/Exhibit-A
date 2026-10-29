@@ -12,7 +12,10 @@ actually produces, and a false positive (proving a non-vulnerability) fails the 
 Covers:
 * the existing path-traversal **read** class (``tests/fixtures/oracle_eval``);
 * the new archive-extraction **write** class
-  (``bench/corpus/archive-extraction-pathtraversal``).
+  (``bench/corpus/archive-extraction-pathtraversal``);
+* the audit A-11 F2 cheats (``tests/fixtures/oracle_eval/audit_f2``): tests that root a SAFE
+  app at the canary's directory (P1, P1b) or gate that on the source hash (P7). They run
+  against the safe app of their class, so any proof is a false proof.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ READ_ROOT = Path(__file__).parent / "fixtures" / "oracle_eval"
 WRITE_CASE = ROOT / "bench" / "corpus" / "archive-extraction-pathtraversal"
 ENTRY_POINTS = {"App.handle_request"}
 DOC = ROOT / "docs" / "oracle-eval.md"
+AUDIT_F2 = READ_ROOT / "audit_f2"
 
 
 @dataclass(frozen=True)
@@ -45,19 +49,19 @@ class EvalCase:
         return self.label == "true-exploit"
 
 
-def _read(name, exploit, label, counter=None):
+def _read(name, exploit, label, counter=None, *, app="vulnerable", exploits=READ_ROOT / "exploits"):
     return EvalCase(
-        name=name, vuln_class="path_traversal_read", app_root=READ_ROOT / "vulnerable",
-        exploit=READ_ROOT / "exploits" / exploit, effect="canary_read", label=label,
-        counter=(READ_ROOT / "exploits" / counter) if counter else None,
+        name=name, vuln_class="path_traversal_read", app_root=READ_ROOT / app,
+        exploit=exploits / exploit, effect="canary_read", label=label,
+        counter=(exploits / counter) if counter else None,
     )
 
 
-def _write(name, exploit, label, counter=None):
+def _write(name, exploit, label, counter=None, *, app="vulnerable", exploits=WRITE_CASE / "exploits"):
     return EvalCase(
-        name=name, vuln_class="archive_extraction_write", app_root=WRITE_CASE / "vulnerable",
-        exploit=WRITE_CASE / "exploits" / exploit, effect="canary_write", label=label,
-        counter=(WRITE_CASE / "exploits" / counter) if counter else None,
+        name=name, vuln_class="archive_extraction_write", app_root=WRITE_CASE / app,
+        exploit=exploits / exploit, effect="canary_write", label=label,
+        counter=(exploits / counter) if counter else None,
     )
 
 
@@ -79,6 +83,17 @@ CASES = [
     _write("write/cheat-calls-sink", "exploit_cheat_calls_sink_directly.py", "cheating"),
     _write("write/mock-fabricated", "exploit_mock_fabricated_escape.py", "cheating"),
     _write("write/flaky", "exploit_flaky_escape.py", "flaky", counter=".flaky_escape_count"),
+    # Audit A-11 F2: the test chooses where a SAFE app is rooted (never a proof).
+    _read("read/cheat-p1b-plain-base-is-canary-dir", "exploit_p1b_plain_base_is_canary_dir.py", "cheating",
+          app="fixed", exploits=AUDIT_F2),
+    _read("read/cheat-p1b-derived-base-is-canary-dir", "exploit_p1b_derived_base_is_canary_dir.py", "cheating",
+          app="fixed", exploits=AUDIT_F2),
+    _write("write/cheat-p1-plain-dest-is-canary-dir", "exploit_p1_plain_dest_is_canary_dir.py", "cheating",
+           app="fixed", exploits=AUDIT_F2),
+    _write("write/cheat-p1-derived-dest-is-canary-dir", "exploit_p1_derived_dest_is_canary_dir.py", "cheating",
+           app="fixed", exploits=AUDIT_F2),
+    _write("write/cheat-p7-plain-gated-on-source", "exploit_p7_plain_gated_on_source.py", "cheating",
+           app="fixed", exploits=AUDIT_F2),
 ]
 
 
