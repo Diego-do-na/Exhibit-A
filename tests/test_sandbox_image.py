@@ -11,16 +11,6 @@ from exhibit_a.sandbox import image as image_mod
 from exhibit_a.sandbox.image import build_image, image_tag
 
 
-def _docker_available() -> bool:
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=20).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-
-
-needs_docker = pytest.mark.skipif(not _docker_available(), reason="Docker is not available")
-
-
 def test_tag_is_stable_and_order_insensitive():
     a = image_tag(["pytest==7.3.2", "requests==2.31.0"])
     assert a == image_tag(["requests==2.31.0", " pytest==7.3.2 ", ""])
@@ -34,7 +24,6 @@ def test_rejects_option_injection():
 
 
 @pytest.mark.docker
-@needs_docker
 def test_build_once_then_reuse(monkeypatch):
     reqs = ["iniconfig==2.0.0"]
     tag = build_image(reqs)
