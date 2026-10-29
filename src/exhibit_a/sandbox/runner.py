@@ -51,6 +51,7 @@ from typing import Dict, Any, Mapping
 
 from .image import build_image
 from exhibit_a.oracle.plugin import KEY_BYTES, key_message, verify_lines
+from exhibit_a.oracle.oracle import _MAX_CANARY_READ
 from exhibit_a.oracle.provenance import ManifestError, app_manifest, staging_exclude, tree_changes
 
 PYTEST_VERSION = "pytest==7.3.2"
@@ -213,8 +214,13 @@ def run(
                     extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777"]
                 extra_args += ["-v", f"{canary_copy}:{mount}:ro", "-e", f"EXHIBIT_A_CANARY={mount}"]
             elif effect == "canary_write":
-                extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777",
-                                "-e", f"EXHIBIT_A_CANARY={mount}"]
+                # For a write-effect run we provide an empty host-side directory mounted
+                # at the sandbox's scratch root (canary_work). The test may create the
+                # canary path under it; after the container exits we inspect that host
+                # mount to decide whether the run left a file with the token.
+                host_canary_root = os.path.join(tmpdir, "canary_root")
+                os.makedirs(host_canary_root, exist_ok=True)
+                extra_args += ["-v", f"{host_canary_root}:{canary_work}:rw", "-e", f"EXHIBIT_A_CANARY={mount}"]
             plugin_flag = f"-p {_PLUGIN_MODULE} "
         for env_name, value in extra_env.items():
             if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY") and observe:
@@ -230,12 +236,43 @@ def run(
                     shutil.copyfile(events_file, events_path)
                 except OSError:
                     pass
-            return {
+            payload = {
                 "oracle_events": events,
                 "oracle_forged_events": forged,
                 "oracle_forged_reason": forged_reason,
                 "app_tree_changes": tree_changes(workspace, staged, exclude),
             }
+            # For write-effect runs inspect the host-side mount we bound to the
+            # sandbox scratch root to see whether a canary file holding the token
+            # was left there. The caller provides the token via EXHIBIT_A_CANARY_TOKEN
+            # in `env`.
+            if effect == "canary_write":
+                token = extra_env.get("EXHIBIT_A_CANARY_TOKEN")
+                try:
+                    rel = PurePosixPath(canary_mount).relative_to(PurePosixPath(canary_work))
+                except Exception:
+                    rel = PurePosixPath("outside/canary.txt")
+                host_canary_root = os.path.join(tmpdir, "canary_root")
+                host_canary_path = os.path.join(host_canary_root, *rel.parts)
+                canary_written = False
+                if token is not None:
+                    try:
+                        with open(host_canary_path, "rb") as fh:
+                            content = fh.read(_MAX_CANARY_READ)
+                        canary_written = token.encode("utf-8") in content
+                    except Exception:
+                        canary_written = False
+                payload["canary_written"] = canary_written
+                # also expose the post-run listing for debugging / external checks
+                try:
+                    listing = []
+                    for root, dirs, files in os.walk(host_canary_root):
+                        for f in files:
+                            listing.append(os.path.relpath(os.path.join(root, f), host_canary_root))
+                    payload["outside_listing"] = listing
+                except Exception:
+                    payload["outside_listing"] = []
+            return payload
 
         # 1) Resolve the prebuilt image (built once with network, reused across runs).
         if image is None:

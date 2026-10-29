@@ -365,7 +365,12 @@ def _run_case(args: argparse.Namespace) -> int:
     if clone.exists():
         shutil.rmtree(clone)
     clone.mkdir(parents=True, exist_ok=True)
-    source_tree = root / settings["tree"]
+    # Support either a single "tree" key or the newer "trees" mapping.
+    if "trees" in settings and isinstance(settings["trees"], dict):
+        tree_name = settings["trees"].get("vulnerable") or next(iter(settings["trees"].values()))
+        source_tree = root / tree_name
+    else:
+        source_tree = root / settings.get("tree", ".")
     if source_tree.exists():
         shutil.copytree(source_tree, clone, dirs_exist_ok=True)
     requirements = [str(item) for item in settings.get("requirements", [])]
@@ -379,6 +384,9 @@ def _run_case(args: argparse.Namespace) -> int:
 
     ledger = Ledger(out / "ledger.jsonl")
     if args.replay:
+        if "recording" not in settings:
+            print(f"run: case {case_file} has no replay recording", file=sys.stderr)
+            return 1
         provider = ReplayProvider(root / settings["recording"])
         roles = Roles(*(ModelRole(r, provider) for r in (
             Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
@@ -386,6 +394,7 @@ def _run_case(args: argparse.Namespace) -> int:
             clone, out, ledger, roles, "test_baseline.py",
             run_id=case_id, baseline_runner=_local_baseline,
             requirements=requirements,
+            effect=settings.get("effect", "canary_read"),
         )
     else:
         try:
@@ -404,6 +413,7 @@ def _run_case(args: argparse.Namespace) -> int:
             runner=SandboxRunner(
                 requirements=tuple(settings.get("requirements", ()))
             ),
+            effect=settings.get("effect", "canary_read"),
         )
     try:
         result = loop.run(settings["source_file"])
