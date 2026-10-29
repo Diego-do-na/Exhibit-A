@@ -267,11 +267,22 @@ def test_sandbox_runner_reports_a_failing_baseline_from_docker(tmp_path):
     assert "1 failed" in result["stdout"]
 
 
+def _admitted(stack):
+    """Frames as the v2 oracle plugin writes them: app frames carry their first line and admission."""
+    from exhibit_a.oracle.plugin import code_keys
+
+    lines = dict(code_keys((FIXTURES / "vulnerable" / "app.py").read_bytes()))
+    for frame in stack:
+        if frame["file"] == "/workspace/app.py":
+            frame.update(line=lines[frame["qualname"]], admitted=True)
+    return stack
+
+
 def test_sandbox_runner_stages_the_exploit_with_a_canary_and_judges_container_events(monkeypatch, tmp_path):
     calls = []
 
     def fake_run(clone_path, test_path, timeout, requirements=None, image=None,
-                 canary_path=None, events_path=None, env=None, canary_mount=None):
+                 canary_path=None, events_path=None, env=None, canary_mount=None, manifest=None):
         stage = Path(clone_path)
         calls.append({
             "files": {p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()},
@@ -279,11 +290,11 @@ def test_sandbox_runner_stages_the_exploit_with_a_canary_and_judges_container_ev
             "canary": Path(canary_path).read_text().strip(), "env": dict(env),
         })
         oracle_dir = test_path.split("/")[0]
-        stack = [
+        stack = _admitted([
             {"file": f"/workspace/{oracle_dir}/test_exploit.py", "function": "test_x", "qualname": "test_x"},
             {"file": "/workspace/app.py", "function": "handle_request", "qualname": "App.handle_request"},
             {"file": "/workspace/app.py", "function": "read_file", "qualname": "read_file"},
-        ]
+        ])
         events = [{"path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "stack": stack}, {"garbage": True}]
         return {"outcome": "failed", "exit_code": 1, "stdout": "", "stderr": "", "oracle_events": events}
 
@@ -310,10 +321,10 @@ def test_sandbox_runner_stages_the_exploit_with_a_canary_and_judges_container_ev
 def test_sandbox_runner_judges_provenance_by_container_paths(monkeypatch, tmp_path):
     def fake_run(clone_path, test_path, timeout, **kwargs):
         oracle_dir = test_path.split("/")[0]
-        stack = [  # the test called the sink directly: no entry point on the stack
+        stack = _admitted([  # the test called the sink directly: no entry point on the stack
             {"file": f"/workspace/{oracle_dir}/test_exploit.py", "function": "test_x", "qualname": "test_x"},
             {"file": "/workspace/app.py", "function": "read_file", "qualname": "read_file"},
-        ]
+        ])
         events = [{"path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "stack": stack}]
         return {"outcome": "failed", "exit_code": 1, "stdout": "", "stderr": "", "oracle_events": events}
 

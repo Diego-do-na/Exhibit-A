@@ -18,13 +18,21 @@ Returns:
         "stdout": str,
         "stderr": str,
         "oracle_events": list,
-        "oracle_forged_events": int
+        "oracle_forged_events": int,
+        "oracle_forged_reason": str,
+        "app_tree_changes": list
     }
 
 Oracle events are signed by the plugin with a key generated here per run and written to the
 container's stdin (``docker run -i``), never to its environment, command line or a mount.
 Only lines that verify are returned in ``oracle_events`` (as their event bodies); the rest
 are dropped and counted in ``oracle_forged_events`` (finding A-1, docs/oracle-a1.md).
+
+When the oracle is loaded, the workspace copy is hashed before the container starts and that
+manifest follows the key on stdin, so the plugin can admit only staged application code. The
+test's own directory is left out (``staging_exclude``). After the container exits the copy is
+hashed again; ``app_tree_changes`` lists every added, removed or modified entry, and any entry
+rules out a proof (docs/oracle-provenance.md).
 
 This module shells out to the `docker` CLI. It does not mount the docker socket
 or any host directory other than a temporary copy of `clone_path`.
@@ -43,6 +51,7 @@ from typing import Dict, Any, Mapping
 
 from .image import build_image
 from exhibit_a.oracle.plugin import KEY_BYTES, key_message, verify_lines
+from exhibit_a.oracle.provenance import ManifestError, app_manifest, staging_exclude, tree_changes
 
 PYTEST_VERSION = "pytest==7.3.2"
 
@@ -53,10 +62,18 @@ _PLUGIN_DIR = "/opt/exhibit_a_plugin"
 _CANARY_MOUNT = "/oracle/canary"
 _EVENTS_MOUNT = "/oracle/events.jsonl"
 _ENV_PREFIX = "EXHIBIT_A_"
+_WORKSPACE = "/workspace"
 
 
-def _read_events(path: str, key: bytes) -> tuple[list, int]:
-    """Bodies of the signed lines that verify under ``key``, and how many lines were dropped.
+def _env_failure(stderr: str) -> Dict[str, Any]:
+    return {
+        "outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": stderr,
+        "oracle_events": [], "oracle_forged_events": 0, "oracle_forged_reason": "", "app_tree_changes": [],
+    }
+
+
+def _read_events(path: str, key: bytes) -> tuple[list, int, str]:
+    """Bodies of the signed lines that verify under ``key``, the dropped count and the first reason.
 
     The file is writable from inside the container, so every line is untrusted: malformed,
     unsigned, badly signed and replayed (seq not increasing) lines are all dropped.
@@ -65,9 +82,9 @@ def _read_events(path: str, key: bytes) -> tuple[list, int]:
         with open(path, encoding="utf-8", errors="replace") as fh:
             lines = fh.read().splitlines()
     except OSError:
-        return [], 0
+        return [], 0, ""
     bodies, rejected = verify_lines(lines, key)
-    return bodies, len(rejected)
+    return bodies, len(rejected), (rejected[0] if rejected else "")
 
 
 def _check_docker_available() -> bool:
@@ -94,6 +111,7 @@ def run(
     events_path: str | None = None,
     env: Mapping[str, str] | None = None,
     canary_mount: str = _CANARY_MOUNT,
+    manifest: Mapping[str, str] | None = None,
 ) -> Dict[str, Any]:
     """
     Execute pytest inside an ephemeral, hardened docker container.
@@ -112,12 +130,16 @@ def run(
             canonicalises paths sees the file itself. Besides the default it must have the shape
             /tmp/<work>/<dir>/<file>; <work> then gets its own small writable tmpfs, so tests can lay out
             directories around the canary.
+        manifest: the caller's manifest of the staged app (provenance.app_manifest of `clone_path` with
+            `staging_exclude(test_path)`). The workspace copy must hash to it, or the run is an env_failure.
+            Without it the copy's own manifest is used. Only used when the oracle is loaded.
 
     Returns:
-        dict with outcome, exit_code, stdout, stderr, oracle_events.
+        dict with outcome, exit_code, stdout, stderr, oracle_events, oracle_forged_events,
+        oracle_forged_reason and app_tree_changes.
     """
     if not _check_docker_available():
-        return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": "docker not available", "oracle_events": [], "oracle_forged_events": 0}
+        return _env_failure("docker not available")
 
     # Create a temporary copy of the clone. Place it under a directory inside the
     # user's HOME so Colima (which shares $HOME) can bind-mount it reliably.
@@ -140,7 +162,7 @@ def run(
         extra_env = dict(env or {})
         bad = [k for k in extra_env if not k.startswith(_ENV_PREFIX)]
         if bad:
-            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"env keys must start with {_ENV_PREFIX}: {bad}", "oracle_events": [], "oracle_forged_events": 0}
+            return _env_failure(f"env keys must start with {_ENV_PREFIX}: {bad}")
 
         mount = PurePosixPath(canary_mount)
         canary_work = mount.parent.parent
@@ -151,14 +173,23 @@ def run(
             or not canary_work.is_relative_to("/tmp")
             or canary_work == PurePosixPath("/tmp")
         ):
-            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"invalid canary_mount: {canary_mount!r}", "oracle_events": [], "oracle_forged_events": 0}
+            return _env_failure(f"invalid canary_mount: {canary_mount!r}")
 
         observe = canary_path is not None or events_path is not None
         oracle_key = secrets.token_bytes(KEY_BYTES)
         events_file = os.path.join(tmpdir, "events.jsonl")
         extra_args: list[str] = []
         plugin_flag = ""
+        exclude = staging_exclude(PurePosixPath(rel_test).as_posix())
+        staged: dict[str, str] = {}
         if observe:
+            # Hashed before any test code runs; the plugin gets it on stdin with the key.
+            try:
+                staged = app_manifest(workspace, exclude)
+            except ManifestError as e:
+                return _env_failure(f"cannot hash the staged app: {e}")
+            if manifest is not None and dict(manifest) != staged:
+                return _env_failure("the staged workspace does not match the caller's manifest")
             # Private copies under tmpdir keep every mount bind-able and the host originals untouched.
             Path(events_file).write_text("")
             plugin_copy = os.path.join(tmpdir, f"{_PLUGIN_MODULE}.py")
@@ -186,21 +217,26 @@ def run(
 
         def collect() -> dict:
             if not observe:
-                return {"oracle_events": [], "oracle_forged_events": 0}
-            events, forged = _read_events(events_file, oracle_key)
+                return {"oracle_events": [], "oracle_forged_events": 0, "oracle_forged_reason": "", "app_tree_changes": []}
+            events, forged, forged_reason = _read_events(events_file, oracle_key)
             if events_path is not None:
                 try:
                     shutil.copyfile(events_file, events_path)
                 except OSError:
                     pass
-            return {"oracle_events": events, "oracle_forged_events": forged}
+            return {
+                "oracle_events": events,
+                "oracle_forged_events": forged,
+                "oracle_forged_reason": forged_reason,
+                "app_tree_changes": tree_changes(workspace, staged, exclude),
+            }
 
         # 1) Resolve the prebuilt image (built once with network, reused across runs).
         if image is None:
             try:
                 image = build_image([PYTEST_VERSION, *(requirements or [])])
             except (RuntimeError, ValueError, subprocess.SubprocessError, OSError) as e:
-                return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"failed to prepare sandbox image: {e}", "oracle_events": [], "oracle_forged_events": 0}
+                return _env_failure(f"failed to prepare sandbox image: {e}")
 
         # 2) Run the image with strict isolation and no network.
         cmd = [
@@ -230,7 +266,7 @@ def run(
             "--cpus",
             "0.5",
             "-v",
-            f"{workspace}:/workspace:rw",
+            f"{workspace}:{_WORKSPACE}:rw",
             *extra_args,
             "--workdir",
             "/workspace",
@@ -245,7 +281,7 @@ def run(
         try:
             proc = subprocess.run(
                 cmd,
-                input=key_message(oracle_key) if observe else b"",
+                input=key_message(oracle_key, app_root=_WORKSPACE, manifest=staged) if observe else b"",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=timeout,
@@ -259,7 +295,7 @@ def run(
             subprocess.run(["docker", "rm", "-f", run_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return {"outcome": "timeout", "exit_code": None, "stdout": e.stdout.decode() if e.stdout else "", "stderr": e.stderr.decode() if e.stderr else "", **collect()}
         except OSError as e:
-            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": str(e), "oracle_events": [], "oracle_forged_events": 0}
+            return _env_failure(str(e))
 
         return {"outcome": outcome, "exit_code": exit_code, "stdout": stdout, "stderr": stderr, **collect()}
     finally:

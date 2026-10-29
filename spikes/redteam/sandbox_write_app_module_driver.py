@@ -1,4 +1,7 @@
-"""Docker-only driver: run the write_app_module FALSE_PROVEN through the real SandboxRunner.
+"""Docker-only driver: run the write_app_module attack through the real SandboxRunner.
+
+Before A-1p this was a FALSE_PROVEN; it is now expected to be BLOCKED twice: by the tripwire
+(guard on) and by the app-tree tamper check (guard off). Not run in the cloud session (no Docker).
 
 Host ``run_oracle`` already shows the flaw. This proves it also holds in the product's real
 execution path, where ``/workspace`` (the app root) is mounted read-write and the exploit can
@@ -55,6 +58,8 @@ EXPLOIT = textwrap.dedent('''
 
 
 def main() -> None:
+    import exhibit_a.loop.runner as loop_runner
+
     tmp = Path(tempfile.mkdtemp(prefix="redteam_sbx_"))
     app_root = tmp / "app_root"
     app_root.mkdir()
@@ -62,13 +67,23 @@ def main() -> None:
     test = tmp / "test_exploit.py"
     test.write_text(EXPLOIT, encoding="utf-8")
     runner = SandboxRunner(requirements=())
-    j = runner.run_exploit(app_root, test, {"handle_request"}, timeout=120.0)
-    print("test_outcome   :", j.test_outcome)
-    print("observed_effect:", j.observed_effect)
-    print("provenance_ok  :", j.provenance_ok)
-    print("reason         :", j.reason)
-    proven = j.observed_effect and j.provenance_ok and j.test_outcome == "failed"
-    print(">>> RESULT     :", "FALSE_PROVEN" if proven else "BLOCKED")
+    guard = loop_runner.channel_problem
+    # A-1p: with the tripwire on it never runs (app_tree_write); with it off the container
+    # runs it and the post-run rehash of /workspace reports app_tree_changed.
+    for label, check in (("guard on", guard), ("guard off", lambda path: None)):
+        loop_runner.channel_problem = check
+        try:
+            j = runner.run_exploit(app_root, test, {"handle_request"}, timeout=120.0)
+        finally:
+            loop_runner.channel_problem = guard
+        print(f"--- {label}")
+        print("test_outcome   :", j.test_outcome)
+        print("observed_effect:", j.observed_effect)
+        print("provenance_ok  :", j.provenance_ok)
+        print("reason_code    :", j.reason_code, " tree_changes:", j.app_tree_changes)
+        print("reason         :", j.reason)
+        proven = j.observed_effect and j.provenance_ok and j.test_outcome == "failed"
+        print(">>> RESULT     :", "FALSE_PROVEN" if proven else "BLOCKED")
 
 
 if __name__ == "__main__":
