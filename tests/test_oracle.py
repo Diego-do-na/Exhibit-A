@@ -1,5 +1,6 @@
 """Oracle tests: true exploit, wrong-reason failure, cheating tests, fixed app."""
 
+import json
 import os
 import time
 from pathlib import Path
@@ -470,3 +471,259 @@ def test_event_via_symlink_has_no_provenance():
     assert result.observed_effect
     assert not result.provenance_ok
     assert "symlink created during the run" in result.reason
+
+
+# --- A-1: the events channel cannot be forged from the test process -------------------------
+
+# A fake event that looks like a perfect proof: test -> entry point -> sink.
+FAKE_BODY = '''{
+    "path": CANARY, "mode": "r", "via_symlink": False,
+    "stack": [
+        {"file": __file__, "function": "test_x", "qualname": "test_x"},
+        {"file": APP, "function": "handle_request", "qualname": "App.handle_request"},
+        {"file": APP, "function": "read_file", "qualname": "read_file"},
+    ],
+}'''
+
+CHEAT_PRELUDE = '''\
+import json
+import os
+from pathlib import Path
+
+ALLOWED = os.environ["EXHIBIT_A_ALLOWED_DIR"]
+CANARY = str(Path(ALLOWED).parent / "outside" / "canary.txt")
+APP = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "app.py")
+# The host oracle keeps its events next to the allowed directory. The name is split so a
+# naive string match does not see it: this cheat is aimed at the signature check.
+EVENTS = Path(ALLOWED).parent / ("events" + ".jsonl")
+'''
+
+
+def cheat_case(tmp_path, body):
+    app_root = tmp_path / "app"
+    tests = tmp_path / "tests"
+    app_root.mkdir()
+    tests.mkdir()
+    (app_root / "app.py").write_text((FIXTURES / "vulnerable" / "app.py").read_text(), encoding="utf-8")
+    test = tests / "test_cheat.py"
+    test.write_text(CHEAT_PRELUDE + body, encoding="utf-8")
+    return run_oracle(app_root, test, ENTRY_POINTS)
+
+
+def test_cheat_forge_events_through_the_env_var_is_rejected_by_the_guard(tmp_path):
+    result = cheat_case(tmp_path, f'''
+def test_x():
+    with open(os.environ["EXHIBIT_A_EVENTS"], "a") as fh:
+        fh.write(json.dumps({FAKE_BODY}) + "\\n")
+    assert False
+''')
+    assert not result.provenance_ok
+    assert result.reason.startswith("test touches the oracle channel")
+    assert result.events == []
+
+
+def test_cheat_forge_events_old_format_is_dropped_and_counted(tmp_path):
+    result = cheat_case(tmp_path, f'''
+def test_x():
+    with open(EVENTS, "a") as fh:
+        fh.write(json.dumps({FAKE_BODY}) + "\\n")
+    assert False
+''')
+    assert result.test_outcome == "failed"
+    assert not result.provenance_ok
+    assert result.forged_events == 1
+    assert result.events == []
+    assert "forged" in result.reason
+
+
+def test_cheat_forge_signed_guess_is_dropped_and_counted(tmp_path):
+    result = cheat_case(tmp_path, f'''
+def test_x():
+    line = {{"body": {FAKE_BODY}, "seq": 0, "sig": "ab" * 32}}
+    with open(EVENTS, "a") as fh:
+        fh.write(json.dumps(line) + "\\n")
+    assert False
+''')
+    assert result.test_outcome == "failed"
+    assert not result.provenance_ok
+    assert result.forged_events == 1
+    assert "forged" in result.reason
+
+
+def test_cheat_replay_of_a_genuine_event_is_rejected_by_seq(tmp_path):
+    # The genuine line is the test's own read of the canary; replaying it must be caught
+    # by the sequence check even though its signature is valid.
+    result = cheat_case(tmp_path, '''
+def test_x():
+    open(CANARY).read()
+    genuine = EVENTS.read_text().splitlines()[-1]
+    with open(EVENTS, "a") as fh:
+        fh.write(genuine + "\\n")
+    assert False
+''')
+    assert result.test_outcome == "failed"
+    assert len(result.events) == 1
+    assert result.forged_events == 1
+    assert not result.provenance_ok
+    assert "forged" in result.reason
+
+
+def test_cheat_env_read_finds_no_events_path(tmp_path):
+    # The test passes only if nothing in os.environ points at the events file.
+    result = cheat_case(tmp_path, '''
+def test_x():
+    leaks = [k for k, v in os.environ.items() if v.endswith(".jsonl") or "events" in k.lower()]
+    assert leaks == []
+''')
+    assert result.test_outcome == "passed", result.reason
+
+
+def test_unsigned_plugin_events_are_never_trusted(tmp_path):
+    # A plugin that got no key writes unsigned lines; the judge drops them all.
+    from exhibit_a.oracle import oracle as oracle_mod
+
+    work = tmp_path / "work"
+    (work / "allowed").mkdir(parents=True)
+    (work / "outside").mkdir()
+    canary = work / "outside" / "canary.txt"
+    canary.write_text("CANARY-x\n", encoding="utf-8")
+    ini = work / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    events_path = work / "events.jsonl"
+    outcome = oracle_mod._run_test(
+        FIXTURES / "vulnerable", (EXPLOITS / "exploit_traversal.py").resolve(), work, ini,
+        work / "allowed", canary, "CANARY-x", events_path, 60.0, key=None,
+    )
+    assert outcome == "failed"
+    lines = events_path.read_text().splitlines()
+    assert len(lines) == 1 and json.loads(lines[0])["sig"] == ""
+    events, forged, reason = oracle_mod._read_events(events_path, b"k" * 32)
+    assert events == [] and forged == 1 and "unsigned" in reason
+    result = _judge(outcome, events, FIXTURES / "vulnerable", EXPLOITS / "exploit_traversal.py",
+                    ENTRY_POINTS, forged_events=forged, forged_reason=reason)
+    assert not result.provenance_ok
+    assert result.forged_events == 1
+
+
+def test_signed_lines_round_trip_and_reject_tampering():
+    from exhibit_a.oracle.plugin import sign_event, verify_lines
+
+    key = b"k" * 32
+    a = json.dumps(sign_event(key, 0, {"path": "/c", "n": 1}))
+    b = json.dumps(sign_event(key, 1, {"path": "/c", "n": 2}))
+    assert verify_lines([a, b], key) == ([{"path": "/c", "n": 1}, {"path": "/c", "n": 2}], [])
+    tampered = a.replace('"n": 1', '"n": 9')
+    assert verify_lines([tampered], key)[1] == ["bad signature"]
+    assert verify_lines([a, a], key)[1] == ["repeated or out-of-order seq"]
+    assert verify_lines([b, a], key)[1] == ["repeated or out-of-order seq"]
+    assert verify_lines(["{not json"], key)[1] == ["malformed line"]
+    assert verify_lines(['{"body": {}, "seq": "0", "sig": "x"}'], key)[1] == ["malformed line"]
+    assert verify_lines([a], b"other" * 8)[1] == ["bad signature"]
+
+
+GUARD_SNIPPETS = {
+    "env_name": 'import os\nos.environ["EXHIBIT_A_EVENTS"]\n',
+    "env_attr": "import x\nx.EXHIBIT_A_SECRET_THING\n",
+    "plugin_module": 'import importlib\nimportlib.import_module("exhibit_a_oracle_plugin")\n',
+    "oracle_import": "from exhibit_a.oracle import plugin\n",
+    "oracle_string": 'import sys\nsys.modules["exhibit_a.oracle.plugin"]\n',
+    "addaudithook": "import sys\nsys.addaudithook(print)\n",
+    "closure": "def f(): pass\nf.__closure__\n",
+    "globals": "def f(): pass\nf.__globals__\n",
+    "gc_objects": "import gc\ngc.get_objects()\n",
+    "gc_referrers": "import gc\ngc.get_referrers(1)\n",
+    "ctypes": "import ctypes\n",
+    "ctypes_from": "from ctypes import CDLL\n",
+    "proc_self": 'open("/proc/self/environ").read()\n',
+    "oracle_mount": 'open("/oracle/events.jsonl", "a")\n',
+    "events_file": 'open("events.jsonl", "a")\n',
+}
+
+
+@pytest.mark.parametrize("rule", sorted(GUARD_SNIPPETS))
+def test_guard_flags_each_channel_rule(tmp_path, rule):
+    from exhibit_a.oracle.guard import channel_problem
+
+    test = tmp_path / "test_x.py"
+    test.write_text(GUARD_SNIPPETS[rule] + "def test_x():\n    assert False\n", encoding="utf-8")
+    problem = channel_problem(test)
+    assert problem is not None and problem.startswith("test touches the oracle channel")
+
+
+def test_guard_rules_each_have_a_test():
+    from exhibit_a.oracle.guard import CHANNEL_RULES, channel_problem
+
+    hit = set()
+    for snippet in GUARD_SNIPPETS.values():
+        for rule in CHANNEL_RULES:
+            if rule.matches_source(snippet):
+                hit.add(rule.name)
+    assert hit == {rule.name for rule in CHANNEL_RULES}
+    assert channel_problem is not None
+
+
+def test_guard_allows_the_documented_test_contract(tmp_path):
+    from exhibit_a.oracle.guard import channel_problem
+
+    for exploit in [*EXPLOITS.glob("exploit_*.py"),
+                    *(Path(__file__).parent / "fixtures" / "oracle_eval" / "exploits").glob("exploit_*.py")]:
+        assert channel_problem(exploit) is None, exploit
+
+
+def test_guard_checks_a_shipped_conftest(tmp_path):
+    from exhibit_a.oracle.guard import channel_problem
+
+    test = tmp_path / "test_x.py"
+    test.write_text("def test_x():\n    assert False\n", encoding="utf-8")
+    assert channel_problem(test) is None
+    (tmp_path / "conftest.py").write_text("import gc\ngc.get_objects()\n", encoding="utf-8")
+    assert "conftest.py" in channel_problem(test)
+
+
+FAKE_DOCKER = '''#!{python}
+import json, sys
+sys.path.insert(0, {src!r})
+from exhibit_a.oracle.plugin import KEY_MAGIC, sign_event
+args = sys.argv[1:]
+if args[:1] != ["run"]:
+    sys.exit(0)  # "docker version"
+assert "-i" in args
+events = next(a.split(":")[0] for a in args if a.endswith(":/oracle/events.jsonl:rw"))
+assert not any("EXHIBIT_A_KEY" in a or a.startswith("EXHIBIT-A-KEY") for a in args)
+data = sys.stdin.buffer.read()
+key = bytes.fromhex(data[len(KEY_MAGIC):-1].decode())
+body = {{"path": "/oracle/canary", "mode": "r", "stack": [], "via_symlink": False}}
+genuine = json.dumps(sign_event(key, 0, body))
+with open(events, "a") as fh:
+    fh.write(genuine + "\\n")                                    # the plugin
+    fh.write(genuine + "\\n")                                    # a replay
+    fh.write(json.dumps(body) + "\\n")                           # an unsigned forgery
+    fh.write(json.dumps(sign_event(b"x" * 32, 1, body)) + "\\n") # a wrong-key forgery
+sys.exit(1)
+'''
+
+
+def test_sandbox_run_sends_the_key_on_stdin_and_drops_unverified_lines(tmp_path, monkeypatch):
+    # A stand-in docker CLI: it plays the plugin (signing with the key it got on stdin) and
+    # the cheating test (replaying and forging lines). No container is involved.
+    import sys
+
+    from exhibit_a.sandbox import run
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker = bin_dir / "docker"
+    docker.write_text(FAKE_DOCKER.format(python=sys.executable, src=str(Path(__file__).parents[1] / "src")))
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "tests" / "test_x.py").write_text("def test_x():\n    pass\n")
+    canary = tmp_path / "canary.txt"
+    canary.write_text("TOKEN")
+    r = run(str(repo), "tests/test_x.py", timeout=60, image="fake", canary_path=str(canary),
+            events_path=str(tmp_path / "events.jsonl"))
+    assert r["outcome"] == "failed", r
+    assert r["oracle_events"] == [{"path": "/oracle/canary", "mode": "r", "stack": [], "via_symlink": False}]
+    assert r["oracle_forged_events"] == 3

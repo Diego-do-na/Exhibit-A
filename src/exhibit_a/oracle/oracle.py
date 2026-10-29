@@ -9,11 +9,15 @@ in a subprocess with the observer plugin loaded, and checks two things:
 
 The subprocess is a plain child process. The sandbox (a separate component) is what makes
 untrusted tests safe to run; the oracle only decides what the run means.
+
+Events are trusted only if they carry a valid signature under a key generated here for this
+run and handed to the plugin on stdin (finding A-1, see docs/oracle-a1.md). Lines that do not
+verify are dropped and counted; any such line rules out a proof. Before running, the test
+source is checked by a static tripwire (``guard.py``) for references to the oracle channel.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import secrets
 import subprocess
@@ -23,7 +27,8 @@ from collections.abc import Collection
 from pathlib import Path
 from typing import Literal
 
-from exhibit_a.oracle.plugin import ENV_CANARY, ENV_EVENTS
+from exhibit_a.oracle.guard import channel_problem
+from exhibit_a.oracle.plugin import ENV_CANARY, ENV_EVENTS, KEY_BYTES, key_message, verify_lines
 from exhibit_a.schemas.base import StrictModel
 
 ENV_ALLOWED_DIR = "EXHIBIT_A_ALLOWED_DIR"
@@ -58,6 +63,9 @@ class Judgement(StrictModel):
     reason: str
     test_outcome: TestOutcome
     events: list[OracleEvent] = []
+    # Event lines dropped because they did not verify (bad signature, unsigned, replayed or
+    # reordered seq, malformed). Any of them rules out a proof.
+    forged_events: int = 0
 
 
 def run_oracle(
@@ -76,6 +84,12 @@ def run_oracle(
     app_root = Path(app_root).resolve()
     test_path = Path(test_path).resolve()
 
+    problem = channel_problem(test_path)
+    if problem is not None:
+        # Not run at all: an "error" outcome, which the loop classifies as invalid_test.
+        return Judgement(observed_effect=False, provenance_ok=False, reason=problem, test_outcome="error")
+
+    key = secrets.token_bytes(KEY_BYTES)
     with tempfile.TemporaryDirectory(prefix="exhibit_a_oracle_") as tmp:
         work = Path(tmp).resolve()
         allowed = work / "allowed"
@@ -90,10 +104,15 @@ def run_oracle(
         ini = work / "pytest.ini"
         ini.write_text("[pytest]\n", encoding="utf-8")
 
-        outcome = _run_test(app_root, test_path, work, ini, allowed, canary, token, events_path, timeout)
-        events = _read_events(events_path)
+        outcome = _run_test(
+            app_root, test_path, work, ini, allowed, canary, token, events_path, timeout, key=key
+        )
+        events, forged, forged_reason = _read_events(events_path, key)
 
-    return _judge(outcome, events, app_root, test_path, set(entry_points))
+    return _judge(
+        outcome, events, app_root, test_path, set(entry_points),
+        forged_events=forged, forged_reason=forged_reason,
+    )
 
 
 def _run_test(
@@ -106,7 +125,14 @@ def _run_test(
     token: str,
     events_path: Path,
     timeout: float,
+    *,
+    key: bytes | None,
 ) -> TestOutcome:
+    """Run the test with the plugin; ``key`` goes to the plugin on stdin, never elsewhere.
+
+    With ``key=None`` stdin is ``/dev/null`` and the plugin runs unsigned (only useful to
+    test that the judge refuses such events).
+    """
     package_src = str(Path(__file__).resolve().parents[2])
     # Scrubbed environment: no inherited secrets, only what the run needs.
     env = {
@@ -134,7 +160,14 @@ def _run_test(
     ]
     try:
         proc = subprocess.run(
-            cmd, cwd=app_root, env=env, capture_output=True, timeout=timeout, check=False
+            cmd,
+            cwd=app_root,
+            env=env,
+            input=key_message(key) if key is not None else None,
+            stdin=subprocess.DEVNULL if key is None else None,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         return "timeout"
@@ -145,14 +178,26 @@ def _run_test(
     return "error"  # collection error, usage error, no tests collected, interrupted
 
 
-def _read_events(path: Path) -> list[OracleEvent]:
-    if not path.exists():
-        return []
+def verify_events(lines, key: bytes) -> tuple[list[OracleEvent], int, str]:
+    """Events from signed lines that verify under ``key``, the dropped count and why.
+
+    A body that verifies but does not fit ``OracleEvent`` is dropped and counted too: only
+    the plugin can sign, so it means the plugin and judge disagree, and it proves nothing.
+    """
+    bodies, rejected = verify_lines(lines, key)
     events = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            events.append(OracleEvent.model_validate(json.loads(line)))
-    return events
+    for body in bodies:
+        try:
+            events.append(OracleEvent.model_validate(body))
+        except ValueError:
+            rejected.append("signed event of an unknown shape")
+    return events, len(rejected), (rejected[0] if rejected else "")
+
+
+def _read_events(path: Path, key: bytes) -> tuple[list[OracleEvent], int, str]:
+    if not path.exists():
+        return [], 0, ""
+    return verify_events(path.read_text(encoding="utf-8", errors="replace").splitlines(), key)
 
 
 def _under(file: str, root: Path) -> bool:
@@ -169,7 +214,25 @@ def _judge(
     app_root: Path,
     test_path: Path,
     entry_points: set[str],
+    *,
+    forged_events: int = 0,
+    forged_reason: str = "",
 ) -> Judgement:
+    if forged_events:
+        # Someone other than the plugin wrote to the events file (or the plugin ran without
+        # a key): the run is an attempt to cheat or cannot be verified, never a proof.
+        kind = "unsigned (the plugin got no key)" if forged_reason == "unsigned event" else forged_reason
+        return Judgement(
+            observed_effect=bool(events),
+            provenance_ok=False,
+            reason=(
+                f"{forged_events} forged or unverifiable oracle event line(s) dropped "
+                f"(first: {kind}); the oracle channel was tampered with"
+            ),
+            test_outcome=outcome,
+            events=events,
+            forged_events=forged_events,
+        )
     if not events:
         reasons = {
             "failed": "test failed but the canary was never read: it failed for the wrong reason",
