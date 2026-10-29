@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from exhibit_a.cli import run as run_mod
+from exhibit_a.cli import main as cli_main
 from exhibit_a.ledger import Ledger
 from exhibit_a.loop import Roles, VerificationLoop
 from exhibit_a.loop import pipeline as loop_pipeline
@@ -116,12 +117,13 @@ def fake_provider():
     def factory(spec):
         seen.append(spec)
         return FakeLive(spec)
-
+    saved = dict(PROVIDER_REGISTRY)
     PROVIDER_REGISTRY["fake-live"] = factory
     try:
         yield seen
     finally:
-        del PROVIDER_REGISTRY["fake-live"]
+        PROVIDER_REGISTRY.clear()
+        PROVIDER_REGISTRY.update(saved)
 
 
 def stage_case(root):
@@ -152,6 +154,54 @@ def run_args(case_file, out, **overrides):
     for key, value in overrides.items():
         setattr(args, key, value)
     return args
+
+
+def test_cli_flags_and_env_precedence(tmp_path, monkeypatch, fake_provider, capsys):
+    """Verify CLI flags override env vars and env vars are used when flags are absent."""
+    monkeypatch.setattr(run_mod, "SandboxRunner", FakeRunner)
+    case_file = stage_case(tmp_path)
+    out = tmp_path / "out"
+
+    # Set env vars and ensure they are used when flags absent.
+    monkeypatch.setenv("EXHIBIT_A_PROVIDER", "fake-live")
+    monkeypatch.setenv("EXHIBIT_A_MODEL", "fake-model")
+    # Call via CLI main (parses and dispatches to cmd_run)
+    rc = cli_main(["run", "--case", str(case_file), "--out", str(out), "--budget-usd", "10.0"])
+    assert rc == 0
+    captured = fake_provider
+    assert captured
+    assert all(spec.provider == "fake-live" for spec in captured)
+    assert all(spec.model == "fake-model" for spec in captured)
+
+    # Flags override env vars.
+    out2 = tmp_path / "out2"
+    rc2 = cli_main(["run", "--case", str(case_file), "--out", str(out2), "--provider", "fake-live", "--model", "override-model", "--budget-usd", "10.0"])
+    assert rc2 == 0
+    # The last factory calls should have seen the override model.
+    assert any(spec.model == "override-model" for spec in fake_provider)
+
+
+def test_model_without_provider_uses_default_provider(tmp_path, monkeypatch, capsys, fake_provider):
+    """--model without --provider uses the default provider name (ollama) — we override ollama in the registry."""
+    monkeypatch.setattr(run_mod, "SandboxRunner", FakeRunner)
+    case_file = stage_case(tmp_path)
+    out = tmp_path / "out3"
+
+    # Temporarily register a fake 'ollama' provider to observe the spec.
+    from exhibit_a.models.config import PROVIDER_REGISTRY
+
+    seen = []
+
+    def ollama_factory(spec):
+        seen.append(spec)
+        return FakeLive(spec)
+
+    monkeypatch.setitem(PROVIDER_REGISTRY, "ollama", ollama_factory)
+    rc = cli_main(["run", "--case", str(case_file), "--out", str(out), "--model", "some-model", "--budget-usd", "10.0"])
+    assert rc == 0
+    assert seen
+    assert all(spec.provider == "ollama" for spec in seen)
+    assert all(spec.model == "some-model" for spec in seen)
 
 
 def test_live_run_proves_and_packages(tmp_path, monkeypatch, fake_provider, capsys) -> None:
