@@ -340,7 +340,7 @@ def test_sandbox_runner_stages_the_exploit_with_a_canary_and_judges_container_ev
     calls = []
 
     def fake_run(clone_path, test_path, timeout, requirements=None, image=None,
-                 canary_path=None, events_path=None, env=None, canary_mount=None, manifest=None):
+                 canary_path=None, events_path=None, env=None, canary_mount=None, manifest=None, **kwargs):
         stage = Path(clone_path)
         calls.append({
             "files": {p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()},
