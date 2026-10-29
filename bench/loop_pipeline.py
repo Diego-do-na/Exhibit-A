@@ -374,6 +374,7 @@ def make_pipeline(providers: Any, *, runner: Any = None) -> Pipeline:
                 requirements=tuple(case.requirements),
                 judge=_make_judge(effective_runner, case.effect),
                 flags=flags,
+                effect=case.effect,
             )
 
             source = _pick_source_file(clone, case)

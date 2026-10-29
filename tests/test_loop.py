@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
+from exhibit_a.ci.summary import build_result
 from exhibit_a.ledger import Ledger
 from exhibit_a.loop import Roles, SandboxRunner, VerificationLoop
 from exhibit_a.loop import runner as loop_runner  # TestRunner by module, so pytest never collects it
@@ -189,6 +190,63 @@ def test_flaky_case_is_not_proven(recorded):
     flaky = by_id(result, "S-FLAKY")
     assert flaky.verdict.verdict == "flaky"
     assert flaky.package_dir is None
+
+
+class _IneffectiveFixScripted:
+    """The fixer returns the vulnerable file plus a comment: the fix changes nothing.
+
+    The defender's variant is the exploit itself, so it still proves the flaw
+    against the "fixed" code.
+    """
+
+    name = "scripted"
+    pricing = Pricing()
+
+    def __init__(self, sid):
+        self.sid = sid
+
+    def complete(self, role, prompt, schema):
+        if role == Role.ADVERSARY:
+            body = {"suspicions": [suspicion(self.sid)]}
+        elif role == Role.TEST_WRITER:
+            body = {"test_source": TRAVERSAL % "../outside/canary.txt"}
+        elif role == Role.FIXER:
+            original = (FIXTURES / "vulnerable" / "app.py").read_text()
+            body = {"files": [{"path": "app.py", "content": original + "\n# ineffective fix: comment only\n"}]}
+        else:
+            body = {"variants": [{"name": "same-as-exploit", "test_source": TRAVERSAL % "../outside/canary.txt"}]}
+        return Completion(json.dumps(body), 10, 10, 1, model="scripted")
+
+
+def _run_ineffective_fix(tmp_path, sid):
+    loop, ledger = make_loop(tmp_path, tmp_path / "replay.jsonl", _IneffectiveFixScripted(sid))
+    loop.run_id = "r-noop"
+    return loop.run("app.py"), ledger
+
+
+def test_ineffective_fix_is_discarded_unproven_and_red_never_follows(tmp_path):
+    result, ledger = _run_ineffective_fix(tmp_path, "S-NOOP-FIX")
+    assert len(result.results) == 1
+    outcome = result.results[0]
+    assert outcome.verdict.verdict == "discarded_unproven"
+    assert outcome.reason == "exploit proven but no verified fix"
+    assert not outcome.fix_verified
+    assert outcome.package_dir is None
+    verdict_events = [
+        e for e in ledger.replay("r-noop")
+        if e.type == EventType.VERDICT and e.payload.get("suspicion_id") == "S-NOOP-FIX"
+    ]
+    assert len(verdict_events) == 1  # FIX/VERIFY ran before the single verdict
+    assert verdict_events[0].payload.get("effect") == "canary_read"
+    assert "reason_code" in verdict_events[0].payload
+    assert build_result(ledger.read_all())["proven"] == 0
+
+
+def test_defender_sees_a_bypass_through_the_fixed_code_on_the_host_path(tmp_path):
+    result, _ = _run_ineffective_fix(tmp_path, "S-NOOP-BYPASS")
+    outcome = result.results[0]
+    assert outcome.verdict.bypass_attempts.tried == 1
+    assert outcome.verdict.bypass_attempts.succeeded == 1
 
 
 def test_every_step_is_in_the_ledger(recorded):
