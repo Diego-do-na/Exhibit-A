@@ -73,3 +73,4 @@ Protocol:
 - T060 claude: tests/conftest.py fails (not skips) docker-marked tests when docker info fails; removed Docker skipif/skip in sandbox events/security/limits/image tests, all marked docker; pending: sandbox_internal_tests.py keeps one in-container skip for a missing mount binary (not a Docker skip)
 - A-6 assistant: added --provider/--model flags to run CLI and passed them to live roles; pending: run full tests
 - T061 claude: tests/test_e2e_cve_fixed.py now carries pytest.mark.docker and asserts every verdict is exactly discarded_unproven (env_failure no longer passes); pending: none
+- T064 claude: added run index (schemas/run_index.py RunRecord + run_index.schema.json, ledger/index.py append_run/read_runs with O_APPEND single-write, problems list for corrupt/oversized/truncated lines) and tests/test_run_index.py; pending: nothing writes runs.jsonl yet (CLI/loop wiring, status/severity vocab is my choice: completed|aborted|error, low..critical)
