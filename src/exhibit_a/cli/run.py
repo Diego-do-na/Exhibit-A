@@ -247,7 +247,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
         for source in changed:
             loop = VerificationLoop(
                 clone, out, ledger, roles, baseline, run_id=run_id,
-                runner=runner,
+                runner=runner, prompt_profile=_profile(args),
             )
             try:
                 result_loop = loop.run(source)
@@ -283,7 +283,8 @@ def _live_roles(args: argparse.Namespace, meter: CostMeter | None) -> Roles:
     if not model:
         model = os.environ.get("EXHIBIT_A_MODEL") or LIVE_MODEL_DEFAULT
     config = {
-        role: RoleConfig(provider=provider_name, model=model) for role in Role
+        role: RoleConfig(provider=provider_name, model=model, **_generation(args, role))
+        for role in Role
     }
     by_role = build_roles(config, meter)
     return Roles(
@@ -292,6 +293,32 @@ def _live_roles(args: argparse.Namespace, meter: CostMeter | None) -> Roles:
         by_role[Role.FIXER],
         by_role[Role.DEFENDER],
     )
+
+
+#: Output-token ceilings per role for --profile compact. They are ceilings, not targets:
+#: reasoning tokens count against them, so they stay well above a normal answer.
+COMPACT_MAX_OUTPUT_TOKENS: dict[Role, int] = {
+    Role.ADVERSARY: 6000,
+    Role.TEST_WRITER: 8000,
+    Role.FIXER: 6000,
+    Role.DEFENDER: 10000,
+}
+
+
+def _profile(args: argparse.Namespace) -> str:
+    return getattr(args, "profile", None) or "standard"
+
+
+def _generation(args: argparse.Namespace, role: Role) -> dict[str, object]:
+    """Reasoning effort and output cap for one role (explicit flags win over the profile)."""
+    compact = _profile(args) == "compact"
+    effort = getattr(args, "reasoning_effort", None) or ("minimal" if compact else "")
+    cap = getattr(args, "max_output_tokens", None)
+    if cap is None:
+        cap = COMPACT_MAX_OUTPUT_TOKENS[role] if compact else 0
+    if cap < 0:
+        raise ValueError("--max-output-tokens must be >= 0")
+    return {"reasoning_effort": effort, "max_output_tokens": cap}
 
 
 def _cost_meter(args: argparse.Namespace) -> CostMeter | None:
@@ -405,6 +432,7 @@ def _run_case(args: argparse.Namespace) -> int:
             run_id=case_id, baseline_runner=_local_baseline,
             requirements=requirements,
             effect=settings.get("effect", "canary_read"),
+            prompt_profile=_profile(args),
         )
     else:
         try:
@@ -424,6 +452,7 @@ def _run_case(args: argparse.Namespace) -> int:
                 requirements=tuple(settings.get("requirements", ()))
             ),
             effect=settings.get("effect", "canary_read"),
+            prompt_profile=_profile(args),
         )
     try:
         result = loop.run(settings["source_file"])
@@ -451,6 +480,12 @@ def _run_case(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     """Run a benchmark case or a bounded PR-diff verification."""
+    if _profile(args) == "compact" and getattr(args, "replay", False):
+        # Replay keys hash the prompt and schema (models/replay.py); every recording was
+        # made with the standard profile, so compact prompts can never hit them.
+        print("run: --profile compact cannot be combined with --replay "
+              "(the recordings were made with the standard profile)", file=sys.stderr)
+        return 2
     if args.case:
         return _run_case(args)
     if getattr(args, "pr_diff", None):

@@ -16,6 +16,13 @@ from .errors import ProviderError
 from .http import post_json
 
 
+#: Reasoning-effort levels. On 2026-10-29 the Meta Model API accepted minimal, low, medium
+#: and max for muse-wonder-1.0 on /v1/responses ("reasoning": {"effort": ...}); "high" was
+#: not tried. Whether /chat/completions honours the "reasoning_effort" field sent here is
+#: UNVERIFIED until a live call shows fewer reasoning tokens with a lower level.
+REASONING_EFFORTS = ("minimal", "low", "medium", "high", "max")
+
+
 class OpenAICompatibleProvider:
     name = "openai_compatible"
 
@@ -26,12 +33,32 @@ class OpenAICompatibleProvider:
         api_key_env: str,
         pricing: Pricing | None = None,
         timeout: float = 120.0,
+        reasoning_effort: str = "",
+        max_output_tokens: int = 0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key_env = api_key_env
         self.pricing = pricing or Pricing()
         self.timeout = timeout
+        self.configure_generation(reasoning_effort, max_output_tokens)
+
+    def configure_generation(self, reasoning_effort: str = "", max_output_tokens: int = 0) -> None:
+        """Set the optional cost controls sent with every request.
+
+        Empty / zero means "not sent", so the request body stays exactly what it was
+        before these controls existed. With reasoning models the reasoning tokens are
+        billed as output, so a low effort is the main cost lever; ``max_output_tokens``
+        is a ceiling, and an answer cut by it is reported as a ProviderError.
+        """
+        if reasoning_effort and reasoning_effort not in REASONING_EFFORTS:
+            raise ValueError(
+                f"unknown reasoning effort {reasoning_effort!r}; known: {list(REASONING_EFFORTS)}"
+            )
+        if max_output_tokens < 0:
+            raise ValueError("max_output_tokens must be >= 0")
+        self.reasoning_effort = reasoning_effort
+        self.max_output_tokens = max_output_tokens
 
     def _api_key(self) -> str:
         key = os.environ.get(self.api_key_env)
@@ -55,6 +82,10 @@ class OpenAICompatibleProvider:
                 "json_schema": {"name": str(role), "schema": schema},
             },
         }
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
+        if self.max_output_tokens:
+            body["max_tokens"] = self.max_output_tokens
         headers = {"Authorization": f"Bearer {self._api_key()}"}
         started = time.monotonic()
         data = post_json(f"{self.base_url}/chat/completions", body, headers, self.timeout)
@@ -67,6 +98,11 @@ class OpenAICompatibleProvider:
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise ProviderError("unexpected chat-completions response shape") from exc
         if not isinstance(text, str):
+            if data.get("choices", [{}])[0].get("finish_reason") == "length":
+                raise ProviderError(
+                    "model stopped at the output-token cap before answering; "
+                    "raise max_output_tokens or lower the reasoning effort"
+                )
             raise ProviderError("unexpected chat-completions response shape")
         model = data.get("model")
         return Completion(

@@ -59,6 +59,7 @@ Judge = Callable[..., Judgement]
 _MAX_FIX_FILES = 1_000
 _MAX_FIX_FILE_BYTES = 1_000_000
 _MAX_FIX_TOTAL_BYTES = 10_000_000
+_MAX_FIX_EDITS = 10
 
 
 class LoopFlags(Protocol):
@@ -185,6 +186,7 @@ class VerificationLoop:
         judge: Judge | None = None,
         flags: LoopFlags | None = None,
         effect: str = "canary_read",
+        prompt_profile: str = "standard",
     ) -> None:
         if runs < 1:
             raise ValueError("runs must be at least 1")
@@ -207,6 +209,9 @@ class VerificationLoop:
         # Recorded on the verdict payload (audit F7); the signed oracle-event
         # channel itself is unchanged.
         self.effect = effect
+        # Which prompt builders and output schemas the roles get ("standard" or "compact").
+        # The standard profile is the one every recorded replay key was made with.
+        self.prompts = prompts.profile(prompt_profile)
 
     def _classify(self, judgement: Judgement) -> VerdictValue:
         return classify(judgement, oracle=self.flags.oracle)
@@ -253,7 +258,7 @@ class VerificationLoop:
         source = (self.clone / source_file).read_text(encoding="utf-8")
         try:
             raised = self.roles.adversary.run(
-                prompts.adversary_prompt(source, source_file), prompts.SUSPICIONS_SCHEMA
+                self.prompts.adversary_prompt(source, source_file), self.prompts.suspicions_schema
             )
         except SchemaValidationError as exc:
             result.aborted = f"adversary output rejected: {exc}"
@@ -320,7 +325,7 @@ class VerificationLoop:
         try:
             source = (self.clone / suspicion.location.file).read_text(encoding="utf-8")
             written = self.roles.test_writer.run(
-                prompts.writer_prompt(suspicion, source), prompts.EXPLOIT_SCHEMA
+                self.prompts.writer_prompt(suspicion, source), self.prompts.exploit_schema
             )
         except (SchemaValidationError, OSError, UnicodeDecodeError) as exc:
             return done(VerdictValue.INVALID_TEST, f"no usable exploit test: {exc}",
@@ -462,9 +467,14 @@ class VerificationLoop:
         proposal = None
         try:
             proposal = self.roles.fixer.run(
-                prompts.fixer_prompt(suspicion, source, exploit_src, proof_reason), prompts.FIX_SCHEMA
+                self.prompts.fixer_prompt(suspicion, source, exploit_src, proof_reason),
+                self.prompts.fix_schema,
             )
-            patch_text = self._apply_fix(proposal.output["files"], fixed)
+            if self.prompts.fix_format == "edits":
+                files = self._edits_to_files(proposal.output["edits"])
+            else:
+                files = proposal.output["files"]
+            patch_text = self._apply_fix(files, fixed)
         except (SchemaValidationError, ValueError) as exc:
             self._emit(EventType.FIX_PROPOSED, suspicion_id=suspicion.id, applied=False, error=str(exc))
             return "", False, 0, 0, f"no usable fix: {exc}"
@@ -493,6 +503,50 @@ class VerificationLoop:
                 detail = ""
             return patch_text, fix_verified, tried, succeeded, detail
         return "", False, 0, 0, "the fixer proposed an empty patch"
+
+    def _edits_to_files(self, edits: list[dict[str, str]]) -> list[dict[str, str]]:
+        """Turn compact search/replace edits into whole files for ``_apply_fix``.
+
+        Model output is untrusted. An edit may only change an existing regular file of the
+        clone (no new files, no symlinks), and its ``find`` text must occur exactly once in
+        that file as it stands after the earlier edits. Path containment, symlink and size
+        checks are then repeated by ``_apply_fix`` on the resulting files.
+        """
+        if not edits:
+            raise ValueError("fixer proposed no edits")
+        if len(edits) > _MAX_FIX_EDITS:
+            raise ValueError(f"fixer proposed too many edits: {len(edits)}")
+        clone_root = self.clone.resolve()
+        contents: dict[str, str] = {}
+        order: list[str] = []
+        for edit in edits:
+            raw, find, replace = edit["path"], edit["find"], edit["replace"]
+            rel = Path(raw)
+            if not raw or rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
+                raise ValueError(f"invalid fix path: {raw!r}")
+            # Key by the normalised path, so "app.py" and "./app.py" are one file whose
+            # edits apply in order, never two copies where the last one wins.
+            path = rel.as_posix()
+            if path not in contents:
+                current = self.clone
+                for part in rel.parts:
+                    current /= part
+                    if current.is_symlink():
+                        raise ValueError(f"fix path traverses symlink: {path!r}")
+                if not current.is_file() or not current.resolve().is_relative_to(clone_root):
+                    raise ValueError(f"edit target is not an existing file of the clone: {path!r}")
+                try:
+                    contents[path] = current.read_text(encoding="utf-8")
+                except OSError as exc:  # UnicodeDecodeError is already a ValueError
+                    raise ValueError(f"cannot read edit target {path!r}: {exc}") from exc
+                order.append(path)
+            if not find:
+                raise ValueError(f"edit for {path!r} has an empty find text")
+            occurrences = contents[path].count(find)
+            if occurrences != 1:
+                raise ValueError(f"edit find text occurs {occurrences} times in {path!r}, expected exactly 1")
+            contents[path] = contents[path].replace(find, replace, 1)
+        return [{"path": path, "content": contents[path]} for path in order]
 
     def _apply_fix(self, files: list[dict[str, str]], fixed: Path) -> str:
         """Copy the clone, write the proposed files, return a unified diff."""
@@ -562,7 +616,7 @@ class VerificationLoop:
         patched = (fixed / suspicion.location.file).read_text(encoding="utf-8")
         try:
             proposal = self.roles.defender.run(
-                prompts.defender_prompt(suspicion, patched, exploit_src), prompts.VARIANTS_SCHEMA
+                self.prompts.defender_prompt(suspicion, patched, exploit_src), self.prompts.variants_schema
             )
         except SchemaValidationError:
             return 0, 0
