@@ -1,0 +1,98 @@
+# Exhibit A on every pull request. Template: copy it to your repository.
+#
+# Red only when a finding is PROVEN by execution in an isolated,
+# resource-limited sandbox. Green means "nothing could be proven", never
+# "safe". See docs/github-action.md and docs/github-action-security.md.
+#
+# Opt-in: both jobs stay skipped until the repository variable
+# EXHIBIT_A_ENABLED is "true", so this file is inert until the protected
+# environment and its secret exist (setup steps in docs/github-action.md).
+
+name: Exhibit A
+
+on:
+  # Never pull_request_target: it runs with secrets in the base repository's
+  # context and is the classic way to leak them to untrusted PR code.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Nothing by default; each job asks for exactly what it needs.
+permissions: {}
+
+# A new push to the same PR cancels the superseded run.
+concurrency:
+  group: exhibit-a-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: exhibit-a / verify
+    # Same-repository PRs only. Fork PRs are out of scope: see fork-guard.
+    if: >-
+      vars.EXHIBIT_A_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Protected environment: required reviewers approve each run before the
+    # job (and its environment secret) starts.
+    environment: exhibit-a
+    permissions:
+      contents: read
+      pull-requests: write  # only for the summary comment; drop with comment: "false"
+    steps:
+      - name: Check out the PR head
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # the base commit is needed for the PR diff
+
+      - name: Exhibit A
+        id: exhibit
+        # TODO(A-9): pin to the full 40-character commit SHA of a reviewed
+        # Exhibit A release, e.g. diego-do-na/Exhibit-A@<sha> # v0.1.0.
+        # Do NOT use "./" here: it would run the action.yml from the PR
+        # itself, which the PR author controls.
+        uses: diego-do-na/Exhibit-A@TODO-pin-full-commit-sha
+        with:
+          provider: meta
+          model: ""            # set the model id your provider serves
+          api-key: ${{ secrets.EXHIBIT_A_API_KEY }}  # environment secret
+          api-key-env: META_API_KEY
+          fail-on: proven
+          working-directory: .
+          max-runtime-minutes: "30"
+          budget-usd: "2"
+          comment: "true"
+
+      - name: Report outputs
+        if: always()
+        env:
+          STATUS: ${{ steps.exhibit.outputs.status }}
+          PROVEN: ${{ steps.exhibit.outputs.proven }}
+          RISK: ${{ steps.exhibit.outputs.risk }}
+        run: echo "status=$STATUS proven=$PROVEN risk=$RISK"
+
+  fork-guard:
+    name: exhibit-a / fork-guard
+    # Fork PRs get no secrets and are not analysed. A skipped job reports
+    # success to branch protection, so this job fails instead: mark it
+    # required too, and a fork PR cannot pass silently.
+    if: >-
+      vars.EXHIBIT_A_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Fork PRs are out of scope
+        run: |
+          {
+            echo "## Exhibit A: fork PR not analysed"
+            echo
+            echo "Pull requests from forks are out of scope: they cannot receive the model"
+            echo "API key safely. Nothing was verified, so nothing could be proven."
+            echo "A maintainer must review this PR by hand."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Exhibit A::fork PRs are not analysed; a maintainer must review"
+          exit 1
