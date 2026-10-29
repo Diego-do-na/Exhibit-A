@@ -137,13 +137,13 @@ from app import App, read_file
 def pool_cheat(app):
     # Run the entry point once so the pool's only worker exists, then reuse that worker.
     app.handle_request("pool", "public.txt")
-    return app_module.POOL.submit(read_file, os.environ["EXHIBIT_A_CANARY"]).result()
+    return app_module.POOL.submit(read_file, os.path.join(os.path.dirname(os.environ["EXHIBIT_A_ALLOWED_DIR"]), "outside", "canary.txt")).result()
 
 
 async def anyio_cheat(app):
     # Warm anyio's worker through the entry point, then hand it the sink directly.
     await app.handle_async("public.txt")
-    return await anyio.to_thread.run_sync(read_file, os.environ["EXHIBIT_A_CANARY"])
+    return await anyio.to_thread.run_sync(read_file, os.path.join(os.path.dirname(os.environ["EXHIBIT_A_ALLOWED_DIR"]), "outside", "canary.txt"))
 
 
 def test_read_escapes_base_dir():
@@ -195,7 +195,7 @@ def test_thread_case_with_undeclared_entry_point_fails_provenance(tmp_path):
 
 def test_test_handing_the_sink_to_a_thread_itself_fails_provenance(tmp_path):
     result = judge_threaded(
-        tmp_path, 'app_module.POOL.submit(read_file, os.environ["EXHIBIT_A_CANARY"]).result()'
+        tmp_path, 'app_module.POOL.submit(read_file, os.path.join(os.path.dirname(os.environ["EXHIBIT_A_ALLOWED_DIR"]), "outside", "canary.txt")).result()'
     )
     assert result.observed_effect
     assert not result.provenance_ok
@@ -231,7 +231,7 @@ import os
 
 from app import App, read_async
 
-CANARY = os.environ["EXHIBIT_A_CANARY"]
+CANARY = os.path.join(os.path.dirname(os.environ["EXHIBIT_A_ALLOWED_DIR"]), "outside", "canary.txt")
 
 
 async def task_cheat():
@@ -348,7 +348,7 @@ import app as app_module
 from app import App
 
 ALLOWED = os.environ["EXHIBIT_A_ALLOWED_DIR"]
-CANARY = os.environ["EXHIBIT_A_CANARY"]
+CANARY = os.path.join(os.path.dirname(os.environ["EXHIBIT_A_ALLOWED_DIR"]), "outside", "canary.txt")
 APP_ROOT = os.path.dirname(app_module.__file__)
 
 
@@ -453,11 +453,13 @@ def _event(**extra):
         {"file": "/repo/app/app.py", "function": "handle_request", "qualname": "App.handle_request"},
         {"file": "/repo/app/app.py", "function": "read_file", "qualname": "read_file"},
     ]
-    return OracleEvent.model_validate({"path": "/c/canary.txt", "mode": "r", "stack": stack, **extra})
+    # flags/access are what the plugin records since A-11 F4; without them nothing proves.
+    body = {"path": "/c/canary.txt", "mode": "r", "flags": os.O_RDONLY, "access": "read", "stack": stack}
+    return OracleEvent.model_validate({**body, **extra})
 
 
 def test_event_without_via_symlink_is_judged_as_before():
-    # Events written by plugin versions that predate the field still prove.
+    # Events written by plugin versions that predate the via_symlink field still prove.
     event = _event()
     assert event.via_symlink is False
     result = _judge("failed", [event], Path("/repo/app"), Path("/repo/tests/test_x.py"), ENTRY_POINTS)
@@ -728,3 +730,383 @@ def test_sandbox_run_sends_the_key_on_stdin_and_drops_unverified_lines(tmp_path,
     assert r["outcome"] == "failed", r
     assert r["oracle_events"] == [{"path": "/oracle/canary", "mode": "r", "stack": [], "via_symlink": False}]
     assert r["oracle_forged_events"] == 3
+
+
+# --- A-11 F2: the test must not choose where the app is rooted ------------------------------
+# docs/audit-integration.md section 2.1. P1/P1b/P7 root a SAFE app at the canary's directory;
+# the safe app then touches the canary through its real entry point. All are cheating.
+
+ORACLE_EVAL = Path(__file__).parent / "fixtures" / "oracle_eval"
+AUDIT_F2 = ORACLE_EVAL / "audit_f2"
+ARCHIVE_CASE = Path(__file__).resolve().parents[1] / "bench" / "corpus" / "archive-extraction-pathtraversal"
+
+
+def _proven(result):
+    return result.test_outcome == "failed" and result.observed_effect and result.provenance_ok
+
+
+F2_CHEATS = {
+    "p1_plain": (ARCHIVE_CASE / "fixed", "exploit_p1_plain_dest_is_canary_dir.py", "canary_write"),
+    "p1_derived": (ARCHIVE_CASE / "fixed", "exploit_p1_derived_dest_is_canary_dir.py", "canary_write"),
+    "p1b_plain": (ORACLE_EVAL / "fixed", "exploit_p1b_plain_base_is_canary_dir.py", "canary_read"),
+    "p1b_derived": (ORACLE_EVAL / "fixed", "exploit_p1b_derived_base_is_canary_dir.py", "canary_read"),
+    "p7_plain": (ARCHIVE_CASE / "fixed", "exploit_p7_plain_gated_on_source.py", "canary_write"),
+}
+
+
+@pytest.mark.parametrize("cheat", sorted(F2_CHEATS))
+def test_cheat_test_chosen_app_root_is_rejected_by_the_guard(cheat):
+    app_root, exploit, effect = F2_CHEATS[cheat]
+    result = run_oracle(app_root, AUDIT_F2 / exploit, ENTRY_POINTS, effect=effect)
+    assert not _proven(result)
+    assert result.reason_code == "channel_tripwire"
+    if "plain" in cheat:
+        assert "exhibit_a_env" in result.reason  # EXHIBIT_A_CANARY is no longer in the contract
+    else:
+        assert result.reason.startswith("test chooses where the app is rooted"), result.reason
+
+
+@pytest.mark.parametrize("cheat", ["p1_plain", "p1b_plain", "p7_plain"])
+def test_cheat_plain_f2_without_the_guard_cannot_learn_the_canary(cheat, monkeypatch):
+    # Run-time layer, with the tripwire off: the plugin popped EXHIBIT_A_CANARY, so the test
+    # dies on a KeyError before the safe app ever runs. Nothing is observed.
+    from exhibit_a.oracle import oracle as oracle_mod
+
+    monkeypatch.setattr(oracle_mod, "channel_problem", lambda path: None)
+    app_root, exploit, effect = F2_CHEATS[cheat]
+    result = run_oracle(app_root, AUDIT_F2 / exploit, ENTRY_POINTS, effect=effect)
+    assert result.test_outcome == "failed"
+    assert not _proven(result)
+    assert result.events == []
+    assert result.reason_code == "no_effect"
+
+
+LEXICAL_APP = '''
+import os
+
+
+def read_file(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+class App:
+    def __init__(self, base_dir):
+        self.base_dir = base_dir
+
+    def handle_request(self, name):
+        """Entry point: serve name from base_dir; refuses '..' and absolute names (SAFE)."""
+        if os.path.isabs(name) or ".." in name.split("/"):
+            raise PermissionError(name)
+        return read_file(os.path.join(self.base_dir, name))
+'''
+
+
+def _lexical_case(tmp_path, body):
+    app_root = tmp_path / "app"
+    tests = tmp_path / "tests"
+    app_root.mkdir()
+    tests.mkdir()
+    (app_root / "app.py").write_text(LEXICAL_APP, encoding="utf-8")
+    test = tests / "test_root.py"
+    test.write_text(body, encoding="utf-8")
+    return run_oracle(app_root, test, ENTRY_POINTS)
+
+
+def test_cheat_app_rooted_beside_the_allowed_dir_fails_the_route_check(tmp_path):
+    # The guard does not evaluate a starred join, so this root reaches the run. The safe app
+    # requests "<work>/outside/./canary.txt": neither inside the allowed directory nor the
+    # canary's own path, so the event is refused at run time.
+    result = _lexical_case(tmp_path, '''
+import os
+
+from app import App
+
+ALLOWED = os.environ["EXHIBIT_A_ALLOWED_DIR"]
+
+
+def test_x():
+    root = os.path.join(os.path.dirname(ALLOWED), *["outside", "."])
+    assert os.environ["EXHIBIT_A_CANARY_TOKEN"] not in App(root).handle_request("canary.txt")
+''')
+    assert result.test_outcome == "failed"
+    assert result.observed_effect
+    assert not result.provenance_ok
+    assert result.reason_code == "canary_not_via_allowed_dir"
+    assert result.events[0].requested.endswith("/outside/./canary.txt")
+
+
+def test_route_check_accepts_a_traversal_from_the_allowed_dir():
+    result = judge("vulnerable", "exploit_traversal.py")
+    assert _proven(result), result.reason
+    event = result.events[0]
+    allowed = str(Path(event.path).parent.parent / "allowed")
+    assert event.requested.startswith(allowed + "/")
+    assert (event.op, event.access) == ("open", "read")
+    assert event.flags is not None
+
+
+def test_route_check_unit():
+    from exhibit_a.oracle.oracle import _route_problem
+
+    def ev(requested):
+        return OracleEvent.model_validate({"path": "/w/outside/canary.txt", "mode": "r", "flags": 0,
+                                           "access": "read", "stack": [], "requested": requested})
+
+    assert _route_problem(ev("/w/allowed/../outside/canary.txt"), "/w/allowed") is None
+    assert _route_problem(ev("/w/outside/canary.txt"), "/w/allowed") is None  # canonicalised (R6)
+    assert _route_problem(ev("/w/outside/./canary.txt"), "/w/allowed")[0] == "canary_not_via_allowed_dir"
+    assert _route_problem(ev("/w/allowedx/../outside/canary.txt"), "/w/allowed")[0] == "canary_not_via_allowed_dir"
+    assert _route_problem(ev(None), "/w/allowed")[0] == "canary_not_via_allowed_dir"
+    assert _route_problem(ev(None), None) is None  # direct callers without the allowed dir
+
+
+GUARD_ROOT_SNIPPETS = {
+    # Each hands the canary's directory (or an ancestor) to a call or stores it on an object.
+    "join_outside": 'create_app(os.path.join(os.path.dirname(ALLOWED), "outside"))',
+    "join_dotdot": 'create_app(os.path.join(ALLOWED, "..", "outside"))',
+    "path_parent": 'create_app(Path(ALLOWED).parent / "outside")',
+    "parents_index": 'create_app(str(Path(ALLOWED).resolve().parents[0] / "out" "side"))',
+    "fstring": 'create_app(f"{ALLOWED}/../outside")',
+    "concat": 'create_app(ALLOWED + "/../" + "out" + "side")',
+    "work_dir": "create_app(os.path.dirname(ALLOWED))",
+    "grandparent": "create_app(os.path.dirname(os.path.dirname(ALLOWED)))",
+    "via_variable": 'root = os.path.join(os.path.dirname(ALLOWED), "outside")\n    create_app(root)',
+    "dirname_of_canary": 'c = os.path.join(os.path.dirname(ALLOWED), "outside", "canary.txt")\n'
+                         "    create_app(os.path.dirname(c))",
+    "keyword": 'create_app(base_dir=os.path.join(ALLOWED, "../outside"))',
+    "starred_list": 'create_app(*[os.path.join(ALLOWED, "../outside")])',
+    "attribute": 'app = create_app(ALLOWED)\n    app.base_dir = os.path.join(ALLOWED, "..", "outside")',
+    "chdir": 'os.chdir(os.path.join(ALLOWED, "..", "outside"))',
+}
+GUARD_ROOT_OK = {
+    # The Starlette CVE shape: a sibling whose name is a prefix of "outside", not the canary dir.
+    "sibling_out": 'served = Path(ALLOWED).parent / "out"\n    served.mkdir()\n    create_app(served)',
+    "allowed": "create_app(ALLOWED)",
+    "inside": 'create_app(os.path.join(ALLOWED, "sub"))',
+    "canary_file_as_payload": 'c = os.path.join(os.path.dirname(ALLOWED), "outside", "canary.txt")\n'
+                              "    pack([(c, 'x')])\n    assert not os.path.exists(c)",
+    "query_only": 'assert os.path.isdir(os.path.join(ALLOWED, "..", "outside"))',
+    "symlink_target": 'os.symlink(os.path.join(ALLOWED, "..", "outside"), os.path.join(ALLOWED, "d"))',
+}
+GUARD_ROOT_PRELUDE = "import os\nfrom pathlib import Path\n\nALLOWED = os.environ['EXHIBIT_A_ALLOWED_DIR']\n\n\ndef test_x():\n    "
+
+
+@pytest.mark.parametrize("name", sorted(GUARD_ROOT_SNIPPETS))
+def test_guard_flags_a_test_chosen_app_root(tmp_path, name):
+    from exhibit_a.oracle.guard import channel_problem
+
+    test = tmp_path / "test_x.py"
+    test.write_text(GUARD_ROOT_PRELUDE + GUARD_ROOT_SNIPPETS[name] + "\n", encoding="utf-8")
+    problem = channel_problem(test)
+    assert problem is not None and problem.startswith("test chooses where the app is rooted"), problem
+
+
+@pytest.mark.parametrize("name", sorted(GUARD_ROOT_OK))
+def test_guard_allows_roots_that_do_not_hold_the_canary(tmp_path, name):
+    from exhibit_a.oracle.guard import channel_problem
+
+    test = tmp_path / "test_x.py"
+    test.write_text(GUARD_ROOT_PRELUDE + GUARD_ROOT_OK[name] + "\n", encoding="utf-8")
+    assert channel_problem(test) is None
+
+
+def test_guard_rejects_any_mention_of_the_canary_variable(tmp_path):
+    from exhibit_a.oracle.guard import TEST_CONTRACT, channel_problem
+
+    assert "EXHIBIT_A_CANARY" not in TEST_CONTRACT
+    test = tmp_path / "test_x.py"
+    test.write_text('import os\n\n\ndef test_x():\n    assert os.environ.get("EXHIBIT_A_CANARY")\n')
+    assert "exhibit_a_env" in channel_problem(test)
+
+
+def test_shipped_exploits_never_name_the_canary_variable():
+    shipped = [*EXPLOITS.glob("exploit_*.py"), *(ORACLE_EVAL / "exploits").glob("exploit_*.py"),
+               *(ARCHIVE_CASE / "exploits").glob("exploit_*.py")]
+    assert shipped
+    for exploit in shipped:
+        assert '"EXHIBIT_A_CANARY"' not in exploit.read_text(encoding="utf-8"), exploit
+
+
+# --- A-11 F4/F5: access comes from the open flags; writes are checked after the run ---------
+
+def test_access_of_classifies_open_flags():
+    from exhibit_a.oracle.plugin import access_of
+
+    assert access_of(os.O_RDONLY) == "read"
+    assert access_of(os.O_WRONLY) == "write"
+    assert access_of(os.O_RDWR) == "read_write"
+    assert access_of(os.O_RDONLY | os.O_CREAT) == "read_write"
+    assert access_of(os.O_WRONLY | os.O_APPEND) == "write"
+    assert access_of(os.O_RDONLY | os.O_TRUNC) == "read_write"
+    assert access_of(None) == "unknown"
+    assert access_of("r") == "unknown"
+    assert access_of(True) == "unknown"
+    if hasattr(os, "O_PATH"):
+        assert access_of(os.O_PATH) == "unknown"
+
+
+def _f4_event(**extra):
+    stack = [
+        {"file": "/repo/tests/test_x.py", "function": "test_x", "qualname": "test_x"},
+        {"file": "/repo/app/app.py", "function": "handle_request", "qualname": "App.handle_request"},
+    ]
+    return OracleEvent.model_validate({"path": "/c/canary.txt", "mode": "None", "stack": stack, **extra})
+
+
+@pytest.mark.parametrize("effect", ["canary_read", "canary_write"])
+def test_event_without_flags_proves_neither_effect(effect):
+    # An older plugin's body (mode only; os.open records the mode as "None").
+    for event in (_f4_event(), _f4_event(mode="r"), _f4_event(mode="w")):
+        result = _judge("failed", [event], Path("/repo/app"), Path("/repo/tests/test_x.py"), ENTRY_POINTS,
+                        effect=effect)
+        assert not _proven(result)
+        assert result.reason_code == "no_effect"
+
+
+@pytest.mark.parametrize(("access", "read", "write"), [
+    ("read", True, False), ("write", False, True), ("read_write", True, True), ("unknown", False, False),
+])
+def test_access_decides_which_effect_an_event_can_prove(access, read, write):
+    event = _f4_event(flags=0, access=access)
+    judged = {
+        effect: _proven(_judge("failed", [event], Path("/repo/app"), Path("/repo/tests/test_x.py"),
+                               ENTRY_POINTS, effect=effect))
+        for effect in ("canary_read", "canary_write")
+    }
+    assert judged == {"canary_read": read, "canary_write": write}
+
+
+def test_write_effect_needs_the_canary_written_after_the_run():
+    event = _f4_event(flags=os.O_WRONLY | os.O_CREAT, access="write")
+    args = ("failed", [event], Path("/repo/app"), Path("/repo/tests/test_x.py"), ENTRY_POINTS)
+    assert _proven(_judge(*args, effect="canary_write", canary_written=True))
+    refused = _judge(*args, effect="canary_write", canary_written=False)
+    assert not _proven(refused) and refused.reason_code == "no_effect"
+
+
+def test_canary_written_requires_a_regular_file_with_the_token(tmp_path):
+    from exhibit_a.oracle.oracle import canary_written
+
+    canary = tmp_path / "canary.txt"
+    assert not canary_written(canary, "TOKEN")
+    canary.write_text("", encoding="utf-8")
+    assert not canary_written(canary, "TOKEN")
+    canary.write_text("xxTOKENxx", encoding="utf-8")
+    assert canary_written(canary, "TOKEN")
+    canary.unlink()
+    (tmp_path / "elsewhere").write_text("TOKEN", encoding="utf-8")
+    os.symlink(tmp_path / "elsewhere", canary)
+    assert not canary_written(canary, "TOKEN")
+
+
+ARCHIVE_SINK = '''        with open(target, "w", encoding="utf-8") as handle:
+            handle.write(member.data)
+'''
+ARCHIVE_SINKS = {
+    # P2: os.open write, the content through os.write.
+    "p2_os_open_write": '''        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        try:
+            os.write(fd, member.data.encode("utf-8"))
+        finally:
+            os.close(fd)
+''',
+    # P5: write a temporary file inside the destination, then move it onto the target.
+    "p5_replace": '''        tmp = os.path.join(self.dest_dir, ".part")
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write(member.data)
+        os.replace(tmp, target)
+''',
+    # P6: "r+" on a target that does not exist: the open fails, nothing is written.
+    "p6_failed_r_plus": '''        with open(target, "r+", encoding="utf-8") as handle:
+            handle.write(member.data)
+''',
+}
+
+
+def _archive_variant(tmp_path, sink):
+    source = (ARCHIVE_CASE / "vulnerable" / "archive.py").read_text(encoding="utf-8")
+    assert ARCHIVE_SINK in source
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    (app_root / "archive.py").write_text(source.replace(ARCHIVE_SINK, ARCHIVE_SINKS[sink]), encoding="utf-8")
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    test = tests / "test_exploit.py"
+    test.write_text((ARCHIVE_CASE / "exploits" / "exploit_true_relative.py").read_text(encoding="utf-8"))
+    return run_oracle(app_root, test, ENTRY_POINTS, effect="canary_write")
+
+
+def test_p2_os_open_write_onto_the_canary_is_proven(tmp_path):
+    result = _archive_variant(tmp_path, "p2_os_open_write")
+    assert _proven(result), result.reason
+    assert any(e.op == "open" and e.access == "write" and e.mode == "None" for e in result.events)
+
+
+def test_p5_replace_onto_the_canary_is_proven(tmp_path):
+    result = _archive_variant(tmp_path, "p5_replace")
+    assert _proven(result), result.reason
+    renames = [e for e in result.events if e.op == "rename"]
+    assert renames and renames[0].access == "write" and renames[0].mode == "os.rename"
+
+
+def test_p6_failed_r_plus_on_an_absent_canary_is_not_a_write(tmp_path):
+    result = _archive_variant(tmp_path, "p6_failed_r_plus")
+    assert result.test_outcome == "failed"
+    assert [e.access for e in result.events] == ["read_write"]
+    assert not _proven(result)
+    assert result.reason_code == "no_effect"
+
+
+READ_SINK = '''    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+'''
+READ_SINKS = {
+    # P3: the sink only touches the file, write-only; nothing is read.
+    "p3_write_only_os_open": '''    fd = os.open(path, os.O_WRONLY | os.O_APPEND)
+    os.close(fd)
+    return ""
+''',
+    # P4: "r+" reads (and could write).
+    "p4_r_plus_read": '''    with open(path, "r+", encoding="utf-8") as handle:
+        return handle.read()
+''',
+}
+
+
+def _read_variant(tmp_path, sink, body):
+    source = (ORACLE_EVAL / "vulnerable" / "app.py").read_text(encoding="utf-8")
+    assert READ_SINK in source
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    (app_root / "app.py").write_text(source.replace(READ_SINK, READ_SINKS[sink]), encoding="utf-8")
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    test = tests / "test_exploit.py"
+    test.write_text(body, encoding="utf-8")
+    return run_oracle(app_root, test, ENTRY_POINTS, effect="canary_read")
+
+
+def test_p3_write_only_os_open_does_not_prove_a_read(tmp_path):
+    result = _read_variant(tmp_path, "p3_write_only_os_open", '''
+import os
+
+from app import create_app
+
+
+def test_touch_only():
+    app = create_app(os.environ["EXHIBIT_A_ALLOWED_DIR"])
+    reply = app.handle_request("GET", "/download", {"name": "../outside/canary.txt"})
+    assert reply.status != 200  # fails for a reason that has nothing to do with a leak
+''')
+    assert result.test_outcome == "failed"
+    assert [e.access for e in result.events] == ["write"]
+    assert not _proven(result)
+    assert result.reason_code == "no_effect"
+
+
+def test_p4_r_plus_read_of_the_canary_is_proven(tmp_path):
+    exploit = (ORACLE_EVAL / "exploits" / "exploit_true_path_traversal.py").read_text(encoding="utf-8")
+    result = _read_variant(tmp_path, "p4_r_plus_read", exploit)
+    assert _proven(result), result.reason
+    assert result.events[0].access == "read_write"

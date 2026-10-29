@@ -74,6 +74,10 @@ VARIANTS_SCHEMA: dict[str, Any] = {
     },
 }
 
+# The test contract. The canary's own path is deliberately not part of it (finding A-11 F2,
+# see oracle/guard.py TEST_CONTRACT): an exploit reaches the canary from the allowed directory.
+# The text is part of every recorded replay key (models/replay.py), so changing it invalidates
+# the recorded runs.
 _ENV_NOTE = (
     "The test finds the allowed directory in EXHIBIT_A_ALLOWED_DIR and the canary token in "
     "EXHIBIT_A_CANARY_TOKEN, and must reach the application only through its entry point."

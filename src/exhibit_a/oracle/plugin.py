@@ -54,6 +54,13 @@ when rejected, ``admission`` (why); the judge re-checks the first three on the h
 ``os.open`` is wrapped so the hook knows the ``dir_fd`` an open is relative to: the audit event
 carries only the relative name, which used to be resolved against the cwd (a missed read).
 
+Each event records how the canary was reached (finding A-11 F2/F4/F5): ``op`` (``open``,
+``rename`` for ``os.rename``/``os.replace``, ``link`` for ``os.link``), the raw ``flags`` of an
+open, the ``access`` they mean on this platform (``read``, ``write``, ``read_write`` or
+``unknown``; classified here because the judge may run on another OS with other flag values),
+and ``requested``: the path as the code asked for it, made absolute but not resolved. The judge
+uses ``requested`` to require that the canary was reached through the allowed directory.
+
 The module stays self-contained (stdlib only): the sandbox mounts it as a single file.
 """
 
@@ -98,6 +105,10 @@ _SYMLINK_SLACK = 2.0
 _MAX_SYMLINK_HOPS = 40
 _MAX_FIELD = 512
 _MAX_PATH = 1024  # MAXPATHLEN on macOS, the buffer size F_GETPATH writes into
+_MAX_REQUESTED = 4096  # a longer requested path is recorded as None (the judge fails closed)
+# Audit events that can put content at the canary's path, and the ``op`` each is recorded as.
+# os.replace raises "os.rename" too.
+_OBSERVED = {"open": "open", "os.rename": "rename", "os.link": "link"}
 
 # A captured stack is a tuple of code objects, outermost first; None marks a thread boundary
 # and _TASK_EDGE a task boundary.
@@ -441,6 +452,25 @@ def _symlink_fields(absolute: str | None, since: float) -> dict[str, object]:
     return {"via_symlink": True, "symlink": link[:_MAX_FIELD], "symlink_target": target[:_MAX_FIELD]}
 
 
+def access_of(flags: object) -> str:
+    """What an open with these ``os.open`` flags may do: read, write, read_write or unknown.
+
+    The access mode (``O_RDONLY``/``O_WRONLY``/``O_RDWR``) gives read and write; ``O_CREAT``,
+    ``O_TRUNC`` and ``O_APPEND`` also count as a write. ``O_PATH`` (Linux) opens without
+    either, and anything that is not an int is not classified: both are ``unknown``.
+    """
+    if not isinstance(flags, int) or isinstance(flags, bool):
+        return "unknown"
+    if flags & getattr(os, "O_PATH", 0):
+        return "unknown"
+    accmode = flags & getattr(os, "O_ACCMODE", os.O_RDONLY | os.O_WRONLY | os.O_RDWR)
+    read = accmode in (os.O_RDONLY, os.O_RDWR)
+    write = accmode in (os.O_WRONLY, os.O_RDWR) or bool(flags & (os.O_CREAT | os.O_TRUNC | os.O_APPEND))
+    if read and write:
+        return "read_write"
+    return "write" if write else "read" if read else "unknown"
+
+
 def key_message(key: bytes, *, app_root: str | None = None, manifest: dict | None = None) -> bytes:
     """What the orchestrator writes to the plugin's stdin: ``key`` and, optionally, the manifest.
 
@@ -713,12 +743,18 @@ def _install(canary: str, events_path: str, key: bytes | None, app: dict | None 
     lock = threading.Lock()
 
     def hook(event: str, args: tuple) -> None:
-        if event != "open" or getattr(_local, "busy", False):
+        if event not in _OBSERVED or getattr(_local, "busy", False):
             return  # busy: admission reading an app file from inside this hook
-        target = args[0]
+        if event == "open":
+            target = args[0]
+            dir_fd = getattr(_local, "dir_fd", None)
+        else:
+            # os.rename/os.replace and os.link: (src, dst, src_dir_fd, dst_dir_fd); only a
+            # destination that is the canary puts content there.
+            target = args[1]
+            dir_fd = args[3] if isinstance(args[3], int) and args[3] >= 0 else None
         if not isinstance(target, (str, bytes, os.PathLike)):
             return  # an integer file descriptor, not a path
-        dir_fd = getattr(_local, "dir_fd", None)
         try:
             requested = os.fsdecode(target)
             if _resolve(requested, dir_fd, canary_id, canary) != canary:
@@ -727,8 +763,15 @@ def _install(canary: str, events_path: str, key: bytes | None, app: dict | None 
             return
         _local.busy = True
         try:
-            record = {"path": canary, "mode": str(args[1]), "stack": _stack(sys._getframe(1), admission)}
-            record.update(_symlink_fields(_absolute(requested, dir_fd), since))
+            absolute = _absolute(requested, dir_fd)
+            if event == "open":
+                flags = args[2] if isinstance(args[2], int) and not isinstance(args[2], bool) else None
+                fields = {"op": "open", "mode": str(args[1]), "flags": flags, "access": access_of(flags)}
+            else:
+                fields = {"op": _OBSERVED[event], "mode": event, "flags": None, "access": "write"}
+            record = {"path": canary, **fields, "stack": _stack(sys._getframe(1), admission)}
+            record["requested"] = absolute if absolute is not None and len(absolute) <= _MAX_REQUESTED else None
+            record.update(_symlink_fields(absolute, since))
         finally:
             _local.busy = False
         with lock:
@@ -751,10 +794,13 @@ def _install_from_env() -> None:
         # importing this module elsewhere (the orchestrator itself) never touches its stdin.
         key, app = _read_channel()
         _install(canary, events_path, key, app)
-        # The canary path stays: it is the target, not the channel, and exploits derive it
-        # from the allowed directory anyway. /proc/self/environ still shows the variable as
-        # set at exec; that is why nothing secret is ever put in the environment.
+        # Neither path is left for the test. The canary path is not part of the test contract
+        # (finding A-11 F2: a test that knows it can root a safe app at the canary's
+        # directory); a real exploit reaches it from the allowed directory. /proc/self/environ
+        # still shows both as set at exec; that is why nothing secret is ever put in the
+        # environment, and why the static guard also rejects any mention of them.
         os.environ.pop(ENV_EVENTS, None)
+        os.environ.pop(ENV_CANARY, None)
 
 
 # Install on import, not only at configure time: ``-p`` plugins are imported before
