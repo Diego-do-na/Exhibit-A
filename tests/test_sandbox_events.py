@@ -1,16 +1,10 @@
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from exhibit_a.sandbox import run
 
-try:
-    _DOCKER = subprocess.run(["docker", "info"], capture_output=True, timeout=20).returncode == 0
-except (OSError, subprocess.SubprocessError):
-    _DOCKER = False
-
-pytestmark = pytest.mark.skipif(not _DOCKER, reason="Docker is not available")
+pytestmark = pytest.mark.docker
 
 READER = (
     "import os\n"

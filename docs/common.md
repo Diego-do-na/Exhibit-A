@@ -70,3 +70,4 @@ Protocol:
 - T050 assistant: added docs/sandbox.md; pending: none
 - T014 cursor-agent: added README.md with project overview, setup, CLI usage, architecture, licensing, and security notes; pending: none
 - A-7 correction: earlier `T054 assistant: added bench/loop_pipeline.py and tests/test_bench_loop.py; pending: none` should be T040, earlier `T036 assistant: added docs/sandbox.md; pending: none` should be T050, and `T014 cursor-agent: <did>; pending: <left>` should be the README entry above
+- T060 claude: tests/conftest.py fails (not skips) docker-marked tests when docker info fails; removed Docker skipif/skip in sandbox events/security/limits/image tests, all marked docker; pending: sandbox_internal_tests.py keeps one in-container skip for a missing mount binary (not a Docker skip)
