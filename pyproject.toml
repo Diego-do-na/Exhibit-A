@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = ["pydantic>=2.5"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "anyio>=3.4,<5"]
+dev = ["pytest>=7", "anyio>=3.4,<5", "pyyaml>=6"]
 
 [project.scripts]
 exhibit-a = "exhibit_a.cli:main"
