@@ -1,0 +1,257 @@
+{
+  "$defs": {
+    "ReachabilityHint": {
+      "additionalProperties": false,
+      "properties": {
+        "files_scanned": {
+          "minimum": 0,
+          "title": "Files Scanned",
+          "type": "integer"
+        },
+        "files_skipped": {
+          "minimum": 0,
+          "title": "Files Skipped",
+          "type": "integer"
+        },
+        "import_sites": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Import Sites",
+          "type": "array"
+        },
+        "kind": {
+          "const": "static_hint",
+          "default": "static_hint",
+          "title": "Kind",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "package_imported": {
+          "title": "Package Imported",
+          "type": "boolean"
+        },
+        "symbol_sites": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbol Sites",
+          "type": "array"
+        },
+        "symbols_listed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols Listed",
+          "type": "array"
+        },
+        "symbols_referenced": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols Referenced",
+          "type": "array"
+        }
+      },
+      "required": [
+        "package_imported",
+        "import_sites",
+        "symbols_listed",
+        "symbols_referenced",
+        "symbol_sites",
+        "files_scanned",
+        "files_skipped",
+        "notes"
+      ],
+      "title": "ReachabilityHint",
+      "type": "object"
+    },
+    "Severity": {
+      "additionalProperties": false,
+      "properties": {
+        "score": {
+          "title": "Score",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "score"
+      ],
+      "title": "Severity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "advisory_id": {
+      "title": "Advisory Id",
+      "type": "string"
+    },
+    "advisory_modified": {
+      "title": "Advisory Modified",
+      "type": "string"
+    },
+    "affected_status": {
+      "enum": [
+        "affected",
+        "unverified"
+      ],
+      "title": "Affected Status",
+      "type": "string"
+    },
+    "aliases": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Aliases",
+      "type": "array"
+    },
+    "data_source": {
+      "enum": [
+        "live",
+        "recorded"
+      ],
+      "title": "Data Source",
+      "type": "string"
+    },
+    "dependency_source": {
+      "title": "Dependency Source",
+      "type": "string"
+    },
+    "ecosystem": {
+      "const": "PyPI",
+      "default": "PyPI",
+      "title": "Ecosystem",
+      "type": "string"
+    },
+    "evidence_urls": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Urls",
+      "type": "array"
+    },
+    "fixed_in": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Fixed In"
+    },
+    "installed_version": {
+      "title": "Installed Version",
+      "type": "string"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "package": {
+      "title": "Package",
+      "type": "string"
+    },
+    "patch_available": {
+      "title": "Patch Available",
+      "type": "boolean"
+    },
+    "reachability": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReachabilityHint"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "severity": {
+      "items": {
+        "$ref": "#/$defs/Severity"
+      },
+      "title": "Severity",
+      "type": "array"
+    },
+    "signal": {
+      "const": "advisory_hint",
+      "default": "advisory_hint",
+      "title": "Signal",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "upgrade_is_minor_or_major": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Upgrade Is Minor Or Major"
+    },
+    "upgrade_kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "patch",
+            "minor",
+            "major"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Upgrade Kind"
+    }
+  },
+  "required": [
+    "package",
+    "installed_version",
+    "dependency_source",
+    "advisory_id",
+    "aliases",
+    "summary",
+    "severity",
+    "affected_status",
+    "fixed_in",
+    "patch_available",
+    "upgrade_kind",
+    "upgrade_is_minor_or_major",
+    "evidence_urls",
+    "data_source",
+    "advisory_modified",
+    "notes"
+  ],
+  "title": "AdvisoryMatch",
+  "type": "object"
+}
