@@ -1,60 +1,65 @@
 """``python -m bench``: run the benchmark and write the results table.
 
-The default benchmark path uses the real loop adapter in ``bench.loop_pipeline`` and a
-replay recording when a corpus defines one. ``--synthetic`` runs the scripted stand-in and is
-meant for smoke tests only.
+The default benchmark path runs the real loop adapter in ``bench.loop_pipeline``
+with one provider per case: the case's replay recording when it declares one,
+otherwise a deterministic provider built from the case's own materials
+(``suspicion.json``, labelled exploits, fixed tree). ``--synthetic`` runs the
+scripted stand-in and is meant for smoke tests only.
 """
 
 import argparse
 import importlib
-import json
 import sys
 from pathlib import Path
 
 from exhibit_a.ledger import Ledger
 from exhibit_a.models import ReplayProvider
 
-from .corpus import load_corpus
+from .corpus import Case, load_corpus
 from .flags import select
-from .metrics import render_table
-from .runner import run_benchmark, write_results
+from .metrics import case_metrics, render_table
+from .runner import run_benchmark, run_id_for, write_results
 
 
-def _default_replay_path(corpus_path: Path) -> Path:
-    """Resolve the replay recording next to the corpus, if defined."""
-    path = Path(corpus_path)
-    if path.is_dir():
-        case_json = path / "case.json"
-        if case_json.exists():
-            path = case_json
-        else:
-            replay = path / "replay.jsonl"
-            if replay.exists():
-                return replay
-            raise FileNotFoundError(f"no replay recording found for {path}")
+def _provider_for_case(case: Case):
+    """Resolve the model-answer provider for one case.
 
-    data = json.loads(path.read_text(encoding="utf-8"))
-    recording = data.get("run", {}).get("recording")
-    if recording:
-        replay = path.parent / recording
-        if replay.exists():
-            return replay
-    replay = path.parent / "replay.jsonl"
-    if replay.exists():
-        return replay
-    raise FileNotFoundError(f"no replay recording found near {path}")
+    A case that declares ``run.recording`` and ships the file replays it; a
+    case that ships its own materials (``suspicion.json``) runs from those.
+    Anything else is a corpus bug, reported as a clear ``FileNotFoundError``.
+    """
+    from .loop_pipeline import CaseMaterialsProvider
+
+    if case.case_dir:
+        case_dir = Path(case.case_dir)
+        if case.recording and (case_dir / case.recording).is_file():
+            return ReplayProvider(case_dir / case.recording)
+        if (case_dir / "suspicion.json").is_file():
+            return CaseMaterialsProvider(case)
+    raise FileNotFoundError(
+        f"no replay recording for case {case.id!r}: "
+        "declare run.recording in case.json or ship suspicion.json materials"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="bench", description=__doc__)
-    parser.add_argument("--corpus", required=True, type=Path)
+    parser.add_argument("--corpus", required=True, type=Path,
+                        help="corpus file, single case.json, or corpus directory")
     parser.add_argument("--out", required=True, type=Path, help="output directory")
     parser.add_argument("--pipeline", help="module:function implementing Pipeline")
     parser.add_argument("--synthetic", action="store_true", help="scripted stand-in (tests only)")
     parser.add_argument("--ablation", action="append", help="repeatable; default all")
     args = parser.parse_args(argv)
 
-    corpus = load_corpus(args.corpus)
+    try:
+        corpus = load_corpus(args.corpus)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    try:
+        ablations = select(args.ablation)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.synthetic:
         from .synthetic import ScriptedProvider, make_pipeline
 
@@ -66,15 +71,28 @@ def main(argv: list[str] | None = None) -> int:
         from .loop_pipeline import make_pipeline
 
         try:
-            replay = _default_replay_path(args.corpus)
-        except FileNotFoundError as exc:
+            providers = {case.id: _provider_for_case(case) for case in corpus}
+        except (FileNotFoundError, ValueError) as exc:
             parser.error(str(exc))
-        pipeline = make_pipeline(ReplayProvider(replay))
+        pipeline = make_pipeline(providers)
 
     ledger = Ledger(args.out / "ledger.jsonl")
-    rows = run_benchmark(corpus, pipeline, ledger, select(args.ablation))
+    rows = run_benchmark(corpus, pipeline, ledger, ablations)
     write_results(rows, args.out)
     sys.stdout.write(render_table(rows))
+    # One result row per case under the full ablation (or the first ablation
+    # when --ablation excludes it), so a corpus run shows every case's reading.
+    ablation = "full" if "full" in ablations else next(iter(ablations))
+    flags = ablations[ablation]
+    for case in corpus:
+        metrics = case_metrics(ledger, run_id_for(ablation, case), case, flags.naive)
+        sys.stdout.write(
+            f"case {case.id} ({case.kind}) [{ablation}]: "
+            f"reported={metrics.reported} proven={metrics.proven} "
+            f"false_positives={metrics.false_positives} "
+            f"discarded={metrics.discarded} "
+            f"truth_found={metrics.truth_found}/{metrics.truth_total}\n"
+        )
     return 0
 
 
