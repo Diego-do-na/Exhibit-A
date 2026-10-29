@@ -136,33 +136,26 @@ def _runner_supports_effect(runner: Any, effect: str) -> bool:
 
 
 def _unsupported_effect_reason(runner: Any, effect: str) -> str:
-    return f"effect {effect} not supported by {type(runner).__name__} yet (T076)"
+    return f"effect {effect} not supported by {type(runner).__name__}: its run_exploit takes no effect argument"
 
 
 def _make_judge(runner: Any, effect: str) -> Callable[..., Any]:
     """Return the loop judge for one case, honouring the case's oracle effect.
 
-    Runners whose ``run_exploit`` accepts an ``effect`` keyword (such as test
-    fakes) receive it directly; a ``canary_read`` case uses the runner as-is.
-    Any other combination fails closed by raising: the pipeline records
-    ``env_failure`` before the loop ever runs, and exploit tests are never
-    executed on the host. (The sandbox-backed runner only supports the read
-    effect; teaching it the write effect is T076.)
+    Only runners whose ``run_exploit`` accepts an ``effect`` keyword are usable
+    for cases that specify an effect. If the runner exposes ``effect`` it is
+    returned directly; otherwise the pipeline fails closed (recording an
+    ``env_failure``) so exploit tests never run on an incapable host runner.
+    The sandbox-backed runner supports both ``canary_read`` and ``canary_write``.
     """
     base = runner.run_exploit
-    if effect == "canary_read":
-        return base
     try:
         params = inspect.signature(base).parameters
     except (TypeError, ValueError):
         params = {}
     if "effect" not in params:
         raise RuntimeError(_unsupported_effect_reason(runner, effect))
-
-    def judge(app_root: Path, test_path: Path, entry_points: Collection[str], *, timeout: float) -> Any:
-        return base(app_root, test_path, entry_points, timeout=timeout, effect=effect)
-
-    return judge
+    return base
 
 
 def _tree_relative(location: str, tree: str) -> str:

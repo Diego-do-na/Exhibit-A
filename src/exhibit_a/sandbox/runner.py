@@ -22,6 +22,8 @@ Returns:
         "oracle_forged_reason": str,
         "app_tree_changes": list
     }
+    plus, for effect="canary_write" only: "canary_written": bool and "outside_listing": list
+    (what the run left in the writable outside/ tmpfs; see docs/sandbox-write-effect.md).
 
 Oracle events are signed by the plugin with a key generated here per run and written to the
 container's stdin (``docker run -i``), never to its environment, command line or a mount.
@@ -39,7 +41,9 @@ or any host directory other than a temporary copy of `clone_path`.
 """
 from __future__ import annotations
 
+import json
 import secrets
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -85,6 +89,64 @@ def _read_events(path: str, key: bytes) -> tuple[list, int, str]:
         return [], 0, ""
     bodies, rejected = verify_lines(lines, key)
     return bodies, len(rejected), (rejected[0] if rejected else "")
+
+
+# Write effect: the scratch directory is a tmpfs, so what the run left in it is read back by a
+# short script that runs inside the container after pytest and writes a JSON result file.
+_OUTSIDE_MOUNT = "/oracle/outside.json"
+_MAX_OUTSIDE_BYTES = 1 << 20
+_MAX_OUTSIDE_ENTRIES = 200
+_OUTSIDE_DUMP = r'''
+import json, os, stat, sys
+work, canary, out = sys.argv[1:4]
+token = os.environ.get("EXHIBIT_A_CANARY_TOKEN", "")
+outside = os.path.dirname(canary)
+listing = []
+for here, dirs, files in os.walk(outside):
+    for name in sorted(dirs + files):
+        path = os.path.join(here, name)
+        try:
+            st = os.lstat(path)
+        except OSError:
+            continue
+        kind = ("link" if stat.S_ISLNK(st.st_mode) else "dir" if stat.S_ISDIR(st.st_mode)
+                else "file" if stat.S_ISREG(st.st_mode) else "other")
+        listing.append({"path": os.path.relpath(path, work), "kind": kind, "size": st.st_size})
+written = False
+try:
+    if stat.S_ISREG(os.lstat(canary).st_mode):
+        with open(canary, "rb") as fh:
+            written = bool(token) and token.encode() in fh.read(1 << 20)
+except OSError:
+    pass
+with open(out, "w") as fh:
+    json.dump({"canary_written": written, "listing": listing[:200]}, fh)
+'''
+
+
+def _read_outside(path: str) -> tuple[bool, list[dict]]:
+    """``(canary_written, listing)`` from the in-container dump; anything odd is "not written".
+
+    The file is writable from inside the container, so it is untrusted: size-capped, strictly
+    typed, and only a literal ``true`` counts. A missing or empty file (the dump never ran, as
+    after a timeout) means the write was not confirmed.
+    """
+    try:
+        if os.lstat(path).st_size > _MAX_OUTSIDE_BYTES:
+            return False, []
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return False, []
+    if not isinstance(data, dict):
+        return False, []
+    listing = [
+        {"path": str(e["path"])[:300], "kind": str(e["kind"])[:10], "size": e["size"]}
+        for e in data.get("listing", [])[:_MAX_OUTSIDE_ENTRIES]
+        if isinstance(e, dict) and isinstance(e.get("path"), str) and isinstance(e.get("kind"), str)
+        and isinstance(e.get("size"), int) and not isinstance(e.get("size"), bool)
+    ] if isinstance(data.get("listing"), list) else []
+    return data.get("canary_written") is True, listing
 
 
 def _check_docker_available() -> bool:
@@ -178,9 +240,15 @@ def run(
 
         if effect not in ("canary_read", "canary_write"):
             return _env_failure(f"unknown oracle effect: {effect}")
+        if effect == "canary_write":
+            if canary_path is not None:
+                return _env_failure("a write effect mounts no canary file: canary_path must be None")
+            if not custom_mount:
+                return _env_failure("a write effect needs a canary_mount of the shape /tmp/<work>/<dir>/<file>")
         observe = canary_path is not None or events_path is not None or effect == "canary_write"
         oracle_key = secrets.token_bytes(KEY_BYTES)
         events_file = os.path.join(tmpdir, "events.jsonl")
+        outside_file = os.path.join(tmpdir, "outside.json")
         extra_args: list[str] = []
         plugin_flag = ""
         exclude = staging_exclude(PurePosixPath(rel_test).as_posix())
@@ -213,8 +281,14 @@ def run(
                     extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777"]
                 extra_args += ["-v", f"{canary_copy}:{mount}:ro", "-e", f"EXHIBIT_A_CANARY={mount}"]
             elif effect == "canary_write":
+                # Write effect: NO canary file is mounted. The scratch directory is a small
+                # tmpfs (size-capped, gone with the container), so the app can create
+                # <canary_work>/outside/canary.txt and nothing on the host is writable. What the
+                # run left there comes back through a result file written by the dump below.
                 extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777",
-                                "-e", f"EXHIBIT_A_CANARY={mount}"]
+                               "-e", f"EXHIBIT_A_CANARY={mount}"]
+                Path(outside_file).write_text("")
+                extra_args += ["-v", f"{outside_file}:{_OUTSIDE_MOUNT}:rw"]
             plugin_flag = f"-p {_PLUGIN_MODULE} "
         for env_name, value in extra_env.items():
             if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY") and observe:
@@ -230,12 +304,17 @@ def run(
                     shutil.copyfile(events_file, events_path)
                 except OSError:
                     pass
-            return {
+            payload = {
                 "oracle_events": events,
                 "oracle_forged_events": forged,
                 "oracle_forged_reason": forged_reason,
                 "app_tree_changes": tree_changes(workspace, staged, exclude),
             }
+            if effect == "canary_write":
+                written, listing = _read_outside(outside_file)
+                payload["canary_written"] = written
+                payload["outside_listing"] = listing
+            return payload
 
         # 1) Resolve the prebuilt image (built once with network, reused across runs).
         if image is None:
@@ -281,7 +360,12 @@ def run(
             image,
             "bash",
             "-lc",
-            f"pytest -q -p no:cacheprovider {plugin_flag}/workspace/{rel_test}",
+            f"pytest -q -p no:cacheprovider {plugin_flag}/workspace/{rel_test}" + (
+                # pytest's own exit status is kept; the dump runs after it, in isolated mode.
+                f"; rc=$?; python -I -S -c {shlex.quote(_OUTSIDE_DUMP)} "
+                f"{shlex.quote(str(canary_work))} {shlex.quote(str(mount))} {_OUTSIDE_MOUNT}; exit $rc"
+                if effect == "canary_write" else ""
+            ),
         ]
 
         try:

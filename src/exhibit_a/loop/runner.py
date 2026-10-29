@@ -78,6 +78,7 @@ class TestRunner(Protocol):
         entry_points: Collection[str],
         *,
         timeout: float,
+        effect: str = "canary_read",
     ) -> Judgement:
         """Run one exploit test against ``app_root`` and judge why it failed or passed."""
         ...
@@ -106,6 +107,7 @@ class SandboxRunner:
         entry_points: Collection[str],
         *,
         timeout: float,
+        effect: str = "canary_read",
     ) -> Judgement:
         """Run the exploit in the sandbox and judge it; raises ``OSError`` if it could not run."""
         from exhibit_a.sandbox import run
@@ -127,7 +129,10 @@ class SandboxRunner:
             shutil.copyfile(test_path, stage / oracle_dir / "test_exploit.py")
             (stage / oracle_dir / "conftest.py").write_text(_CONFTEST, encoding="utf-8")
             canary = Path(tmp) / "canary.txt"
-            canary.write_text(token + "\n", encoding="utf-8")
+            # For a read effect the canary must exist before the run; for a write
+            # effect it must be absent so the app creates it during the run.
+            if effect == "canary_read":
+                canary.write_text(token + "\n", encoding="utf-8")
             # The stage is never mounted (the sandbox copies it), so it stays the host's
             # untouched copy of what the plugin's manifest describes.
             try:
@@ -140,11 +145,12 @@ class SandboxRunner:
                 timeout,
                 requirements=list(self.requirements),
                 image=self.image,
-                canary_path=str(canary),
+                canary_path=str(canary) if effect == "canary_read" else None,
                 canary_mount=_CANARY_MOUNT,
                 events_path=str(Path(tmp) / "events.jsonl"),
                 env={ENV_CANARY_TOKEN: token, ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed"},
                 manifest=manifest,
+                effect=effect,
             )
             if result["outcome"] == "env_failure":
                 raise OSError(f"sandbox could not run the exploit: {result['stderr']}")
@@ -159,6 +165,10 @@ class SandboxRunner:
                 app_tree=AppTree(str(_WORKSPACE), stage, manifest),
                 app_tree_changes=result.get("app_tree_changes", []),
                 allowed_dir=f"{_SCRATCH}/allowed",
+                effect=effect,
+                # Read: nothing to check after the run. Write: the sandbox's post-run dump of the
+                # outside/ tmpfs must confirm a regular file with the token; absent means False.
+                canary_written=bool(result.get("canary_written", False)) if effect == "canary_write" else None,
             )
 
 

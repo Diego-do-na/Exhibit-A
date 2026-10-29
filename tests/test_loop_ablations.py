@@ -82,7 +82,7 @@ class FakeRunner:
     def run_baseline(self, clone, test_path, timeout):
         return {"outcome": "passed", "exit_code": 0, "stdout": "", "stderr": "", "oracle_events": []}
 
-    def run_exploit(self, app_root, test_path, entry_points, *, timeout):
+    def run_exploit(self, app_root, test_path, entry_points, *, timeout, effect: str = "canary_read"):
         marker = Path(test_path).read_text().splitlines()[0].removeprefix("# ")
         on_fixed = Path(app_root).name == "fixed"
         self.exploits.append((marker, on_fixed))

@@ -289,3 +289,171 @@ def test_run_exploit_runs_the_guard_before_staging(docker, tmp_path):
     j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0)
     assert j.test_outcome == "error" and j.reason_code == "channel_tripwire"
     assert fake.runs == []
+
+
+# --- write effect (T076): tmpfs outside/, no canary file, post-run dump ---------------------------
+
+WORK = "/tmp/exhibit_a_oracle"
+WRITE_MOUNT = f"{WORK}/outside/canary.txt"
+OUTSIDE = "/oracle/outside.json"
+
+
+def _write_outside(state, written=True, listing=None, raw=None):
+    body = raw if raw is not None else json.dumps({
+        "canary_written": written,
+        "listing": [{"path": "outside/canary.txt", "kind": "file", "size": 40}] if listing is None else listing,
+    })
+    Path(state["mounts"][OUTSIDE]).write_text(body, encoding="utf-8")
+
+
+def _write_run(tmp_path, **overrides):
+    repo = tmp_path / "repo"
+    if not repo.exists():
+        _repo(tmp_path)
+    kwargs = dict(timeout=60, image="fake", canary_mount=WRITE_MOUNT, effect="canary_write",
+                  env={"EXHIBIT_A_CANARY_TOKEN": "TOKEN"})
+    kwargs.update(overrides)
+    return run(str(repo), "tests/test_x.py", **kwargs)
+
+
+def test_write_effect_mounts_no_canary_and_gives_outside_a_size_capped_tmpfs(docker, tmp_path):
+    fake = docker(play=_write_outside)
+    r = _write_run(tmp_path)
+    (call,) = fake.runs
+    cmd = call["cmd"]
+    assert cmd[cmd.index("--tmpfs", cmd.index(f"{WORK}:rw,size=16m,mode=1777") - 1) + 1] == f"{WORK}:rw,size=16m,mode=1777"
+    # No canary file, and no host directory, is mounted: only workspace, plugin, events, result file.
+    assert set(fake.last["mounts"]) == {"/workspace", f"/opt/exhibit_a_plugin/exhibit_a_oracle_plugin.py",
+                                        "/oracle/events.jsonl", OUTSIDE}
+    assert WRITE_MOUNT not in fake.last["mounts"] and "/oracle/canary" not in fake.last["mounts"]
+    assert fake.last["env"]["EXHIBIT_A_CANARY"] == WRITE_MOUNT
+    # pytest's exit status survives the dump that follows it.
+    script = cmd[-1]
+    assert script.startswith("pytest -q") and "; rc=$?; python -I -S -c " in script and script.endswith("; exit $rc")
+    assert r["canary_written"] is True
+    assert r["outside_listing"] == [{"path": "outside/canary.txt", "kind": "file", "size": 40}]
+
+
+def test_the_read_effect_command_and_result_are_unchanged(docker, tmp_path):
+    fake = docker(exit_code=0)
+    repo, canary = _repo(tmp_path)
+    r = run(str(repo), "tests/test_x.py", timeout=60, image="fake", canary_path=str(canary))
+    assert fake.runs[0]["cmd"][-1] == "pytest -q -p no:cacheprovider -p exhibit_a_oracle_plugin /workspace/tests/test_x.py"
+    assert "canary_written" not in r and "outside_listing" not in r
+    assert OUTSIDE not in fake.last["mounts"]
+
+
+@pytest.mark.parametrize("raw", [
+    "", "not json", "[]", '{"canary_written": "true"}', '{"canary_written": 1}', '{"canary_written": null}',
+    '{"listing": []}', json.dumps({"canary_written": False}), "x" * (2 << 20),
+])
+def test_an_untrusted_result_file_never_confirms_a_write(docker, tmp_path, raw):
+    docker(play=lambda state: _write_outside(state, raw=raw))
+    r = _write_run(tmp_path)
+    assert r["canary_written"] is False
+
+
+def test_a_dump_that_never_ran_leaves_the_write_unconfirmed(docker, tmp_path):
+    docker()  # nothing writes the result file: a timeout or a killed container
+    r = _write_run(tmp_path)
+    assert r["canary_written"] is False and r["outside_listing"] == []
+
+
+def test_a_malformed_listing_is_cleaned_not_trusted(docker, tmp_path):
+    listing = [{"path": "outside/a", "kind": "file", "size": 1}, {"path": 3}, "x",
+               {"path": "b", "kind": "file", "size": True}, {"path": "c" * 900, "kind": "dir", "size": 0}]
+    docker(play=lambda state: _write_outside(state, listing=listing))
+    r = _write_run(tmp_path)
+    assert [e["path"][:3] for e in r["outside_listing"]] == ["out", "ccc"]
+    assert len(r["outside_listing"][1]["path"]) == 300
+
+
+def test_a_write_effect_refuses_a_canary_file_and_the_default_mount(docker, tmp_path):
+    fake = docker()
+    canary = tmp_path / "canary.txt"
+    canary.write_text("TOKEN")
+    r = _write_run(tmp_path, canary_path=str(canary))
+    assert r["outcome"] == "env_failure" and "canary_path must be None" in r["stderr"]
+    r = _write_run(tmp_path, canary_mount="/oracle/canary")
+    assert r["outcome"] == "env_failure" and "canary_mount" in r["stderr"]
+    r = _write_run(tmp_path, effect="canary_delete")
+    assert r["outcome"] == "env_failure" and "unknown oracle effect" in r["stderr"]
+    assert fake.runs == []
+
+
+# SandboxRunner.run_exploit(effect="canary_write") end to end through the fake.
+
+def _write_event(state):
+    """The event the plugin writes when the app creates the canary: flags O_WRONLY|O_CREAT|O_TRUNC."""
+    event = _genuine(state)
+    event.update(mode="w", flags=577, access="write",
+                 requested="/tmp/exhibit_a_oracle/allowed/../outside/canary.txt")
+    return event
+
+
+def _write_exploit(tmp_path):
+    clone, exploit = _clone(tmp_path)
+    return clone, exploit
+
+
+def test_run_exploit_write_effect_proves_when_the_dump_confirms_the_file(docker, tmp_path):
+    def play(state):
+        _write_events(state, _write_event(state))
+        _write_outside(state, written=True)
+
+    fake = docker(play=play)
+    clone, exploit = _write_exploit(tmp_path)
+    j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0, effect="canary_write")
+    assert j.test_outcome == "failed" and j.observed_effect and j.provenance_ok, j.reason
+    assert "written" in j.reason and j.app_tree_changes == []
+    assert WRITE_MOUNT not in fake.last["mounts"]  # no canary file was mounted
+    assert fake.last["env"]["EXHIBIT_A_ALLOWED_DIR"] == f"{WORK}/allowed"
+
+
+def test_run_exploit_write_effect_without_a_confirmed_file_proves_nothing(docker, tmp_path):
+    # An open for writing is on record, but the dump finds no file with the token (or never ran).
+    docker(play=lambda state: _write_events(state, _write_event(state)))
+    clone, exploit = _write_exploit(tmp_path)
+    j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0, effect="canary_write")
+    assert not j.observed_effect and not j.provenance_ok and j.reason_code == "no_effect"
+    assert "no file holding the run's token" in j.reason
+
+
+def test_run_exploit_write_effect_ignores_a_read_of_the_canary(docker, tmp_path):
+    def play(state):
+        _write_events(state, _genuine(state))  # a read event
+        _write_outside(state, written=True)
+
+    docker(play=play)
+    clone, exploit = _write_exploit(tmp_path)
+    j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0, effect="canary_write")
+    assert not j.observed_effect and j.reason_code == "no_effect"
+
+
+def test_app_tree_check_ignores_writes_outside_the_app_tree_but_not_inside_it(docker, tmp_path):
+    def outside_only(state):
+        _write_events(state, _write_event(state))
+        _write_outside(state, written=True)  # the app wrote into the tmpfs, not into /workspace
+
+    docker(play=outside_only)
+    clone, exploit = _write_exploit(tmp_path)
+    j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0, effect="canary_write")
+    assert j.provenance_ok and j.app_tree_changes == []
+
+    def inside(state):
+        (Path(state["mounts"]["/workspace"]) / "shim.py").write_text("x = 1\n")
+        outside_only(state)
+
+    docker(play=inside)
+    j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0, effect="canary_write")
+    assert not j.provenance_ok and j.reason_code == "app_tree_changed"
+    assert j.app_tree_changes == ["added: shim.py"]
+
+
+def test_run_exploit_defaults_to_the_read_effect(docker, tmp_path):
+    fake = docker(play=lambda state: _write_events(state, _genuine(state)))
+    clone, exploit = _clone(tmp_path)
+    j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0)
+    assert j.provenance_ok and "/oracle/canary" not in fake.last["mounts"]
+    assert WRITE_MOUNT in fake.last["mounts"]  # the read effect still mounts the real canary file
+    assert OUTSIDE not in fake.last["mounts"]
