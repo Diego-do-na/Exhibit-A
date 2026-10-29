@@ -30,6 +30,17 @@ An open that reaches the canary through a symlink created during the run is flag
 ``via_symlink``: a test can plant such a link inside the app's own directory and make a
 lexically safe app follow it, which proves nothing about the app (see ``_fresh_symlink``).
 
+Events are signed (finding A-1). The orchestrator generates a per-run key and writes it to
+this process's stdin; the plugin reads it once, at import, before pytest collects anything
+or redirects stdin. Each event is written as ``{"body": ..., "seq": n, "sig": hex}`` where
+``sig`` is HMAC-SHA256 over ``seq`` and the canonical JSON of ``body`` (see ``_signed_bytes``)
+and ``seq`` counts up from 0. A test that appends to the events file cannot produce a valid
+signature without the key; one that replays a genuine line repeats its ``seq``. If no key
+arrives the plugin runs *unsigned* (``sig`` is empty) and the judge trusts none of its events.
+After install the events path is removed from ``os.environ`` and the file is written through
+a descriptor opened at install time. None of this is a boundary against a test that inspects
+this process's memory: the key lives in this process. See docs/oracle-a1.md.
+
 The module stays self-contained (stdlib only): the sandbox mounts it as a single file.
 """
 
@@ -37,6 +48,8 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import hashlib
+import hmac
 import json
 import os
 import stat
@@ -48,6 +61,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 ENV_CANARY = "EXHIBIT_A_CANARY"
 ENV_EVENTS = "EXHIBIT_A_EVENTS"
+
+# What the orchestrator writes to stdin: the magic, the key in hex, a newline. Nothing else.
+KEY_MAGIC = b"EXHIBIT-A-KEY "
+KEY_BYTES = 32
+_MAX_STDIN = 4096
 
 _MAX_FRAMES = 200
 _BOUNDARY = {"file": "<thread>", "function": "<thread boundary>", "qualname": "<thread boundary>"}
@@ -239,13 +257,115 @@ def _symlink_fields(requested: str, since: float) -> dict[str, object]:
     return {"via_symlink": True, "symlink": link[:_MAX_FIELD], "symlink_target": target[:_MAX_FIELD]}
 
 
-def _install(canary: str, events_path: str) -> None:
+def key_message(key: bytes) -> bytes:
+    """What the orchestrator writes to the plugin's stdin to hand it ``key``."""
+    return KEY_MAGIC + key.hex().encode("ascii") + b"\n"
+
+
+def _signed_bytes(seq: int, body: dict) -> bytes:
+    """The bytes an event's signature covers: its seq and the canonical JSON of its body."""
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return f"{seq}\n{canonical}".encode("ascii")
+
+
+def sign_event(key: bytes | None, seq: int, body: dict) -> dict:
+    """The line written for one event; with no key the signature is empty (unsigned)."""
+    sig = hmac.new(key, _signed_bytes(seq, body), hashlib.sha256).hexdigest() if key else ""
+    return {"body": body, "seq": seq, "sig": sig}
+
+
+def verify_lines(lines, key: bytes) -> tuple[list[dict], list[str]]:
+    """Bodies of the lines that verify under ``key``, and a reason for each dropped line.
+
+    A line is dropped if it is not ``{"body": object, "seq": int, "sig": str}``, if it is
+    unsigned, if its signature does not match, or if its seq is not greater than the last
+    accepted one (a replayed or reordered line). Blank lines are ignored.
+    """
+    bodies: list[dict] = []
+    rejected: list[str] = []
+    last = -1
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except ValueError:
+            rejected.append("malformed line")
+            continue
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"body", "seq", "sig"}
+            or not isinstance(item["body"], dict)
+            or type(item["seq"]) is not int
+            or not isinstance(item["sig"], str)
+        ):
+            rejected.append("malformed line")
+            continue
+        if not item["sig"]:
+            rejected.append("unsigned event")
+            continue
+        try:
+            expected = hmac.new(key, _signed_bytes(item["seq"], item["body"]), hashlib.sha256).hexdigest()
+        except (TypeError, ValueError):
+            rejected.append("malformed line")
+            continue
+        if not hmac.compare_digest(expected, item["sig"]):
+            rejected.append("bad signature")
+            continue
+        if item["seq"] <= last:
+            rejected.append("repeated or out-of-order seq")
+            continue
+        last = item["seq"]
+        bodies.append(item["body"])
+    return bodies, rejected
+
+
+def _read_key() -> bytes | None:
+    """Read the run key from stdin, once; ``None`` (unsigned mode) if none was supplied.
+
+    Only a pipe or a regular file is read: a terminal or ``/dev/null`` means no key, and
+    reading a terminal would block. The orchestrator closes the pipe after writing, so the
+    read ends; the data is consumed from the pipe and cannot be read again from fd 0.
+    """
+    try:
+        mode = os.fstat(0).st_mode
+    except OSError:
+        return None
+    if not (stat.S_ISFIFO(mode) or stat.S_ISREG(mode) or stat.S_ISSOCK(mode)):
+        return None
+    chunks = []
+    size = 0
+    try:
+        while size <= _MAX_STDIN:
+            chunk = os.read(0, _MAX_STDIN)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+    except OSError:
+        return None
+    data = b"".join(chunks)
+    if not data.startswith(KEY_MAGIC) or not data.endswith(b"\n"):
+        return None
+    try:
+        key = bytes.fromhex(data[len(KEY_MAGIC):-1].decode("ascii"))
+    except ValueError:
+        return None
+    return key if len(key) == KEY_BYTES else None
+
+
+def _install(canary: str, events_path: str, key: bytes | None) -> None:
     global _installed
     if _installed:
         return
     _installed = True
     since = time.time() - _SYMLINK_SLACK
     canary = os.path.realpath(canary)
+    # Opened before the audit hook exists, so this open is not observed; every write goes
+    # through this descriptor and the path is not kept anywhere the test can look it up.
+    fd = os.open(events_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    seq = [0]
+    lock = threading.Lock()
 
     def hook(event: str, args: tuple) -> None:
         if event != "open":
@@ -261,23 +381,34 @@ def _install(canary: str, events_path: str) -> None:
             return
         record = {"path": canary, "mode": str(args[1]), "stack": _stack(sys._getframe(1))}
         record.update(_symlink_fields(requested, since))
-        with open(events_path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record) + "\n")
+        with lock:
+            line = json.dumps(sign_event(key, seq[0], record)) + "\n"
+            seq[0] += 1
+            os.write(fd, line.encode("utf-8"))
 
     _patch_handoffs()
     sys.addaudithook(hook)
 
 
 def _install_from_env() -> None:
+    if _installed:
+        return
     canary = os.environ.get(ENV_CANARY)
     events_path = os.environ.get(ENV_EVENTS)
     if canary and events_path:
-        _install(canary, events_path)
+        # stdin is read only in a run the orchestrator set up (both variables present), so
+        # importing this module elsewhere (the orchestrator itself) never touches its stdin.
+        _install(canary, events_path, _read_key())
+        # The canary path stays: it is the target, not the channel, and exploits derive it
+        # from the allowed directory anyway. /proc/self/environ still shows the variable as
+        # set at exec; that is why nothing secret is ever put in the environment.
+        os.environ.pop(ENV_EVENTS, None)
 
 
 # Install on import, not only at configure time: ``-p`` plugins are imported before
 # entry-point plugins, so modules that bind ``copy_context`` by name at import (anyio does)
-# pick up the patched function.
+# pick up the patched function. Importing is also before pytest starts capturing (which
+# points fd 0 at /dev/null), so the key is still on stdin.
 _install_from_env()
 
 

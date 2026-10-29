@@ -17,14 +17,21 @@ Returns:
         "exit_code": int | None,
         "stdout": str,
         "stderr": str,
-        "oracle_events": list
+        "oracle_events": list,
+        "oracle_forged_events": int
     }
+
+Oracle events are signed by the plugin with a key generated here per run and written to the
+container's stdin (``docker run -i``), never to its environment, command line or a mount.
+Only lines that verify are returned in ``oracle_events`` (as their event bodies); the rest
+are dropped and counted in ``oracle_forged_events`` (finding A-1, docs/oracle-a1.md).
 
 This module shells out to the `docker` CLI. It does not mount the docker socket
 or any host directory other than a temporary copy of `clone_path`.
 """
 from __future__ import annotations
 
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -32,10 +39,10 @@ import uuid
 import os
 import sys
 from pathlib import Path, PurePosixPath
-import json
 from typing import Dict, Any, Mapping
 
 from .image import build_image
+from exhibit_a.oracle.plugin import KEY_BYTES, key_message, verify_lines
 
 PYTEST_VERSION = "pytest==7.3.2"
 
@@ -48,19 +55,19 @@ _EVENTS_MOUNT = "/oracle/events.jsonl"
 _ENV_PREFIX = "EXHIBIT_A_"
 
 
-def _read_events(path: str) -> list:
-    """Parse the JSONL events file; malformed lines are dropped (the file is untrusted)."""
-    events = []
+def _read_events(path: str, key: bytes) -> tuple[list, int]:
+    """Bodies of the signed lines that verify under ``key``, and how many lines were dropped.
+
+    The file is writable from inside the container, so every line is untrusted: malformed,
+    unsigned, badly signed and replayed (seq not increasing) lines are all dropped.
+    """
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                try:
-                    events.append(json.loads(line))
-                except ValueError:
-                    continue
+            lines = fh.read().splitlines()
     except OSError:
-        pass
-    return events
+        return [], 0
+    bodies, rejected = verify_lines(lines, key)
+    return bodies, len(rejected)
 
 
 def _check_docker_available() -> bool:
@@ -110,7 +117,7 @@ def run(
         dict with outcome, exit_code, stdout, stderr, oracle_events.
     """
     if not _check_docker_available():
-        return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": "docker not available", "oracle_events": []}
+        return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": "docker not available", "oracle_events": [], "oracle_forged_events": 0}
 
     # Create a temporary copy of the clone. Place it under a directory inside the
     # user's HOME so Colima (which shares $HOME) can bind-mount it reliably.
@@ -133,7 +140,7 @@ def run(
         extra_env = dict(env or {})
         bad = [k for k in extra_env if not k.startswith(_ENV_PREFIX)]
         if bad:
-            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"env keys must start with {_ENV_PREFIX}: {bad}", "oracle_events": []}
+            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"env keys must start with {_ENV_PREFIX}: {bad}", "oracle_events": [], "oracle_forged_events": 0}
 
         mount = PurePosixPath(canary_mount)
         canary_work = mount.parent.parent
@@ -144,9 +151,10 @@ def run(
             or not canary_work.is_relative_to("/tmp")
             or canary_work == PurePosixPath("/tmp")
         ):
-            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"invalid canary_mount: {canary_mount!r}", "oracle_events": []}
+            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"invalid canary_mount: {canary_mount!r}", "oracle_events": [], "oracle_forged_events": 0}
 
         observe = canary_path is not None or events_path is not None
+        oracle_key = secrets.token_bytes(KEY_BYTES)
         events_file = os.path.join(tmpdir, "events.jsonl")
         extra_args: list[str] = []
         plugin_flag = ""
@@ -156,6 +164,8 @@ def run(
             plugin_copy = os.path.join(tmpdir, f"{_PLUGIN_MODULE}.py")
             shutil.copyfile(_PLUGIN_SOURCE, plugin_copy)
             extra_args += ["-v", f"{plugin_copy}:{_PLUGIN_DIR}/{_PLUGIN_MODULE}.py:ro"]
+            # Still a known path inside the container (a bind mount cannot be hidden from the
+            # test); the plugin signs every line, and unverified lines are dropped in collect().
             extra_args += ["-v", f"{events_file}:{_EVENTS_MOUNT}:rw"]
             extra_args += ["-e", f"PYTHONPATH={_PLUGIN_DIR}", "-e", f"EXHIBIT_A_EVENTS={_EVENTS_MOUNT}"]
             if canary_path is not None:
@@ -169,33 +179,34 @@ def run(
                     extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777"]
                 extra_args += ["-v", f"{canary_copy}:{mount}:ro", "-e", f"EXHIBIT_A_CANARY={mount}"]
             plugin_flag = f"-p {_PLUGIN_MODULE} "
-        for key, value in extra_env.items():
-            if key in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY") and observe:
+        for env_name, value in extra_env.items():
+            if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY") and observe:
                 continue
-            extra_args += ["-e", f"{key}={value}"]
+            extra_args += ["-e", f"{env_name}={value}"]
 
-        def collect() -> list:
+        def collect() -> dict:
             if not observe:
-                return []
-            events = _read_events(events_file)
+                return {"oracle_events": [], "oracle_forged_events": 0}
+            events, forged = _read_events(events_file, oracle_key)
             if events_path is not None:
                 try:
                     shutil.copyfile(events_file, events_path)
                 except OSError:
                     pass
-            return events
+            return {"oracle_events": events, "oracle_forged_events": forged}
 
         # 1) Resolve the prebuilt image (built once with network, reused across runs).
         if image is None:
             try:
                 image = build_image([PYTEST_VERSION, *(requirements or [])])
             except (RuntimeError, ValueError, subprocess.SubprocessError, OSError) as e:
-                return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"failed to prepare sandbox image: {e}", "oracle_events": []}
+                return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": f"failed to prepare sandbox image: {e}", "oracle_events": [], "oracle_forged_events": 0}
 
         # 2) Run the image with strict isolation and no network.
         cmd = [
             "docker",
             "run",
+            "-i",  # stdin carries the oracle key to the plugin, and nothing else
             "--name",
             run_name,
             "--rm",
@@ -232,7 +243,13 @@ def run(
         ]
 
         try:
-            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+            proc = subprocess.run(
+                cmd,
+                input=key_message(oracle_key) if observe else b"",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+            )
             stdout = proc.stdout.decode(errors="replace")
             stderr = proc.stderr.decode(errors="replace")
             exit_code = proc.returncode
@@ -240,11 +257,11 @@ def run(
         except subprocess.TimeoutExpired as e:
             # ensure container is removed
             subprocess.run(["docker", "rm", "-f", run_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return {"outcome": "timeout", "exit_code": None, "stdout": e.stdout.decode() if e.stdout else "", "stderr": e.stderr.decode() if e.stderr else "", "oracle_events": collect()}
+            return {"outcome": "timeout", "exit_code": None, "stdout": e.stdout.decode() if e.stdout else "", "stderr": e.stderr.decode() if e.stderr else "", **collect()}
         except OSError as e:
-            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": str(e), "oracle_events": []}
+            return {"outcome": "env_failure", "exit_code": None, "stdout": "", "stderr": str(e), "oracle_events": [], "oracle_forged_events": 0}
 
-        return {"outcome": outcome, "exit_code": exit_code, "stdout": stdout, "stderr": stderr, "oracle_events": collect()}
+        return {"outcome": outcome, "exit_code": exit_code, "stdout": stdout, "stderr": stderr, **collect()}
     finally:
         # best-effort cleanup of the temp dir
         try:

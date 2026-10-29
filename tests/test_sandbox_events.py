@@ -110,3 +110,53 @@ def test_canary_mount_cannot_shadow_the_clone_or_the_oracle(tmp_path: Path, moun
     canary.write_text("TOKEN")
     r = run(str(repo), "tests/test_x.py", timeout=60, canary_path=str(canary), canary_mount=mount)
     assert r["outcome"] == "env_failure" and "canary_mount" in r["stderr"]
+
+
+# --- A-1: signed events in the sandbox (needs Docker) ---------------------------------------
+
+
+def test_forged_event_line_written_in_the_container_is_dropped(tmp_path: Path):
+    body = (
+        "import json\n"
+        "def test_forge():\n"
+        "    fake = {'path': '/oracle/canary', 'mode': 'r', 'via_symlink': False, 'stack': [\n"
+        "        {'file': '/workspace/tests/test_x.py', 'function': 'test_forge', 'qualname': 'test_forge'},\n"
+        "        {'file': '/workspace/app.py', 'function': 'handle_request', 'qualname': 'App.handle_request'}]}\n"
+        "    with open('/oracle/events.jsonl', 'a') as fh:\n"
+        "        fh.write(json.dumps(fake) + '\\n')\n"
+        "        fh.write(json.dumps({'body': fake, 'seq': 0, 'sig': 'ab' * 32}) + '\\n')\n"
+        "    assert False\n"
+    )
+    repo = _repo(tmp_path, body)
+    canary = tmp_path / "canary.txt"
+    canary.write_text("TOKEN")
+    r = run(str(repo), "tests/test_x.py", timeout=60, canary_path=str(canary), events_path=str(tmp_path / "e.jsonl"))
+    assert r["outcome"] == "failed", r
+    assert r["oracle_events"] == []
+    assert r["oracle_forged_events"] == 2
+
+
+def test_key_is_not_in_the_container_environ_cmdline_or_events_env(tmp_path: Path, monkeypatch):
+    import exhibit_a.sandbox.runner as runner_mod
+
+    key = bytes(range(32))
+    monkeypatch.setattr(runner_mod.secrets, "token_bytes", lambda n: key)
+    body = (
+        "import os\n"
+        "def test_dump():\n"
+        "    print('ENVIRON', open('/proc/self/environ', 'rb').read())\n"
+        "    print('CMDLINE', open('/proc/self/cmdline', 'rb').read())\n"
+        "    print('STDIN', os.read(0, 4096))\n"
+        "    print('EVENTS_ENV', 'EXHIBIT_A_EVENTS' in os.environ)\n"
+        "    assert False  # shows the captured output in the report\n"
+    )
+    repo = _repo(tmp_path, body)
+    canary = tmp_path / "canary.txt"
+    canary.write_text("TOKEN")
+    r = run(str(repo), "tests/test_x.py", timeout=60, canary_path=str(canary))
+    assert r["outcome"] == "failed", r
+    assert "ENVIRON b'" in r["stdout"] and "CMDLINE b'" in r["stdout"], r["stdout"]
+    assert key.hex() not in r["stdout"]
+    assert repr(key)[2:-1] not in r["stdout"]
+    assert "EXHIBIT-A-KEY" not in r["stdout"]
+    assert "EVENTS_ENV False" in r["stdout"]
