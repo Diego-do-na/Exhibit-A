@@ -7,6 +7,7 @@ import argparse
 from .ledger import cmd_ledger
 from .run import cmd_run
 from .scan import cmd_scan
+from ..models.config import PROVIDER_REGISTRY
 
 NOT_WIRED_YET = "not wired yet"
 
@@ -43,6 +44,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--replay",
         action="store_true",
         help="Replay recorded model calls instead of calling a provider.",
+    )
+    # Provider/model selection for live runs. Choices are driven by the
+    # provider registry so new backends appear automatically.
+    run.add_argument(
+        "--provider",
+        choices=sorted(PROVIDER_REGISTRY),
+        default=None,
+        help="Model provider to use for every role (overrides EXHIBIT_A_PROVIDER).",
+    )
+    run.add_argument(
+        "--model",
+        default=None,
+        help="Model name to use for every role (overrides EXHIBIT_A_MODEL).",
     )
     run.add_argument(
         "--budget-usd",

@@ -31,8 +31,13 @@ def _live_roles(args: argparse.Namespace, meter: CostMeter | None) -> Roles:
     the parser gains explicit flags. Every role shares one cost meter, which
     enforces the --budget-usd hard stop.
     """
-    provider_name = getattr(args, "provider", None) or LIVE_PROVIDER_DEFAULT
-    model = getattr(args, "model", None) or LIVE_MODEL_DEFAULT
+    # Precedence: explicit CLI flags > environment variables > built-in defaults.
+    provider_name = getattr(args, "provider", None)
+    if not provider_name:
+        provider_name = os.environ.get("EXHIBIT_A_PROVIDER") or LIVE_PROVIDER_DEFAULT
+    model = getattr(args, "model", None)
+    if not model:
+        model = os.environ.get("EXHIBIT_A_MODEL") or LIVE_MODEL_DEFAULT
     config = {
         role: RoleConfig(provider=provider_name, model=model) for role in Role
     }
