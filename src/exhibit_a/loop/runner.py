@@ -12,6 +12,13 @@ with the test in a private oracle directory, mounts the canary as a real read-on
 the same allowed/outside layout the host oracle uses, and judges the oracle events written
 inside the container with the oracle's own provenance rules, applied to the paths the
 container saw. Unit tests inject a fake runner so they need no Docker.
+
+The exploit path applies the same oracle defences as the host path (docs/oracle-a1.md,
+docs/oracle-provenance.md): the static tripwire runs before staging (a hit is an ``error``
+judgement, i.e. ``invalid_test``); the staged app is hashed and the manifest goes to the
+plugin with the key; forged event lines and any change to the app tree reach the judgement
+(``forged_events``, ``app_tree_changes``), and frames count as application code only if the
+plugin admitted them and they match the staged copy kept on the host.
 """
 
 from __future__ import annotations
@@ -27,7 +34,15 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import ValidationError
 
 from exhibit_a.oracle import Judgement, OracleEvent
-from exhibit_a.oracle.oracle import ENV_ALLOWED_DIR, ENV_CANARY_TOKEN, TestOutcome, _judge
+from exhibit_a.oracle.guard import channel_problem
+from exhibit_a.oracle.oracle import (
+    ENV_ALLOWED_DIR,
+    ENV_CANARY_TOKEN,
+    REASON_CHANNEL_TRIPWIRE,
+    TestOutcome,
+    _judge,
+)
+from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest
 
 # Where the sandbox mounts the clone; frames recorded inside the container use these paths.
 _WORKSPACE = PurePosixPath("/workspace")
@@ -95,6 +110,13 @@ class SandboxRunner:
         """Run the exploit in the sandbox and judge it; raises ``OSError`` if it could not run."""
         from exhibit_a.sandbox import run
 
+        problem = channel_problem(Path(test_path))
+        if problem is not None:
+            # Not run at all, as on the host path: the loop classifies "error" as invalid_test.
+            return Judgement(
+                observed_effect=False, provenance_ok=False, reason=problem, test_outcome="error",
+                reason_code=REASON_CHANNEL_TRIPWIRE,
+            )
         oracle_dir = f"_exhibit_a_oracle_{secrets.token_hex(4)}"
         container_test = _WORKSPACE / oracle_dir / "test_exploit.py"
         token = "CANARY-" + secrets.token_hex(16)
@@ -106,6 +128,12 @@ class SandboxRunner:
             (stage / oracle_dir / "conftest.py").write_text(_CONFTEST, encoding="utf-8")
             canary = Path(tmp) / "canary.txt"
             canary.write_text(token + "\n", encoding="utf-8")
+            # The stage is never mounted (the sandbox copies it), so it stays the host's
+            # untouched copy of what the plugin's manifest describes.
+            try:
+                manifest = app_manifest(stage, {oracle_dir})
+            except ManifestError as exc:
+                raise OSError(f"cannot hash the staged app: {exc}") from exc
             result = run(
                 str(stage),
                 f"{oracle_dir}/test_exploit.py",
@@ -116,16 +144,21 @@ class SandboxRunner:
                 canary_mount=_CANARY_MOUNT,
                 events_path=str(Path(tmp) / "events.jsonl"),
                 env={ENV_CANARY_TOKEN: token, ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed"},
+                manifest=manifest,
             )
-        if result["outcome"] == "env_failure":
-            raise OSError(f"sandbox could not run the exploit: {result['stderr']}")
-        return _judge(
-            _outcome(result),
-            _events(result["oracle_events"]),
-            Path(_WORKSPACE),
-            Path(container_test),
-            set(entry_points),
-        )
+            if result["outcome"] == "env_failure":
+                raise OSError(f"sandbox could not run the exploit: {result['stderr']}")
+            return _judge(
+                _outcome(result),
+                _events(result["oracle_events"]),
+                Path(_WORKSPACE),
+                Path(container_test),
+                set(entry_points),
+                forged_events=result.get("oracle_forged_events", 0),
+                forged_reason=result.get("oracle_forged_reason", ""),
+                app_tree=AppTree(str(_WORKSPACE), stage, manifest),
+                app_tree_changes=result.get("app_tree_changes", []),
+            )
 
 
 def _outcome(result: dict[str, Any]) -> TestOutcome:

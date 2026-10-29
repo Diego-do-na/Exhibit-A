@@ -196,11 +196,9 @@ because they are easy:
 
 ## Pending
 
-- `loop/runner.py` (out of scope) must make two calls:
-  - `guard.channel_problem(test_path)` before staging, returning an `error` judgement when
-    it fires;
-  - `_judge(..., forged_events=result.get("oracle_forged_events", 0))`.
-
-  Until then, on the sandbox path, forged lines are dropped but not counted in the
-  judgement, and the guard does not run.
+- Done in A-1p (`docs/oracle-provenance.md` §3.6): `loop/runner.py` now runs
+  `guard.channel_problem(test_path)` before staging and passes `oracle_forged_events` (with
+  the first drop reason) to `_judge`, so forged lines count on the sandbox path too.
+- The in-process introspection bypass above is now demonstrated end to end and pinned by a
+  strict xfail (`tests/test_oracle_residual.py`, R1).
 - An out-of-process observer (separate task) is the only real fix for the residual list.

@@ -41,11 +41,25 @@ After install the events path is removed from ``os.environ`` and the file is wri
 a descriptor opened at install time. None of this is a boundary against a test that inspects
 this process's memory: the key lives in this process. See docs/oracle-a1.md.
 
+Frames are admitted as application code only against the staged app (docs/oracle-provenance.md).
+The orchestrator hashes the app tree before the test runs and sends that manifest on stdin
+after the key. When the canary is read, a frame whose file lies under the app root is admitted
+only if the file is in the manifest, its current content still has the manifest digest, the
+staged source has a function with the frame's qualname at the frame's first line (``ast``), and
+the frame's code object equals the one compiled from that source. A function the test built
+with ``compile``/``exec`` under an app file name fails the last two checks; a module the test
+wrote into the app root fails the first. Every frame under the root carries ``admitted`` and,
+when rejected, ``admission`` (why); the judge re-checks the first three on the host.
+
+``os.open`` is wrapped so the hook knows the ``dir_fd`` an open is relative to: the audit event
+carries only the relative name, which used to be resolved against the cwd (a missed read).
+
 The module stays self-contained (stdlib only): the sandbox mounts it as a single file.
 """
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextvars
 import hashlib
@@ -65,7 +79,12 @@ ENV_EVENTS = "EXHIBIT_A_EVENTS"
 # What the orchestrator writes to stdin: the magic, the key in hex, a newline. Nothing else.
 KEY_MAGIC = b"EXHIBIT-A-KEY "
 KEY_BYTES = 32
-_MAX_STDIN = 4096
+# Optional second line (channel v2): the staged app manifest as one line of JSON,
+# {"root": <app root as this process sees it>, "files": {<relative path>: <digest>}}.
+MANIFEST_MAGIC = b"EXHIBIT-A-MANIFEST "
+_MAX_STDIN = 64 * 1024 * 1024
+_MAX_MANIFEST_ENTRIES = 200_000
+_MAX_SOURCE = 8 * 1024 * 1024
 
 _MAX_FRAMES = 200
 _BOUNDARY = {"file": "<thread>", "function": "<thread boundary>", "qualname": "<thread boundary>"}
@@ -141,23 +160,163 @@ def _capture(frame) -> tuple:
     return stack[-_MAX_FRAMES:]
 
 
-def _frame_dict(code) -> dict[str, str]:
+def _frame_dict(code, admission: _Admission | None = None) -> dict[str, object]:
     if code is None:
         return dict(_BOUNDARY)
     if code is _TASK_EDGE:
         return dict(_TASK_BOUNDARY)
     # Pseudo files such as "<frozen runpy>" must not be resolved against the cwd.
     name = code.co_filename
-    return {
-        "file": name if name.startswith("<") else os.path.realpath(name),
+    real = name if name.startswith("<") else os.path.realpath(name)
+    out: dict[str, object] = {
+        "file": real,
         "function": code.co_name,
         "qualname": code.co_qualname,
+        "line": code.co_firstlineno,
     }
+    if admission is not None and not name.startswith("<"):
+        rel = admission.relative(real)
+        if rel is not None:
+            why = admission.check(rel, code)
+            out["admitted"] = why is None
+            if why is not None:
+                out["admission"] = why[:_MAX_FIELD]
+    return out
 
 
-def _stack(frame) -> list[dict[str, str]]:
+def _stack(frame, admission: _Admission | None = None) -> list[dict[str, object]]:
     """Logical frames from the outermost caller to the innermost, as plain dicts."""
-    return [_frame_dict(code) for code in _capture(frame)]
+    return [_frame_dict(code, admission) for code in _capture(frame)]
+
+
+def code_keys(source: bytes) -> frozenset[tuple[str, int]]:
+    """``(qualname, first line)`` of every code object ``source`` defines, read with ``ast``.
+
+    The first line is what CPython puts in ``co_firstlineno``: the first decorator's line for a
+    decorated function or class. Comprehensions are listed even where 3.12+ inlines them.
+    Raises ``SyntaxError``/``ValueError`` if ``source`` is not Python.
+    """
+    keys = {("<module>", 1)}
+    comprehensions = {
+        ast.GeneratorExp: "<genexpr>",
+        ast.ListComp: "<listcomp>",
+        ast.SetComp: "<setcomp>",
+        ast.DictComp: "<dictcomp>",
+    }
+    # Each item is a node to classify and the qualname prefix of the scope it sits in.
+    todo: list[tuple[ast.AST, str]] = [(c, "") for c in ast.iter_child_nodes(ast.parse(source))]
+    while todo:
+        node, prefix = todo.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            qual = prefix + node.name
+            keys.add((qual, min([node.lineno, *(d.lineno for d in node.decorator_list)])))
+            inner = qual + ("." if isinstance(node, ast.ClassDef) else ".<locals>.")
+            body = set(map(id, node.body))
+            # Decorators, defaults, bases and annotations run in the enclosing scope.
+            for c in ast.iter_child_nodes(node):
+                todo.append((c, inner if id(c) in body else prefix))
+        elif isinstance(node, ast.Lambda):
+            keys.add((prefix + "<lambda>", node.lineno))
+            todo.extend((c, prefix + "<lambda>.<locals>.") for c in ast.iter_child_nodes(node))
+        elif type(node) in comprehensions:
+            name = comprehensions[type(node)]
+            keys.add((prefix + name, node.lineno))
+            todo.extend((c, prefix + name + ".<locals>.") for c in ast.iter_child_nodes(node))
+            if not isinstance(node, ast.GeneratorExp):
+                # 3.12+ inlines list/set/dict comprehensions (PEP 709): what they contain is
+                # named in the enclosing scope there. Both namings are listed.
+                todo.extend((c, prefix) for c in ast.iter_child_nodes(node))
+        else:
+            todo.extend((c, prefix) for c in ast.iter_child_nodes(node))
+    return frozenset(keys)
+
+
+def _is_digest(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+
+class _Admission:
+    """Decides, in this process, whether a code object is staged application code.
+
+    The primitives it uses are bound when it is created, at install, before any test code
+    runs: a test that later rebinds ``os.open``, ``hashlib.sha256`` or ``compile`` does not
+    change what admission calls. That is a tripwire against casual patching, not a boundary
+    (the test shares this process; see docs/oracle-provenance.md, residual limits).
+    """
+
+    def __init__(self, root: str, files: dict[str, str]) -> None:
+        self.root = os.path.realpath(root)
+        self.files = {rel: digest for rel, digest in files.items() if _is_digest(digest)}
+        self._open, self._read, self._close = os.open, os.read, os.close
+        self._sha256 = hashlib.sha256
+        self._compile = compile
+        self._code_keys = code_keys
+        # Compiled code per content digest: keyed by content, never by path, so a file that
+        # changes between reads is looked up again under its new digest.
+        self._index: dict[str, tuple[frozenset, dict] | str] = {}
+
+    def relative(self, real: str) -> str | None:
+        """``real`` relative to the app root (POSIX separators), or None if outside it."""
+        if real == self.root or not real.startswith(self.root.rstrip("/") + "/"):
+            return None
+        return real[len(self.root.rstrip("/")) + 1:]
+
+    def _read_file(self, path: str) -> bytes:
+        fd = self._open(path, os.O_RDONLY | os.O_CLOEXEC)
+        try:
+            chunks, size = [], 0
+            while True:
+                chunk = self._read(fd, 1 << 20)
+                if not chunk:
+                    return b"".join(chunks)
+                size += len(chunk)
+                if size > _MAX_SOURCE:
+                    raise OSError("source file too large")
+                chunks.append(chunk)
+        finally:
+            self._close(fd)
+
+    def _entry(self, digest: str, data: bytes, path: str):
+        entry = self._index.get(digest)
+        if entry is None:
+            try:
+                keys = self._code_keys(data)
+                codes: dict[tuple[str, int], list] = {}
+                todo = [self._compile(data, path, "exec", dont_inherit=True)]
+                while todo:
+                    code = todo.pop()
+                    codes.setdefault((code.co_qualname, code.co_firstlineno), []).append(code)
+                    todo.extend(c for c in code.co_consts if hasattr(c, "co_code"))
+                entry = (keys, codes)
+            except (SyntaxError, ValueError, TypeError, MemoryError, RecursionError):
+                entry = "the staged file is not Python source"
+            self._index[digest] = entry
+        return entry
+
+    def check(self, rel: str, code) -> str | None:
+        """Why ``code`` (from ``root/rel``) is not admitted, or None if it is."""
+        digest = self.files.get(rel)
+        if digest is None:
+            return "file not in the staged app manifest"
+        path = os.path.join(self.root, rel)
+        try:
+            data = self._read_file(path)
+        except OSError as exc:
+            return f"file unreadable at admission ({type(exc).__name__})"
+        if self._sha256(data).hexdigest() != digest:
+            return "file content changed since staging"
+        entry = self._entry(digest, data, path)
+        if isinstance(entry, str):
+            return entry
+        keys, codes = entry
+        key = (code.co_qualname, code.co_firstlineno)
+        if key not in keys:
+            return f"staged source has no '{key[0]}' starting at line {key[1]}"
+        # Code equality covers bytecode, constants, names and line table (not the file name):
+        # a same-named function compiled from other source at the same line fails here.
+        if not any(candidate == code for candidate in codes.get(key, ())):
+            return "code object differs from the staged source (built by compile/exec?)"
+        return None
 
 
 def _patch_handoffs() -> None:
@@ -240,15 +399,19 @@ def _fresh_symlink(path: str, since: float) -> tuple[str, str] | None:
     return None
 
 
-def _symlink_fields(requested: str, since: float) -> dict[str, object]:
+def _symlink_fields(absolute: str | None, since: float) -> dict[str, object]:
     """``via_symlink`` and, if set, the offending link and its target as short strings.
 
-    If the path cannot be walked the event is flagged too (fail closed): the oracle must
-    not vouch for a read it could not check.
+    ``absolute`` is the path as it was requested, made absolute (see ``_resolve``); None when
+    that is unknown (a ``dir_fd`` of unknown origin). If the path cannot be walked the event is
+    flagged too (fail closed): the oracle must not vouch for a read it could not check.
     """
     try:
-        absolute = requested if os.path.isabs(requested) else os.path.join(os.getcwd(), requested)
+        if absolute is None:
+            raise LookupError("dir_fd of unknown origin")
         found = _fresh_symlink(absolute, since)
+    except LookupError:
+        found = ("<unverified: dir_fd of unknown origin>", "")
     except (OSError, ValueError) as exc:
         found = (f"<unverified: {type(exc).__name__}>", "")
     if found is None:
@@ -257,9 +420,62 @@ def _symlink_fields(requested: str, since: float) -> dict[str, object]:
     return {"via_symlink": True, "symlink": link[:_MAX_FIELD], "symlink_target": target[:_MAX_FIELD]}
 
 
-def key_message(key: bytes) -> bytes:
-    """What the orchestrator writes to the plugin's stdin to hand it ``key``."""
-    return KEY_MAGIC + key.hex().encode("ascii") + b"\n"
+def key_message(key: bytes, *, app_root: str | None = None, manifest: dict | None = None) -> bytes:
+    """What the orchestrator writes to the plugin's stdin: ``key`` and, optionally, the manifest.
+
+    Without ``manifest`` this is the v1 message (one line). With it a second line carries
+    ``{"root": app_root, "files": manifest}`` as ASCII JSON (no raw newline can occur in it).
+    """
+    message = KEY_MAGIC + key.hex().encode("ascii") + b"\n"
+    if manifest is not None:
+        if not app_root:
+            raise ValueError("a manifest needs the app root it is relative to")
+        app = {"root": app_root, "files": dict(manifest)}
+        message += MANIFEST_MAGIC + json.dumps(app, sort_keys=True, ensure_ascii=True).encode("ascii") + b"\n"
+    return message
+
+
+def _valid_app(app: object) -> bool:
+    return (
+        isinstance(app, dict)
+        and set(app) == {"root", "files"}
+        and isinstance(app["root"], str)
+        and app["root"].startswith("/")
+        and isinstance(app["files"], dict)
+        and len(app["files"]) <= _MAX_MANIFEST_ENTRIES
+        and all(isinstance(k, str) and isinstance(v, str) for k, v in app["files"].items())
+    )
+
+
+def parse_channel(data: bytes) -> tuple[bytes | None, dict | None]:
+    """The key and the app manifest (or None) from what arrived on stdin.
+
+    Accepts the v1 message (key line only: no manifest, so no frame can be admitted) and the
+    v2 message (key line, manifest line). Anything else, including a malformed manifest line,
+    yields ``(None, None)``: unsigned mode, so the run can prove nothing (fail closed).
+    """
+    if not data.endswith(b"\n"):
+        return None, None
+    lines = data[:-1].split(b"\n")
+    if len(lines) > 2 or not lines[0].startswith(KEY_MAGIC):
+        return None, None
+    try:
+        key = bytes.fromhex(lines[0][len(KEY_MAGIC):].decode("ascii"))
+    except (UnicodeDecodeError, ValueError):
+        return None, None
+    if len(key) != KEY_BYTES:
+        return None, None
+    if len(lines) == 1:
+        return key, None
+    if not lines[1].startswith(MANIFEST_MAGIC):
+        return None, None
+    try:
+        app = json.loads(lines[1][len(MANIFEST_MAGIC):].decode("ascii"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        return None, None
+    if not _valid_app(app):
+        return None, None
+    return key, app
 
 
 def _signed_bytes(seq: int, body: dict) -> bytes:
@@ -320,8 +536,8 @@ def verify_lines(lines, key: bytes) -> tuple[list[dict], list[str]]:
     return bodies, rejected
 
 
-def _read_key() -> bytes | None:
-    """Read the run key from stdin, once; ``None`` (unsigned mode) if none was supplied.
+def _read_channel() -> tuple[bytes | None, dict | None]:
+    """Read the run key and app manifest from stdin, once (see ``parse_channel``).
 
     Only a pipe or a regular file is read: a terminal or ``/dev/null`` means no key, and
     reading a terminal would block. The orchestrator closes the pipe after writing, so the
@@ -330,37 +546,114 @@ def _read_key() -> bytes | None:
     try:
         mode = os.fstat(0).st_mode
     except OSError:
-        return None
+        return None, None
     if not (stat.S_ISFIFO(mode) or stat.S_ISREG(mode) or stat.S_ISSOCK(mode)):
-        return None
+        return None, None
     chunks = []
     size = 0
     try:
         while size <= _MAX_STDIN:
-            chunk = os.read(0, _MAX_STDIN)
+            chunk = os.read(0, 1 << 20)
             if not chunk:
                 break
             chunks.append(chunk)
             size += len(chunk)
     except OSError:
-        return None
-    data = b"".join(chunks)
-    if not data.startswith(KEY_MAGIC) or not data.endswith(b"\n"):
+        return None, None
+    if size > _MAX_STDIN:
+        return None, None
+    return parse_channel(b"".join(chunks))
+
+
+# Directory descriptors opened through the wrapped os.open: fd -> (st_dev, st_ino, absolute
+# path as requested). The identity check catches a closed and reused descriptor.
+_DIR_ORIGINS: dict[int, tuple[int, int, str | None]] = {}
+
+
+def _dir_origin(dir_fd: int) -> str | None:
+    """The path a directory descriptor was opened by, if it was opened through os.open."""
+    held = _DIR_ORIGINS.get(dir_fd)
+    if held is None:
         return None
     try:
-        key = bytes.fromhex(data[len(KEY_MAGIC):-1].decode("ascii"))
-    except ValueError:
+        st = os.fstat(dir_fd)
+    except OSError:
         return None
-    return key if len(key) == KEY_BYTES else None
+    return held[2] if (st.st_dev, st.st_ino) == held[:2] else None
 
 
-def _install(canary: str, events_path: str, key: bytes | None) -> None:
+def _absolute(requested: str, dir_fd: int | None) -> str | None:
+    """``requested`` made absolute without resolving symlinks, or None if that is unknown."""
+    if os.path.isabs(requested):
+        return requested
+    if dir_fd is None:
+        return os.path.join(os.getcwd(), requested)
+    base = _dir_origin(dir_fd)
+    return None if base is None else os.path.join(base, requested)
+
+
+def _resolve(requested: str, dir_fd: int | None, canary_id: tuple[int, int]) -> str | None:
+    """The real path an open of ``requested`` (relative to ``dir_fd``, if set) reaches.
+
+    With a ``dir_fd`` and a relative name the directory is found through
+    ``/proc/self/fd/<dir_fd>``. Where that does not exist (macOS) the opened file is compared to
+    the canary by identity instead; that comparison is used only while the canary has a single
+    link, so a hard link elsewhere cannot be mistaken for it. Returns None when unresolvable.
+    """
+    if dir_fd is None or os.path.isabs(requested):
+        return os.path.realpath(requested)
+    try:
+        base = os.readlink(f"/proc/self/fd/{dir_fd}")
+    except OSError:
+        base = None
+    if base is not None and base.startswith("/"):
+        return os.path.realpath(os.path.join(base, requested))
+    st = os.stat(requested, dir_fd=dir_fd)
+    if (st.st_dev, st.st_ino) == canary_id and st.st_nlink == 1:
+        return "\0canary"  # matched by identity; see the caller
+    return None
+
+
+def _patch_os_open() -> None:
+    """Wrap ``os.open`` so the audit hook can see the ``dir_fd`` of the open it observes."""
+    real_open = os.open
+
+    def open_(path, flags, mode=0o777, *, dir_fd=None):
+        previous = getattr(_local, "dir_fd", None)
+        _local.dir_fd = dir_fd
+        try:
+            fd = real_open(path, flags, mode, dir_fd=dir_fd)
+        finally:
+            _local.dir_fd = previous
+        try:
+            st = os.fstat(fd)
+            if stat.S_ISDIR(st.st_mode):
+                _DIR_ORIGINS[fd] = (st.st_dev, st.st_ino, _absolute(os.fsdecode(path), dir_fd))
+            else:
+                _DIR_ORIGINS.pop(fd, None)
+        except (OSError, TypeError, ValueError):
+            _DIR_ORIGINS.pop(fd, None)
+        return fd
+
+    open_.__name__ = "open"
+    open_.__qualname__ = "open"
+    open_.__doc__ = real_open.__doc__
+    os.open = open_
+
+
+def _install(canary: str, events_path: str, key: bytes | None, app: dict | None = None) -> None:
     global _installed
     if _installed:
         return
     _installed = True
     since = time.time() - _SYMLINK_SLACK
     canary = os.path.realpath(canary)
+    try:
+        st = os.stat(canary)
+        canary_id = (st.st_dev, st.st_ino)
+    except OSError:
+        canary_id = (-1, -1)
+    admission = _Admission(app["root"], app["files"]) if app else None
     # Opened before the audit hook exists, so this open is not observed; every write goes
     # through this descriptor and the path is not kept anywhere the test can look it up.
     fd = os.open(events_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
@@ -368,25 +661,32 @@ def _install(canary: str, events_path: str, key: bytes | None) -> None:
     lock = threading.Lock()
 
     def hook(event: str, args: tuple) -> None:
-        if event != "open":
-            return
+        if event != "open" or getattr(_local, "busy", False):
+            return  # busy: admission reading an app file from inside this hook
         target = args[0]
         if not isinstance(target, (str, bytes, os.PathLike)):
             return  # an integer file descriptor, not a path
+        dir_fd = getattr(_local, "dir_fd", None)
         try:
             requested = os.fsdecode(target)
-            if os.path.realpath(requested) != canary:
+            resolved = _resolve(requested, dir_fd, canary_id)
+            if resolved != canary and resolved != "\0canary":
                 return
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):
             return
-        record = {"path": canary, "mode": str(args[1]), "stack": _stack(sys._getframe(1))}
-        record.update(_symlink_fields(requested, since))
+        _local.busy = True
+        try:
+            record = {"path": canary, "mode": str(args[1]), "stack": _stack(sys._getframe(1), admission)}
+            record.update(_symlink_fields(_absolute(requested, dir_fd), since))
+        finally:
+            _local.busy = False
         with lock:
             line = json.dumps(sign_event(key, seq[0], record)) + "\n"
             seq[0] += 1
             os.write(fd, line.encode("utf-8"))
 
     _patch_handoffs()
+    _patch_os_open()
     sys.addaudithook(hook)
 
 
@@ -398,7 +698,8 @@ def _install_from_env() -> None:
     if canary and events_path:
         # stdin is read only in a run the orchestrator set up (both variables present), so
         # importing this module elsewhere (the orchestrator itself) never touches its stdin.
-        _install(canary, events_path, _read_key())
+        key, app = _read_channel()
+        _install(canary, events_path, key, app)
         # The canary path stays: it is the target, not the channel, and exploits derive it
         # from the allowed directory anyway. /proc/self/environ still shows the variable as
         # set at exec; that is why nothing secret is ever put in the environment.

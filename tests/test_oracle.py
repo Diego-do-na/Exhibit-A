@@ -683,7 +683,7 @@ def test_guard_checks_a_shipped_conftest(tmp_path):
 FAKE_DOCKER = '''#!{python}
 import json, sys
 sys.path.insert(0, {src!r})
-from exhibit_a.oracle.plugin import KEY_MAGIC, sign_event
+from exhibit_a.oracle.plugin import parse_channel, sign_event
 args = sys.argv[1:]
 if args[:1] != ["run"]:
     sys.exit(0)  # "docker version"
@@ -691,7 +691,8 @@ assert "-i" in args
 events = next(a.split(":")[0] for a in args if a.endswith(":/oracle/events.jsonl:rw"))
 assert not any("EXHIBIT_A_KEY" in a or a.startswith("EXHIBIT-A-KEY") for a in args)
 data = sys.stdin.buffer.read()
-key = bytes.fromhex(data[len(KEY_MAGIC):-1].decode())
+key, app = parse_channel(data)  # v2 message: the key line, then the app manifest line
+assert key is not None and app is not None and app["root"] == "/workspace"
 body = {{"path": "/oracle/canary", "mode": "r", "stack": [], "via_symlink": False}}
 genuine = json.dumps(sign_event(key, 0, body))
 with open(events, "a") as fh:
