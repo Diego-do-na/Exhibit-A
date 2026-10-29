@@ -58,3 +58,7 @@ PYTHONPATH=src python -m pytest tests/test_case_archive_extraction.py tests/test
 ```
 
 The sandbox that runs untrusted tests is **isolated and resource-limited**, never "100% safe".
+
+## Recordings
+
+This case has no `replay.jsonl`: its offline `--replay` answers come from its own **hand-authored** materials (`suspicion.json`, `exploits/`, `fixed/`) through `CaseMaterialsProvider`, not from any model. The real Meta-model recording is `recordings/meta-muse-wonder-1.0.jsonl` with its metadata in `recordings/meta-muse-wonder-1.0.json` (see `docs/meta-run.md`).
