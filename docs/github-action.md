@@ -3,6 +3,13 @@
 Run Exhibit A on every pull request and use it as a **required status check**
 that turns red only when a finding is `proven`.
 
+The check is real: on a pull request the Action runs `exhibit-a run --pr-diff
+BASE..HEAD` (T075, wired by T082) with the `provider` and `model` inputs passed as
+`--provider`/`--model`. It also fails, never passes, when the engine is incomplete
+(exit 20), rejects its input (exit 2), exits unexpectedly, or produces no verdicts
+(`status: not_run`, `surface_ran: false`). Only a risk-gate skip of a docs/tests-only
+change is green without a run.
+
 A green check means **"nothing could be proven"**. It never means the change is
 safe: the engine may not have reached the vulnerable path, or the run may have
 been skipped by the risk gate. The job summary always states which of these
@@ -44,9 +51,10 @@ Security design and its reasons: [github-action-security.md](github-action-secur
    place; a human comment quoting the marker is never edited.
 6. **Artifact**: `ledger.jsonl`, `result.json`, `summary.md` only. Not the clone,
    not the logs, not the diff.
-7. **Gate**: exit 1 only if `fail-on: proven` and at least one suspicion's
-   latest `verdict` event is `proven`. A missing result (an earlier step
-   crashed) also fails, because then nothing is known.
+7. **Gate**: exit 1 if `fail-on: proven` and at least one suspicion's latest
+   `verdict` event is `proven`. A missing result (an earlier step crashed) and
+   `status: not_run` also fail, even with `fail-on: never`, because then nothing
+   was verified.
 
 ## Inputs
 
@@ -142,25 +150,31 @@ rule decides a path, the highest risk decides the PR:
 interface so `action.yml` does not change. This task deliberately does not
 create `triage/`.
 
-## Requires
+## What the Action does today
 
-The CLI provides the PR-diff loop, bounded changed-file validation,
-append-only ledger output, and documented exit codes (`docs/cli-exit-codes.md`).
-The Action passes `BASE..HEAD` (validated 40-hex SHAs) to `--pr-diff` with
-`--provider`/`--model` from its inputs, fails the check on exit 20
-(incomplete), 2 (usage error, e.g. an unsupported provider) or any unexpected
-code, and fails the check when `surface_ran` is false or the status is
-`not_run`. `result.json` remains compatible with `ci/summary.py`.
-
-1. **Ledger path for the diff surface.** The Action expects `--out DIR` to
-   produce `DIR/ledger.jsonl`, as `--case` runs already do.
-2. **Optional: in-engine deadline.** The `timeout` wrapper kills the process;
-   an internal `--max-runtime` would let the engine write a final ledger event.
-
-What works today: `case:` + `replay: "true"` runs a benchmark case end to end
-(e.g. `bench/corpus/starlette-cve-2023-29159`), which is the way to smoke-test
-the Action on a runner with Docker. `case:` without `replay: "true"` is
-refused, and no key is exported on the `case:` path.
+- **PR runs** (the default): the Action passes the validated 40-hex `BASE..HEAD`
+  SHAs to `exhibit-a run --pr-diff` with `--provider "$provider"` and, when set,
+  `--model "$model"`. The engine verifies the changed regular Python files of the
+  diff through the sandbox-backed loop (bounded file count and size) and writes
+  `ledger.jsonl` and `result.json` to `--out`.
+- **Exit codes** (`docs/cli-exit-codes.md`): `0` the diff ran and nothing was
+  proven (this includes a diff with no runnable Python files), `10` at least one
+  finding was proven, `20` the run was incomplete (timeout, environment failure or
+  model error), `2` usage or input error (for example an unsupported provider or a
+  malformed `BASE..HEAD`). The Action continues to the summary on `0` and `10` and
+  on the `timeout` codes 124/137; `20`, `2` and any other code fail the check at
+  once, so a crash never looks green.
+- **Provider and model**: `provider` (default `meta`) and `model` are honoured. The
+  Meta endpoint, structured-output support and pricing are still UNVERIFIED
+  (`SPEC.md` section 14), and no Meta-model run has been recorded, so choose the
+  provider deliberately and set `budget-usd`.
+- **`case:` smoke test**: `case:` + `replay: "true"` runs a benchmark case end to end
+  (e.g. `bench/corpus/starlette-cve-2023-29159`), which is the way to smoke-test the
+  Action on a runner with Docker. `case:` without `replay: "true"` is refused, and no
+  key is exported on the `case:` path.
+- **Not done**: an internal `--max-runtime` deadline (the `timeout` wrapper kills the
+  process instead, so no final ledger event is written); `ci/gate.py` does not yet
+  delegate to `src/exhibit_a/triage/`.
 
 ## Setup in GitHub (step by step)
 
@@ -201,4 +215,4 @@ required checks pass. Treat the variable as part of the protected setup.
 - Fork PRs are not analysed (see the security doc).
 - Each same-repository PR run waits for a reviewer's approval.
 - Docker must be available on the runner (it is on `ubuntu-latest`).
-- The engine's own limits apply (one vulnerability class realised, see `SPEC.md`).
+- The engine's own limits apply: path traversal (read) and archive extraction (write) are the realised classes, and the oracle has declared residual limits R1-R6 (see `SPEC.md` and `docs/oracle-provenance.md` section 7). A green check means nothing could be proven, not that the change is safe.
