@@ -66,6 +66,24 @@ A finding is `proven` only if all five hold:
 
 Verdict values: `proven`, `discarded_unproven`, `invalid_test`, `flaky`, `env_failure`.
 
+Decisions (A-22):
+
+- The loop runs FIX / VERIFY / DEFEND before emitting the verdict, so condition 5
+  gates every `proven`: exactly one `verdict` event is emitted per suspicion, after
+  verification, never before the fix has been checked.
+- A stable proof whose fix is not verified (the exploit does not pass on the fixed
+  code N times, or the fixed baseline does not pass) is `discarded_unproven` with the
+  reason `exploit proven but no verified fix`. An ineffective fix therefore never
+  yields `proven`.
+- A surviving bypass does not block `proven`: it is reported in
+  `bypass_attempts.succeeded` with `verdict=proven` and an explicit `fix_incomplete`
+  flag, as condition 5 allows ("or the surviving one is reported").
+- Ablations keep their semantics: with `differential` off the exploit is never
+  re-run on the fixed code, so a stable proof may still yield `proven`, marked
+  ablated by the run flags.
+- The `verdict` event payload carries `reason_code` and `effect` alongside the
+  reason, without changing the signed oracle-event channel.
+
 ## 5. Components
 
 - **Scanner**: rule-based, with an optional small-model fallback; always verified by
