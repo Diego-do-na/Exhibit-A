@@ -143,6 +143,7 @@ def build_result(
         "tokens_in": sum(e.tokens_in for e in own),
         "tokens_out": sum(e.tokens_out for e in own),
         "cost_usd": round(sum(e.cost_usd for e in own), 6),
+        "surface_ran": bool(own),
     }
 
 

@@ -83,3 +83,4 @@ Protocol:
 - T065 assistant: added rule-based scan.detect module and tests; pending: CLI wiring and broader language support
 - A-5 Muse: added a real-path bench CLI test (copied Starlette vuln+fixed corpus with shipped replays, host runner, hermetic wheelhouse; asserts rows, per-case output, ordered ledger kinds, proven/discarded_unproven verdicts; verified it fails when the loop is skipped); pending: Docker-host rerun for container-backed numbers
 - T063 assistant: added deterministic Markdown and self-contained HTML finding reports with escaped package content and report tests; pending: none
+- T075 Copilot: added bounded PR-diff execution with sandboxed proof loop, CI result/index output, exit-code docs, and smoke script; pending: action.yml still passes --diff instead of --pr-diff, full suite has pre-existing dashboard/Python failures
