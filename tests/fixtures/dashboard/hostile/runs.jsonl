@@ -1,0 +1,3 @@
+{"dir": "run-hostile", "repo": "<script>alert(\"xss\")</script><img src=x onerror=alert(1)> javascript:alert(1)", "pr": "<script>alert(\"xss\")</script><img src=x onerror=alert(1)>", "commit": "javascript:alert(1)", "branch": "<script>alert(\"xss\")</script><img src=x onerror=alert(1)> javascript:alert(1)", "started_at": "<script>alert(\"xss\")</script><img src=x onerror=alert(1)>", "synthetic": true}
+{"dir": "../outside", "repo": "escape"}
+not json

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>Exhibit A — dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">A</span>
+    <div>
+      <p class="title">Exhibit A</p>
+      <p class="subtitle">Proof before accusation · <span id="source">loading…</span></p>
+    </div>
+  </div>
+  <nav class="tabs" aria-label="Views">
+    <a href="#/runs" data-view="runs">Runs</a>
+    <a href="#/trends" data-view="trends">Trends</a>
+  </nav>
+</header>
+
+<main id="view" class="view" aria-live="polite"></main>
+
+<footer class="footer">
+  <p>Only what could be proven by execution is reported. “Nothing could be proven” is not a statement that the code is safe.
+  Exploits run in an isolated and resource-limited sandbox. This dashboard is read-only and listens on 127.0.0.1 only.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
