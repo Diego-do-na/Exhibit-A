@@ -14,7 +14,7 @@ A green result means "nothing could be proven", never "safe".
 
 ## 2. What the product is
 
-- A headless engine, driven by a CLI and (later) a GitHub Action.
+- A headless engine, driven by a CLI and a GitHub Action (`action.yml`, which runs `exhibit-a run --pr-diff`).
 - Input: a PR diff (surface 1), a CVE reachability question (surface 2), or a
   dependency-update diff (surface 3, stretch).
 - Output: a pull request containing the exploit test, the fix, and the evidence.
@@ -83,6 +83,22 @@ Decisions (A-22):
   ablated by the run flags.
 - The `verdict` event payload carries `reason_code` and `effect` alongside the
   reason, without changing the signed oracle-event channel.
+
+Declared residual limits of the oracle (`docs/oracle-provenance.md` section 7; each is
+pinned by a strict xfail in `tests/test_oracle_residual.py`):
+
+- R1: in-process introspection of the plugin (FALSE_PROVEN)
+- R2: `sitecustomize` in the app tree (FALSE_PROVEN, host path)
+- R3: subprocess reads (recall)
+- R4: ctypes / native reads (recall)
+- R5: dependency monkeypatching by computed names (FALSE_PROVEN)
+- R6: obfuscated test-chosen app root (FALSE_PROVEN)
+
+Path traversal is proven in the loop for the read effect (Starlette case) and for the write
+effect (archive extraction, T076, inside the sandbox). The test cannot choose where the app
+is rooted: `EXHIBIT_A_CANARY` is not in the test contract, a guard rule rejects canary-derived
+paths handed to a call, and the judge requires the canary to be requested through the allowed
+directory (T079); R6 is what remains of that.
 
 ## 5. Components
 
@@ -157,14 +173,20 @@ Event types: `pr_opened`, `scan_done`, `baseline_done`, `suspicion_raised`,
 Three classes, chosen by what can be proven by execution with a clear oracle:
 
 1. Broken authorization (access to another user's resource).
-2. Path traversal or SSRF (canary file / canary server).
+2. Path traversal (read effect: a canary file outside the allowed directory is read) and
+   archive extraction / zip-slip (write effect: a canary file outside the extraction
+   directory is written). SSRF is not a v1 class: a faithful effect needs a network, which
+   the sandbox forbids (see `docs/second-class.md`).
 3. A simple warm-up class: reflected XSS or SQL injection.
 
 Final choice is an open decision (section 14).
 
-Status update: the path-traversal / canary style class is implemented and exercised by
-the project's first real-case corpus entry (Starlette `StaticFiles` path traversal,
-CVE-2023-29159). The other classes remain in scope for v1 but are not fully realised yet.
+Status update: path traversal (read) is implemented in the loop and exercised by the
+project's first real-case corpus entry (Starlette `StaticFiles` path traversal,
+CVE-2023-29159). Archive extraction (write) runs through the loop and the sandbox (T076,
+`canary_write` effect) on a synthetic corpus case (`bench/corpus/archive-extraction-pathtraversal`),
+not on a real CVE. Broken authorization and the warm-up class are in scope for v1 but are
+not realised.
 
 ## 8. Surfaces
 
@@ -213,13 +235,13 @@ Every module sits behind a flag so it can be ablated.
 - clone sandbox: implemented (hardened Docker runner with image build); tests require Docker.
 - baseline check: implemented (local/host baseline runner present; some corpus cases still run baseline as a host child process).
 - oracle with provenance: implemented (canary + stack-provenance checks).
-- differential verification & repeated runs: implemented in the loop (N runs, fix/verify).
- - vulnerability classes: path-traversal read and archive-extraction write realised (1 of 3).
-- PR-diff surface: placeholder in CLI; core wiring for PR-diff is not yet implemented.
+- differential gating & repeated runs: implemented in the loop (N runs; since A-22/T078 the exploit passing on the fixed code and the fixed baseline passing gate every `proven`, section 4).
+- vulnerability classes: path traversal (read) and archive extraction (write, synthetic case) realised; broken authorization and the warm-up class are not, and SSRF is not a v1 class.
+- PR-diff surface: implemented (T075): `exhibit-a run --pr-diff BASE..HEAD` verifies the changed Python files, exit codes 0/10/20/2 (`docs/cli-exit-codes.md`); the GitHub Action calls it (T082).
 - ledger: implemented (append-only JSONL).
 - benchmark with ablations: bench corpus and probe tooling present; replay-driven cases work.
 - minimal live view: minimal replay-backed live pieces implemented.
-- CLI: `run` command wired to replay cases; live providers not yet fully wired.
+- CLI: `run` takes a benchmark case (`--replay` or live) or `--pr-diff`, with `--provider`/`--model`; `scan` is still a placeholder. The `--case` baseline still runs as a host child process.
 
 **Should**: CVE reachability, attack-surface map, open-weight models for adversary and test
 writer, GitHub Action, replay mode, defender bypass, cost meter, oracle evaluation set.
@@ -266,7 +288,7 @@ Resolved / updated:
   against `dev.meta.ai` before relying on them.
 
 Still open / UNVERIFIED:
-- Final three vulnerability classes (path-traversal read and archive-extraction write realised; others pending).
+- Final three vulnerability classes (path traversal read and archive-extraction write realised; broken authorization and the warm-up class not realised).
 - Which specific Meta model serves each role (to be decided by measurement and gating).
 - Provider data terms and full pricing confirmation.
 - Whether multimodal ingestion is built.
@@ -277,5 +299,8 @@ Still open / UNVERIFIED:
   history shows it.
 - Public repository.
 - The demo shows only what was built during the event.
-- Results and demo come from Meta models.
+- Results and demo come from Meta models: **pending, not yet true.** The only recordings in
+  the repository are hand-authored (`"model": "hand-authored"` in both Starlette `replay.jsonl`
+  files), no Meta-model recording or `docs/meta-run.md` exists, and the Meta endpoint is
+  UNVERIFIED (section 14). Do not claim it until a live Meta run is recorded.
 - Never commit keys or tokens.
