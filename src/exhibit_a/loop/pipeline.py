@@ -110,6 +110,9 @@ class SuspicionResult:
     reason: str
     package_dir: Path | None = None
     fix_verified: bool = False
+    # A bypass variant still proves the flaw against the fixed code. The verdict
+    # stays `proven` (SPEC section 4 condition 5: the surviving one is reported).
+    fix_incomplete: bool = False
 
 
 @dataclass
@@ -180,6 +183,7 @@ class VerificationLoop:
         baseline_runner: BaselineRunner | None = None,
         judge: Judge | None = None,
         flags: LoopFlags | None = None,
+        effect: str = "canary_read",
     ) -> None:
         if runs < 1:
             raise ValueError("runs must be at least 1")
@@ -196,6 +200,10 @@ class VerificationLoop:
         self.baseline_runner = baseline_runner or self.runner.run_baseline
         self.judge = judge or self.runner.run_exploit
         self.flags: LoopFlags = flags if flags is not None else FullSystem()
+        # Which oracle effect the judge proves ("canary_read" or "canary_write").
+        # Recorded on the verdict payload (audit F7); the signed oracle-event
+        # channel itself is unchanged.
+        self.effect = effect
 
     def _classify(self, judgement: Judgement) -> VerdictValue:
         return classify(judgement, oracle=self.flags.oracle)
@@ -265,13 +273,45 @@ class VerificationLoop:
 
     def _process(self, suspicion: Suspicion) -> SuspicionResult:
         work = self.out / "work" / _slug(suspicion.id)
-        work.mkdir(parents=True, exist_ok=True)
+        # The exploit and the bypass variants live in work/tests/, a sibling of
+        # work/fixed: the judge lets the test directory win over the app root,
+        # so tests staged inside the same directory as the fixed tree would
+        # label every app frame as test code and no bypass could ever be proven.
+        tests_dir = work / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
         entry_points = {suspicion.entry_point}
 
-        def done(value: VerdictValue, reason: str, evidence: Evidence | None = None) -> SuspicionResult:
-            verdict = Verdict(suspicion_id=suspicion.id, verdict=value, evidence=evidence)
-            self._emit(EventType.VERDICT, suspicion_id=suspicion.id, verdict=value.value, reason=reason)
-            return SuspicionResult(suspicion, verdict, reason)
+        def done(
+            value: VerdictValue,
+            reason: str,
+            evidence: Evidence | None = None,
+            *,
+            reason_code: str = "",
+            fix_verified: bool = False,
+            fix_incomplete: bool = False,
+            tried: int = 0,
+            succeeded: int = 0,
+            fix_detail: str = "",
+        ) -> SuspicionResult:
+            verdict = Verdict(
+                suspicion_id=suspicion.id,
+                verdict=value,
+                evidence=evidence,
+                bypass_attempts=BypassAttempts(tried=tried, succeeded=succeeded),
+            )
+            self._emit(
+                EventType.VERDICT,
+                suspicion_id=suspicion.id,
+                verdict=value.value,
+                reason=reason,
+                reason_code=reason_code,
+                effect=self.effect,
+                fix_verified=fix_verified,
+                fix_incomplete=fix_incomplete,
+                fix_detail=fix_detail,
+            )
+            return SuspicionResult(suspicion, verdict, reason, fix_verified=fix_verified,
+                                   fix_incomplete=fix_incomplete)
 
         # EXPLOIT
         try:
@@ -280,20 +320,23 @@ class VerificationLoop:
                 prompts.writer_prompt(suspicion, source), prompts.EXPLOIT_SCHEMA
             )
         except (SchemaValidationError, OSError, UnicodeDecodeError) as exc:
-            return done(VerdictValue.INVALID_TEST, f"no usable exploit test: {exc}")
+            return done(VerdictValue.INVALID_TEST, f"no usable exploit test: {exc}",
+                        reason_code="no_usable_exploit")
         exploit_src = written.output["test_source"]
-        exploit = work / "test_exploit.py"
+        exploit = tests_dir / "test_exploit.py"
         exploit.write_text(exploit_src, encoding="utf-8")
         self._emit(EventType.EXPLOIT_WRITTEN, written, suspicion_id=suspicion.id, test_path=str(exploit))
 
-        # RUN x N, then VERDICT
+        # RUN x N: a stable proof on the vulnerable code is necessary but not
+        # sufficient; the single VERDICT event is emitted only after FIX/VERIFY.
         judgements: list[Judgement] = []
         for n in range(self.runs):
             self._emit(EventType.RUN_STARTED, suspicion_id=suspicion.id, run=n + 1, of=self.runs)
             try:
                 judgement = self.judge(self.clone, exploit, entry_points, timeout=self.timeout)
             except OSError as exc:
-                return done(VerdictValue.ENV_FAILURE, f"run {n + 1} could not execute: {exc}")
+                return done(VerdictValue.ENV_FAILURE, f"run {n + 1} could not execute: {exc}",
+                            reason_code="run_error")
             judgements.append(judgement)
             for event in judgement.events:
                 self._emit(EventType.ORACLE_EVENT, suspicion_id=suspicion.id, run=n + 1, event=event.model_dump())
@@ -302,10 +345,11 @@ class VerificationLoop:
 
         verdicts = [self._classify(j) for j in judgements]
         if verdicts[0] != VerdictValue.PROVEN:
-            return done(verdicts[0], judgements[0].reason)
+            return done(verdicts[0], judgements[0].reason, reason_code=judgements[0].reason_code)
         if any(v != VerdictValue.PROVEN for v in verdicts):
             bad = next(j for j, v in zip(judgements, verdicts) if v != VerdictValue.PROVEN)
-            return done(VerdictValue.FLAKY, f"unstable across runs: {bad.reason}")
+            return done(VerdictValue.FLAKY, f"unstable across runs: {bad.reason}",
+                        reason_code=bad.reason_code)
 
         first = judgements[0]
         evidence = Evidence(
@@ -315,6 +359,8 @@ class VerificationLoop:
             runs=self.runs,
             oracle={
                 "reason": first.reason,
+                "reason_code": first.reason_code,
+                "effect": self.effect,
                 "events": [e.model_dump() for e in first.events],
                 "checked": self.flags.oracle,
             },
@@ -324,8 +370,40 @@ class VerificationLoop:
                 "entry_point": suspicion.entry_point,
             },
         )
-        outcome = done(VerdictValue.PROVEN, first.reason, evidence)
-        self._fix_verify_package(outcome, source, exploit_src, exploit, entry_points, work)
+
+        # FIX / VERIFY / DEFEND run before the verdict, so SPEC section 4
+        # condition 5 gates every `proven`.
+        patch_text, fix_verified, tried, succeeded, fix_detail = self._verify_fix(
+            suspicion, source, exploit_src, first.reason, exploit, entry_points, work, tests_dir
+        )
+        if fix_verified:
+            evidence.passes_on = "fixed"
+        fix_incomplete = succeeded > 0
+        # Ablations that skip verification cannot show the fix works; they keep
+        # their measured semantics and are marked ablated by the run flags.
+        verify_gates = self.flags.oracle and self.flags.differential
+        if verify_gates and not fix_verified:
+            return done(
+                VerdictValue.DISCARDED_UNPROVEN,
+                "exploit proven but no verified fix",
+                evidence,
+                reason_code=first.reason_code,
+                tried=tried,
+                succeeded=succeeded,
+                fix_detail=fix_detail,
+            )
+        outcome = done(
+            VerdictValue.PROVEN,
+            first.reason,
+            evidence,
+            reason_code=first.reason_code,
+            fix_verified=fix_verified,
+            fix_incomplete=fix_incomplete,
+            tried=tried,
+            succeeded=succeeded,
+            fix_detail=fix_detail,
+        )
+        outcome.package_dir = self._package(outcome, exploit, patch_text)
         return outcome
 
     # -- FIX, VERIFY, PACKAGE ----------------------------------------------------------
@@ -339,19 +417,54 @@ class VerificationLoop:
         entry_points: Collection[str],
         work: Path,
     ) -> None:
+        """Legacy seam: fix, verify and package an already-judged outcome.
+
+        New code runs `_verify_fix` before emitting the verdict instead; this
+        wrapper keeps the seam used by tests that drive the fix stage directly.
+        """
         suspicion, verdict = outcome.suspicion, outcome.verdict
         assert verdict.evidence is not None
+        tests_dir = work / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        patch_text, fix_verified, tried, succeeded, _ = self._verify_fix(
+            suspicion, source, exploit_src, outcome.reason, exploit, entry_points, work, tests_dir
+        )
+        outcome.fix_verified = fix_verified
+        outcome.fix_incomplete = succeeded > 0
+        if fix_verified:
+            verdict.evidence.passes_on = "fixed"
 
+        verdict.bypass_attempts = BypassAttempts(tried=tried, succeeded=succeeded)
+        outcome.package_dir = self._package(outcome, exploit, patch_text)
+
+    def _verify_fix(
+        self,
+        suspicion: Suspicion,
+        source: str,
+        exploit_src: str,
+        proof_reason: str,
+        exploit: Path,
+        entry_points: Collection[str],
+        work: Path,
+        tests_dir: Path,
+    ) -> tuple[str, bool, int, int, str]:
+        """Propose a fix and check it: (patch, fix_verified, tried, succeeded, detail).
+
+        Emits the FIX_PROPOSED, fixed-code RUN_STARTED, BASELINE_DONE and
+        bypass events, but never the verdict: the caller emits the single
+        VERDICT event after this returns.
+        """
         patch_text = ""
         fixed = work / "fixed"
         proposal = None
         try:
             proposal = self.roles.fixer.run(
-                prompts.fixer_prompt(suspicion, source, exploit_src, outcome.reason), prompts.FIX_SCHEMA
+                prompts.fixer_prompt(suspicion, source, exploit_src, proof_reason), prompts.FIX_SCHEMA
             )
             patch_text = self._apply_fix(proposal.output["files"], fixed)
         except (SchemaValidationError, ValueError) as exc:
             self._emit(EventType.FIX_PROPOSED, suspicion_id=suspicion.id, applied=False, error=str(exc))
+            return "", False, 0, 0, f"no usable fix: {exc}"
         else:
             self._emit(EventType.FIX_PROPOSED, proposal, suspicion_id=suspicion.id, applied=True)
 
@@ -365,13 +478,18 @@ class VerificationLoop:
             baseline_ok = baseline.get("outcome") == "passed"
             self._emit(EventType.BASELINE_DONE, suspicion_id=suspicion.id, on="fixed", ok=baseline_ok)
             if self.flags.defender:
-                tried, succeeded = self._defend(suspicion, fixed, exploit_src, entry_points, work)
-            outcome.fix_verified = exploit_passes and baseline_ok
-            if outcome.fix_verified:
-                verdict.evidence.passes_on = "fixed"
-
-        verdict.bypass_attempts = BypassAttempts(tried=tried, succeeded=succeeded)
-        outcome.package_dir = self._package(outcome, exploit, patch_text)
+                tried, succeeded = self._defend(suspicion, fixed, exploit_src, entry_points, tests_dir)
+            fix_verified = exploit_passes and baseline_ok
+            if not self.flags.differential:
+                detail = "differential verification off: the exploit was not re-run on the fixed code"
+            elif not exploit_passes:
+                detail = "the exploit does not pass on the fixed code"
+            elif not baseline_ok:
+                detail = "the fixed baseline does not pass"
+            else:
+                detail = ""
+            return patch_text, fix_verified, tried, succeeded, detail
+        return "", False, 0, 0, "the fixer proposed an empty patch"
 
     def _apply_fix(self, files: list[dict[str, str]], fixed: Path) -> str:
         """Copy the clone, write the proposed files, return a unified diff."""
@@ -435,7 +553,7 @@ class VerificationLoop:
         return True
 
     def _defend(
-        self, suspicion: Suspicion, fixed: Path, exploit_src: str, entry_points: Collection[str], work: Path
+        self, suspicion: Suspicion, fixed: Path, exploit_src: str, entry_points: Collection[str], tests_dir: Path
     ) -> tuple[int, int]:
         """Run the defender's bypass variants against the fixed code: (tried, succeeded)."""
         patched = (fixed / suspicion.location.file).read_text(encoding="utf-8")
@@ -447,7 +565,7 @@ class VerificationLoop:
             return 0, 0
         tried = succeeded = 0
         for i, variant in enumerate(proposal.output["variants"]):
-            path = work / f"variant_{i}.py"
+            path = tests_dir / f"variant_{i}.py"
             path.write_text(variant["test_source"], encoding="utf-8")
             self._emit(
                 EventType.BYPASS_ATTEMPT, proposal if i == 0 else None,
@@ -488,6 +606,7 @@ class VerificationLoop:
             },
             "reason": outcome.reason,
             "fix_verified": outcome.fix_verified,
+            "fix_incomplete": outcome.fix_incomplete,
             "flags": _flags_payload(self.flags),
             "bypass_attempts": verdict_json.get("bypass_attempts") or {},
             "evidence": verdict_json.get("evidence") or {},
@@ -498,7 +617,7 @@ class VerificationLoop:
             "usage": self.ledger.totals(self.run_id),
         }
         (pkg / "evidence.json").write_text(json.dumps(_portable(evidence, roots), indent=2), encoding="utf-8")
-        self._emit(EventType.PACKAGED, suspicion_id=outcome.suspicion.id, path=str(pkg.relative_to(self.out)), fix_verified=outcome.fix_verified)
+        self._emit(EventType.PACKAGED, suspicion_id=outcome.suspicion.id, path=str(pkg.relative_to(self.out)), fix_verified=outcome.fix_verified, fix_incomplete=outcome.fix_incomplete)
         return pkg
 
 
