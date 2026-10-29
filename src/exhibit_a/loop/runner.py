@@ -166,7 +166,9 @@ class SandboxRunner:
                 app_tree_changes=result.get("app_tree_changes", []),
                 allowed_dir=f"{_SCRATCH}/allowed",
                 effect=effect,
-                canary_written=result.get("canary_written", None),
+                # Read: nothing to check after the run. Write: the sandbox's post-run dump of the
+                # outside/ tmpfs must confirm a regular file with the token; absent means False.
+                canary_written=bool(result.get("canary_written", False)) if effect == "canary_write" else None,
             )
 
 

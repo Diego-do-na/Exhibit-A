@@ -384,10 +384,20 @@ def _run_case(args: argparse.Namespace) -> int:
 
     ledger = Ledger(out / "ledger.jsonl")
     if args.replay:
-        if "recording" not in settings:
-            print(f"run: case {case_file} has no replay recording", file=sys.stderr)
-            return 1
-        provider = ReplayProvider(root / settings["recording"])
+        if "recording" in settings:
+            provider = ReplayProvider(root / settings["recording"])
+        else:
+            # A case without a recording (archive extraction) answers from its own labelled
+            # materials, the same deterministic provider the benchmark uses for it.
+            try:
+                from bench.corpus import load_corpus
+                from bench.loop_pipeline import CaseMaterialsProvider
+
+                provider = CaseMaterialsProvider(load_corpus(case_file)[0])
+            except (ImportError, ValueError, OSError, IndexError) as exc:
+                print(f"run: case {case_file} has no replay recording and its materials "
+                      f"cannot be used: {exc}", file=sys.stderr)
+                return 1
         roles = Roles(*(ModelRole(r, provider) for r in (
             Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
         loop = VerificationLoop(
