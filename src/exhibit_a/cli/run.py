@@ -241,20 +241,13 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
             return 0
         roles = _pr_roles(args) if args.replay else _live_roles(args, _cost_meter(args))
         runner = SandboxRunner()
-        effect = getattr(args, "effect", "canary_read")
-
-        def judge(app_root, test_path, entry_points, *, timeout):
-            return runner.run_exploit_effect(
-                app_root, test_path, entry_points, timeout=timeout, effect=effect
-            )
-
         baseline = "."
         any_proven = False
         incomplete = False
         for source in changed:
             loop = VerificationLoop(
                 clone, out, ledger, roles, baseline, run_id=run_id,
-                runner=runner, judge=judge,
+                runner=runner,
             )
             try:
                 result_loop = loop.run(source)
