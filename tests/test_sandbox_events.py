@@ -4,7 +4,7 @@ import pytest
 
 from exhibit_a.sandbox import run
 
-pytestmark = pytest.mark.docker
+# Individual tests marked docker where needed so non-Docker tests run in the fast job.
 
 READER = (
     "import os\n"
@@ -22,6 +22,7 @@ def _repo(tmp_path: Path, body: str) -> Path:
     return repo
 
 
+@pytest.mark.docker
 def test_events_are_carried_out(tmp_path: Path):
     repo = _repo(tmp_path, READER)
     canary = tmp_path / "canary.txt"
@@ -35,7 +36,7 @@ def test_events_are_carried_out(tmp_path: Path):
     assert any(f["function"] == "read_secret" for f in ev["stack"])
     assert events.read_text().strip()
 
-
+@pytest.mark.docker
 def test_extra_env_is_passed_and_no_events_without_read(tmp_path: Path):
     repo = _repo(tmp_path, "import os\ndef test_e():\n    assert os.environ['EXHIBIT_A_FOO'] == 'bar'\n")
     canary = tmp_path / "canary.txt"
@@ -45,6 +46,7 @@ def test_extra_env_is_passed_and_no_events_without_read(tmp_path: Path):
     assert r["oracle_events"] == []
 
 
+@pytest.mark.docker
 def test_mounts_are_restricted(tmp_path: Path):
     body = (
         "import os\n"
@@ -70,6 +72,7 @@ def test_non_exhibit_env_is_rejected(tmp_path: Path):
     assert r["outcome"] == "env_failure"
 
 
+@pytest.mark.docker
 def test_canary_can_be_mounted_as_a_real_file_under_tmp(tmp_path: Path):
     body = (
         "import os\n"
@@ -109,6 +112,7 @@ def test_canary_mount_cannot_shadow_the_clone_or_the_oracle(tmp_path: Path, moun
 # --- A-1: signed events in the sandbox (needs Docker) ---------------------------------------
 
 
+@pytest.mark.docker
 def test_forged_event_line_written_in_the_container_is_dropped(tmp_path: Path):
     body = (
         "import json\n"
@@ -130,6 +134,7 @@ def test_forged_event_line_written_in_the_container_is_dropped(tmp_path: Path):
     assert r["oracle_forged_events"] == 2
 
 
+@pytest.mark.docker
 def test_key_is_not_in_the_container_environ_cmdline_or_events_env(tmp_path: Path, monkeypatch):
     import exhibit_a.sandbox.runner as runner_mod
 
