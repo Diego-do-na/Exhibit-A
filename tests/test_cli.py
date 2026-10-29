@@ -14,7 +14,7 @@ from exhibit_a.ledger import Ledger
 from exhibit_a.schemas import Event, EventType, RepoProfile
 from exhibit_a.models import Completion, Role
 from exhibit_a.models.cost import Pricing
-from tests.test_run_live import FakeLive, FIXTURES, TRAVERSAL, suspicion
+from tests.test_run_live import FakeLive, FIXTURES, TRAVERSAL, suspicion, BASELINE_TEST
 
 ROOT = Path(__file__).resolve().parent.parent
 
