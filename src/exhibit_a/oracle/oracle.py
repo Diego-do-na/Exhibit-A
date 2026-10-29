@@ -26,7 +26,7 @@ the token, and a real exploit reaches the canary from there. Each event carries 
 code requested; one that neither starts inside the allowed directory nor names the canary
 exactly is refused (``canary_not_via_allowed_dir``). Access comes from the open flags, not the
 mode string (F4), and a write effect also needs the canary to exist with the token after the
-run (F5). See docs/oracle-provenance.md, section 8.
+run (F5). See docs/oracle-provenance.md, section 3.7.
 """
 
 from __future__ import annotations
