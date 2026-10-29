@@ -142,7 +142,10 @@ def test_result_run_id_selects_the_run_inside_a_shared_ledger(tmp_path):
         (json.dumps({"ts": "x", "run_id": "r", "type": "scan_done", "extra": 1}) + "\n", "not a valid Event"),
         (json.dumps({"ts": "x", "run_id": "r", "type": "scan_done", "tokens_in": -5}) + "\n", "not a valid Event"),
         ('{"ts": "x", "run_id": "r", "type": "scan_done", "cost_usd": NaN}\n', "not valid JSON"),
-        ('{"ts": "x", "run_id": "r", "type": "scan_done", "payload": ' + "[" * 50000 + "]" * 50000 + "}\n", "not valid JSON"),
+        ('{"ts": "x", "run_id": "r", "type": "scan_done", "payload": ' + "[" * 50000 + "]" * 50000 + "}\n",
+         # Python 3.11 refuses the nesting ("not valid JSON"); 3.14 parses it and the run is then
+         # rejected as "not a valid Event". Either way the whole ledger is rejected on line 2.
+         "line 2: not"),
     ],
 )
 def test_malformed_ledgers_are_rejected_whole(tmp_path, ledger, needle):

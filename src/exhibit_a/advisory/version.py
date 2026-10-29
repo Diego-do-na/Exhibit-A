@@ -39,6 +39,15 @@ _PRE_PHASE = {"a": "a", "alpha": "a", "b": "b", "beta": "b", "c": "rc", "rc": "r
 _PHASE_RANK = {"a": 0, "b": 1, "rc": 2}
 
 
+_MAX_DIGITS = 20  # longer numeric components are rejected, not converted (int() cost and limits)
+
+
+def _num(text: str) -> int:
+    if len(text) > _MAX_DIGITS:
+        raise InvalidVersion(f"numeric version component longer than {_MAX_DIGITS} digits")
+    return int(text)
+
+
 class InvalidVersion(ValueError):
     """The string is not a valid PEP 440 (or SemVer) version."""
 
@@ -64,21 +73,21 @@ class Version:
         m = _PEP440.match(text)
         if m is None:
             raise InvalidVersion(f"not a PEP 440 version: {text!r}")
-        epoch = int(m["epoch"] or 0)
-        release = tuple(int(part) for part in m["release"].split("."))
+        epoch = _num(m["epoch"] or "0")
+        release = tuple(_num(part) for part in m["release"].split("."))
         pre = None
         if m["pre_l"]:
-            pre = (_PRE_PHASE[m["pre_l"].lower()], int(m["pre_n"] or 0))
+            pre = (_PRE_PHASE[m["pre_l"].lower()], _num(m["pre_n"] or "0"))
         post = None
         if m["post_implicit"] is not None:
-            post = int(m["post_implicit"])
+            post = _num(m["post_implicit"])
         elif m["post_l"]:
-            post = int(m["post_n"] or 0)
-        dev = int(m["dev_n"] or 0) if m["dev_l"] else None
+            post = _num(m["post_n"] or "0")
+        dev = _num(m["dev_n"] or "0") if m["dev_l"] else None
         local = None
         if m["local"]:
             local = tuple(
-                int(seg) if seg.isdigit() else seg.lower()
+                _num(seg) if seg.isdigit() else seg.lower()
                 for seg in re.split(r"[-_.]", m["local"])
             )
         key = _sort_key(epoch, release, pre, post, dev, local)
@@ -174,10 +183,10 @@ def semver_key(text: str) -> tuple:
     m = _SEMVER.match(text.strip()) if isinstance(text, str) else None
     if m is None:
         raise InvalidVersion(f"not a SemVer version: {text!r}")
-    core = (int(m["major"]), int(m["minor"]), int(m["patch"]))
+    core = (_num(m["major"]), _num(m["minor"]), _num(m["patch"]))
     if m["pre"] is None:
         return (core, (1,))
     idents = tuple(
-        (0, int(i), "") if i.isdigit() else (1, 0, i) for i in m["pre"].split(".")
+        (0, _num(i), "") if i.isdigit() else (1, 0, i) for i in m["pre"].split(".")
     )
     return (core, (0, idents))

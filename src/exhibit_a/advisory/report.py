@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from ..schemas.advisory import ADVISORY_SCHEMA_VERSION, AdvisoryMatch, Severity
 from .deps import PinnedDependency
-from .osv import ECOSYSTEM, Advisory, OsvBackend, evaluate
+from .osv import ECOSYSTEM, Advisory, AdvisoryDataError, OsvBackend, evaluate
 from .reachability import reachability_hint
 from .version import InvalidVersion, Version, upgrade_kind
 
@@ -135,7 +135,10 @@ def lookup(dependencies: list[PinnedDependency], backend: OsvBackend, *,
             if adv.withdrawn:
                 withdrawn += 1
                 continue
-            match = _match(dep, adv, backend, project_root, import_names)
+            try:
+                match = _match(dep, adv, backend, project_root, import_names)
+            except RecursionError as exc:
+                raise AdvisoryDataError(f"advisory {adv.id} is nested too deeply to evaluate") from exc
             if match == "not_affected":
                 not_affected += 1
                 continue
@@ -147,6 +150,7 @@ def lookup(dependencies: list[PinnedDependency], backend: OsvBackend, *,
     notes = ["advisory matches are a second signal; none of them is a proven finding"]
     if backend.source == "recorded":
         notes.append("data came from recorded records, not from a live OSV query")
+    notes.extend(getattr(backend, "warnings", []))
     if unevaluable:
         notes.append(f"{unevaluable} candidate(s) had no range that could be evaluated locally")
     return AdvisoryReport(matches, backend.source, len(keys), seen, not_affected,

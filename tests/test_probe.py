@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -90,12 +92,8 @@ def test_rate_is_per_role_not_per_model():
 
 
 def test_repeats_must_be_positive():
-    try:
+    with pytest.raises(ValueError):
         probe_roles(FakeProvider(dict(VALID)), repeats=0)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("repeats=0 should fail")
 
 
 def test_write_summary_writes_json_and_markdown(tmp_path):

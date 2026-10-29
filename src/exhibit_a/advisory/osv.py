@@ -265,13 +265,23 @@ class RecordedOsvBackend:
     source = "recorded"
 
     def __init__(self, records: Iterable[Any], label: str = "recorded") -> None:
-        self._advisories = [parse_advisory(r) for r in records]
+        self._advisories = []
+        self.warnings: list[str] = []
+        for index, record in enumerate(records):
+            # One bad record is skipped and reported; it does not hide the others.
+            try:
+                self._advisories.append(parse_advisory(record))
+            except (AdvisoryDataError, RecursionError) as exc:
+                self.warnings.append(f"recorded record #{index} skipped: {exc}")
         self.label = label
 
     @classmethod
     def from_file(cls, path) -> "RecordedOsvBackend":
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except RecursionError as exc:
+            raise AdvisoryDataError("recorded fixture is nested too deeply") from exc
         if not isinstance(data, dict) or not isinstance(data.get("vulns"), list):
             raise AdvisoryDataError("recorded fixture must be an object with a 'vulns' list")
         return cls(data["vulns"], label=str(path))
@@ -293,8 +303,20 @@ class RecordedOsvBackend:
 Opener = Callable[[urllib.request.Request, float], Any]
 
 
+class _HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only to https URLs, so a redirect cannot downgrade the transport."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme != "https":
+            raise AdvisoryDataError(f"refusing non-https redirect to {newurl.split('?')[0]!r}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_HttpsOnlyRedirects)
+
+
 def _default_opener(request: urllib.request.Request, timeout: float):
-    return urllib.request.urlopen(request, timeout=timeout)  # noqa: S310 (fixed https host)
+    return _OPENER.open(request, timeout=timeout)  # noqa: S310 (fixed https host)
 
 
 class HttpOsvBackend:
@@ -309,13 +331,15 @@ class HttpOsvBackend:
 
     def __init__(self, *, base_url: str = OSV_API, timeout: float = 10.0,
                  max_response_bytes: int = 5_000_000, max_pages: int = 10,
-                 opener: Opener | None = None) -> None:
+                 max_ids_per_package: int = 200, opener: Opener | None = None) -> None:
         if not base_url.startswith("https://"):
             raise ValueError("OSV base_url must be https")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_response_bytes = max_response_bytes
         self.max_pages = max_pages
+        self.max_ids_per_package = max_ids_per_package
+        self.warnings: list[str] = []
         self._open = opener or _default_opener
 
     def _request(self, method: str, path: str, body: dict | None = None) -> Any:
@@ -331,6 +355,8 @@ class HttpOsvBackend:
             raise AdvisoryDataError(f"OSV response from {path} exceeds size limit")
         try:
             return json.loads(payload)
+        except RecursionError as exc:
+            raise AdvisoryDataError(f"OSV response from {path} is nested too deeply") from exc
         except ValueError as exc:
             raise AdvisoryDataError(f"OSV response from {path} is not JSON") from exc
 
@@ -362,7 +388,7 @@ class HttpOsvBackend:
         results = reply.get("results") if isinstance(reply, dict) else None
         if not isinstance(results, list) or len(results) != len(keys):
             raise AdvisoryDataError("OSV /querybatch reply does not match the queries")
-        cache: dict[str, Advisory] = {}
+        cache: dict[str, Advisory | None] = {}
         out: dict[tuple[str, str], list[Advisory]] = {}
         for key, result in zip(keys, results):
             if not isinstance(result, dict):
@@ -371,12 +397,23 @@ class HttpOsvBackend:
                    if isinstance(v, dict) and isinstance(v.get("id"), str)]
             if result.get("next_page_token"):
                 ids = self._query_one(*key)
+            ids = list(dict.fromkeys(ids))
+            if len(ids) > self.max_ids_per_package:
+                self.warnings.append(f"{key[0]}: {len(ids)} advisory ids returned, only the first "
+                                     f"{self.max_ids_per_package} were fetched")
+                ids = ids[:self.max_ids_per_package]
             advisories = []
-            for vid in dict.fromkeys(ids):
+            for vid in ids:
                 if vid not in cache:
-                    cache[vid] = parse_advisory(
-                        self._request("GET", "/vulns/" + urllib.parse.quote(vid, safe="")))
-                advisories.append(cache[vid])
+                    # One unreadable record is skipped and reported; the rest are still used.
+                    try:
+                        cache[vid] = parse_advisory(
+                            self._request("GET", "/vulns/" + urllib.parse.quote(vid, safe="")))
+                    except (AdvisoryDataError, RecursionError) as exc:
+                        self.warnings.append(f"{vid} skipped: {exc}")
+                        cache[vid] = None
+                if cache[vid] is not None:
+                    advisories.append(cache[vid])
             out[key] = advisories
         return out
 

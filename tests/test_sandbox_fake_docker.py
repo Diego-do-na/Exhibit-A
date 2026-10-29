@@ -328,8 +328,13 @@ def test_write_effect_mounts_no_canary_and_gives_outside_a_size_capped_tmpfs(doc
     assert WRITE_MOUNT not in fake.last["mounts"] and "/oracle/canary" not in fake.last["mounts"]
     assert fake.last["env"]["EXHIBIT_A_CANARY"] == WRITE_MOUNT
     # pytest's exit status survives the dump that follows it.
-    script = cmd[-1]
-    assert script.startswith("pytest -q") and "; rc=$?; python -I -S -c " in script and script.endswith("; exit $rc")
+    i = cmd.index("bash")
+    assert cmd[i + 1] == "-c"
+    script = cmd[i + 2]
+    assert script.startswith('pytest "${@:4}"') and "; rc=$?; python -I -S -c " in script and script.endswith("; exit $rc")
+    # Paths and the dump program reach the shell as arguments, not as part of its text.
+    assert "/workspace/tests/test_x.py" not in script and WRITE_MOUNT not in script
+    assert cmd[-1] == "/workspace/tests/test_x.py" and WRITE_MOUNT in cmd
     assert r["canary_written"] is True
     assert r["outside_listing"] == [{"path": "outside/canary.txt", "kind": "file", "size": 40}]
 
@@ -338,7 +343,10 @@ def test_the_read_effect_command_and_result_are_unchanged(docker, tmp_path):
     fake = docker(exit_code=0)
     repo, canary = _repo(tmp_path)
     r = run(str(repo), "tests/test_x.py", timeout=60, image="fake", canary_path=str(canary))
-    assert fake.runs[0]["cmd"][-1] == "pytest -q -p no:cacheprovider -p exhibit_a_oracle_plugin /workspace/tests/test_x.py"
+    cmd = fake.runs[0]["cmd"]
+    assert cmd[cmd.index("pytest"):] == ["pytest", "-q", "-p", "no:cacheprovider", "-p", "exhibit_a_oracle_plugin",
+                                         "/workspace/tests/test_x.py"]
+    assert "bash" not in cmd
     assert "canary_written" not in r and "outside_listing" not in r
     assert OUTSIDE not in fake.last["mounts"]
 

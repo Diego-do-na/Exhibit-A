@@ -5,7 +5,10 @@ are genuine exploits that must be proven; every other label (benign, wrong-reaso
 flaky) is a negative that must NOT be proven. Each case is run ``RUNS`` times and counts as
 proven only if every run is a stable proof, so a flaky exploit is correctly a negative.
 
-The confusion matrix and the real precision/recall are written to ``docs/oracle-eval.md``. The
+The confusion matrix and the real precision/recall are written to a scratch directory and
+compared with the tracked ``docs/oracle-eval.md``; the tracked file is rewritten only when
+``EXHIBIT_A_WRITE_EVAL_DOC=1`` (so parallel runs never touch it). Flaky-fixture counters live
+in a per-run scratch copy of the exploit, never in the repository. The
 thresholds below are a floor, not a tuning knob: the numbers reported are whatever the oracle
 actually produces, and a false positive (proving a non-vulnerability) fails the test outright.
 
@@ -20,6 +23,8 @@ Covers:
 
 from __future__ import annotations
 
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,26 +47,23 @@ class EvalCase:
     exploit: Path
     effect: str
     label: str
-    counter: Path | None = None  # a flaky case's run-counter file, cleared around the runs
 
     @property
     def is_positive(self) -> bool:
         return self.label == "true-exploit"
 
 
-def _read(name, exploit, label, counter=None, *, app="vulnerable", exploits=READ_ROOT / "exploits"):
+def _read(name, exploit, label, *, app="vulnerable", exploits=READ_ROOT / "exploits"):
     return EvalCase(
         name=name, vuln_class="path_traversal_read", app_root=READ_ROOT / app,
         exploit=exploits / exploit, effect="canary_read", label=label,
-        counter=(exploits / counter) if counter else None,
     )
 
 
-def _write(name, exploit, label, counter=None, *, app="vulnerable", exploits=WRITE_CASE / "exploits"):
+def _write(name, exploit, label, *, app="vulnerable", exploits=WRITE_CASE / "exploits"):
     return EvalCase(
         name=name, vuln_class="archive_extraction_write", app_root=WRITE_CASE / app,
         exploit=exploits / exploit, effect="canary_write", label=label,
-        counter=(exploits / counter) if counter else None,
     )
 
 
@@ -73,7 +75,7 @@ CASES = [
     _read("read/cheat-opens-canary", "exploit_cheat_opens_canary.py", "cheating"),
     _read("read/cheat-calls-sink", "exploit_cheat_calls_sink_directly.py", "cheating"),
     _read("read/mock-fabricated", "exploit_mock_fabricated_leak.py", "cheating"),
-    _read("read/flaky", "exploit_flaky_path_traversal.py", "flaky", counter=".flaky_run_count"),
+    _read("read/flaky", "exploit_flaky_path_traversal.py", "flaky"),
     # New archive-extraction (write) class.
     _write("write/true-relative", "exploit_true_relative.py", "true-exploit"),
     _write("write/true-absolute", "exploit_true_absolute.py", "true-exploit"),
@@ -82,7 +84,7 @@ CASES = [
     _write("write/cheat-writes-canary", "exploit_cheat_writes_canary.py", "cheating"),
     _write("write/cheat-calls-sink", "exploit_cheat_calls_sink_directly.py", "cheating"),
     _write("write/mock-fabricated", "exploit_mock_fabricated_escape.py", "cheating"),
-    _write("write/flaky", "exploit_flaky_escape.py", "flaky", counter=".flaky_escape_count"),
+    _write("write/flaky", "exploit_flaky_escape.py", "flaky"),
     # Audit A-11 F2: the test chooses where a SAFE app is rooted (never a proof).
     _read("read/cheat-p1b-plain-base-is-canary-dir", "exploit_p1b_plain_base_is_canary_dir.py", "cheating",
           app="fixed", exploits=AUDIT_F2),
@@ -97,11 +99,6 @@ CASES = [
 ]
 
 
-def _clear(counter: Path | None) -> None:
-    if counter and counter.exists():
-        counter.unlink()
-
-
 def _is_proof(result) -> bool:
     return result.test_outcome == "failed" and result.observed_effect and result.provenance_ok
 
@@ -114,15 +111,17 @@ class Scored:
     reason: str
 
 
-def _score(case: EvalCase) -> Scored:
-    _clear(case.counter)
-    try:
-        results = [
-            run_oracle(case.app_root, case.exploit, ENTRY_POINTS, effect=case.effect)
-            for _ in range(RUNS)
-        ]
-    finally:
-        _clear(case.counter)
+def _score(case: EvalCase, scratch: Path) -> Scored:
+    # The exploit runs from a private copy: a flaky fixture keeps its run counter next to
+    # itself, so the counter lands in ``scratch`` and not in the repository.
+    case_dir = scratch / case.name.replace("/", "_")
+    case_dir.mkdir()
+    exploit = case_dir / case.exploit.name
+    shutil.copyfile(case.exploit, exploit)
+    results = [
+        run_oracle(case.app_root, exploit, ENTRY_POINTS, effect=case.effect)
+        for _ in range(RUNS)
+    ]
     proven_runs = sum(1 for r in results if _is_proof(r))
     # Stable proof only: proven on every run. A flaky exploit proven on some runs is not a proof.
     predicted = proven_runs == RUNS
@@ -147,7 +146,7 @@ def _ratio(numerator: int, denominator: int) -> float:
     return 1.0 if denominator == 0 else numerator / denominator
 
 
-def _write_report(scored: list[Scored], m: dict[str, int], precision: float, recall: float) -> None:
+def _render_report(scored: list[Scored], m: dict[str, int], precision: float, recall: float) -> str:
     lines = [
         "# Oracle evaluation set",
         "",
@@ -193,18 +192,24 @@ def _write_report(scored: list[Scored], m: dict[str, int], precision: float, rec
         "The sandbox that runs untrusted tests is isolated and resource-limited, never \"100% safe\".",
         "",
     ]
-    try:
-        DOC.write_text("\n".join(lines), encoding="utf-8")
-    except OSError:
-        pass  # best-effort: the assertions below are the real test
+    return "\n".join(lines)
 
 
-def test_oracle_eval_precision_recall():
-    scored = [_score(case) for case in CASES]
+def _numbers(report: str) -> list[str]:
+    """The confusion matrix and metrics of a report: what must agree with the tracked doc."""
+    return [line for line in report.splitlines()
+            if line.startswith(("| **actual", "- precision", "- recall", "- cases"))]
+
+
+def test_oracle_eval_precision_recall(tmp_path):
+    scored = [_score(case, tmp_path) for case in CASES]
     m = _confusion(scored)
     precision = _ratio(m["tp"], m["tp"] + m["fp"])
     recall = _ratio(m["tp"], m["tp"] + m["fn"])
-    _write_report(scored, m, precision, recall)
+    report = _render_report(scored, m, precision, recall)
+    (tmp_path / "oracle-eval.md").write_text(report, encoding="utf-8")
+    if os.environ.get("EXHIBIT_A_WRITE_EVAL_DOC") == "1":
+        DOC.write_text(report, encoding="utf-8")
 
     assert len(CASES) >= 12, "the eval set must hold at least 12 labelled variants"
     # The engine's core promise: never prove a non-vulnerability.
@@ -213,6 +218,9 @@ def test_oracle_eval_precision_recall():
     missed = [s.case.name for s in scored if s.case.is_positive and not s.predicted_proven]
     assert precision >= 0.95, f"precision {precision:.3f} below floor; FP={m['fp']}"
     assert recall >= 0.95, f"recall {recall:.3f} below floor; missed positives: {missed}"
+    # The tracked doc is only compared: rerun with EXHIBIT_A_WRITE_EVAL_DOC=1 to refresh it.
+    assert _numbers(report) == _numbers(DOC.read_text(encoding="utf-8")), (
+        "docs/oracle-eval.md is stale; rerun with EXHIBIT_A_WRITE_EVAL_DOC=1")
 
 
 def test_both_classes_are_represented():
