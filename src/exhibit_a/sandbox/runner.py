@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import json
 import secrets
-import shlex
 import shutil
 import subprocess
 import tempfile
@@ -250,7 +249,7 @@ def run(
         events_file = os.path.join(tmpdir, "events.jsonl")
         outside_file = os.path.join(tmpdir, "outside.json")
         extra_args: list[str] = []
-        plugin_flag = ""
+        plugin_args: list[str] = []
         exclude = staging_exclude(PurePosixPath(rel_test).as_posix())
         staged: dict[str, str] = {}
         if observe:
@@ -289,7 +288,7 @@ def run(
                                "-e", f"EXHIBIT_A_CANARY={mount}"]
                 Path(outside_file).write_text("")
                 extra_args += ["-v", f"{outside_file}:{_OUTSIDE_MOUNT}:rw"]
-            plugin_flag = f"-p {_PLUGIN_MODULE} "
+            plugin_args = ["-p", _PLUGIN_MODULE]
         for env_name, value in extra_env.items():
             if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY") and observe:
                 continue
@@ -324,6 +323,17 @@ def run(
                 return _env_failure(f"failed to prepare sandbox image: {e}")
 
         # 2) Run the image with strict isolation and no network.
+        pytest_args = ["-q", "-p", "no:cacheprovider", *plugin_args, f"/workspace/{rel_test}"]
+        if effect == "canary_write":
+            # pytest's own exit status is kept; the dump runs after it, in isolated mode. Every
+            # value reaches the shell as a positional parameter, never spliced into its text.
+            pytest_argv = [
+                "bash", "-c",
+                'pytest "${@:4}"; rc=$?; python -I -S -c "$1" "$2" "$3" ' + _OUTSIDE_MOUNT + '; exit $rc',
+                "exhibit-a", _OUTSIDE_DUMP, str(canary_work), str(mount), *pytest_args,
+            ]
+        else:
+            pytest_argv = ["pytest", *pytest_args]
         cmd = [
             "docker",
             "run",
@@ -358,14 +368,7 @@ def run(
             "--user",
             f"{os.getuid()}:{os.getgid()}",
             image,
-            "bash",
-            "-lc",
-            f"pytest -q -p no:cacheprovider {plugin_flag}/workspace/{rel_test}" + (
-                # pytest's own exit status is kept; the dump runs after it, in isolated mode.
-                f"; rc=$?; python -I -S -c {shlex.quote(_OUTSIDE_DUMP)} "
-                f"{shlex.quote(str(canary_work))} {shlex.quote(str(mount))} {_OUTSIDE_MOUNT}; exit $rc"
-                if effect == "canary_write" else ""
-            ),
+            *pytest_argv,
         ]
 
         try:
