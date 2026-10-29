@@ -4,9 +4,9 @@ Run Exhibit A on every pull request and use it as a **required status check**
 that turns red only when a finding is `proven`.
 
 A green check means **"nothing could be proven"**. It never means the change is
-safe: the engine may not have reached the vulnerable path, the run may have been
-skipped by the risk gate, or (today) the PR-diff surface may not be wired yet.
-The job summary always states which of these happened (`status`).
+safe: the engine may not have reached the vulnerable path, or the run may have
+been skipped by the risk gate. The job summary always states which of these
+happened (`status`).
 
 Security design and its reasons: [github-action-security.md](github-action-security.md).
 
@@ -27,8 +27,13 @@ Security design and its reasons: [github-action-security.md](github-action-secur
 2. **Risk gate**: `git diff --name-only BASE...HEAD` is classified low, medium
    or high (rules below). Low risk (docs/tests only) skips the exploit run
    unless `risk-gate: "false"`.
-3. **Run**: `exhibit-a run --repo <dir> --diff <pr.diff> --out <tmp>` under
-   `timeout <max-runtime-minutes>m`. This is the only step that sees the API key.
+3. **Run**: `exhibit-a run --repo <dir> --pr-diff <base>..<head> --out <tmp>
+   --provider <provider> [--model <model>]` under `timeout
+   <max-runtime-minutes>m` (exit codes in `docs/cli-exit-codes.md`: 0 ran with
+   nothing proven, 10 proven, 20 incomplete, 2 usage error). Exit 20, 2 or any
+   unexpected code fails the check immediately; only 0, 10 and the timeout
+   codes continue to the summary. This is the only step that sees the API key
+   (never on the `case:` path, which runs replay-only with no key exported).
    Afterwards every output file is searched for the key; a hit deletes the
    output and fails the job, so nothing is published.
 4. **Summary**: `python -m exhibit_a.ci.summary build` reads `ledger.jsonl` and
@@ -56,6 +61,7 @@ Security design and its reasons: [github-action-security.md](github-action-secur
 | `max-runtime-minutes` | `30` | Hard wall-clock limit for the engine (1 to 360). |
 | `budget-usd` | `""` | Passed to `--budget-usd` (hard cost stop). Strongly recommended. |
 | `base-sha` | PR base SHA | Base commit of the diff; needs `fetch-depth: 0`. |
+| `head-sha` | PR head SHA | Head commit of the diff. |
 | `case` | `""` | Run a benchmark `case.json` instead of the PR diff (smoke test). |
 | `replay` | `false` | Replay recorded model calls (with `case`). |
 | `risk-gate` | `true` | `false` runs exploits even for docs/tests-only PRs. |
@@ -78,7 +84,7 @@ Security design and its reasons: [github-action-security.md](github-action-secur
 | `completed` | Baseline passed and every raised suspicion got a verdict. |
 | `aborted` | Baseline failed, or suspicions were raised but not all judged. |
 | `timed_out` | `max-runtime-minutes` hit (engine exit 124/137). |
-| `not_run` | No ledger events: the surface is not wired, or the engine crashed early. |
+| `not_run` | No ledger events: the engine crashed before any step ran. Fails the check (never a passing default). |
 | `skipped` | The risk gate skipped the exploit run. |
 
 Only `proven` changes the check colour. If you also want `aborted`,
@@ -138,11 +144,13 @@ create `triage/`.
 
 ## Requires
 
-The CLI now provides the PR-diff loop, bounded changed-file validation,
-append-only ledger output, and documented exit codes. `result.json` remains
-compatible with `ci/summary.py`. The Action still needs to pass the
-`BASE..HEAD` value to `--pr-diff`; its current step passes a diff file to
-`--diff`, so that wiring mismatch remains outside this task.
+The CLI provides the PR-diff loop, bounded changed-file validation,
+append-only ledger output, and documented exit codes (`docs/cli-exit-codes.md`).
+The Action passes `BASE..HEAD` (validated 40-hex SHAs) to `--pr-diff` with
+`--provider`/`--model` from its inputs, fails the check on exit 20
+(incomplete), 2 (usage error, e.g. an unsupported provider) or any unexpected
+code, and fails the check when `surface_ran` is false or the status is
+`not_run`. `result.json` remains compatible with `ci/summary.py`.
 
 1. **Ledger path for the diff surface.** The Action expects `--out DIR` to
    produce `DIR/ledger.jsonl`, as `--case` runs already do.
@@ -151,7 +159,8 @@ compatible with `ci/summary.py`. The Action still needs to pass the
 
 What works today: `case:` + `replay: "true"` runs a benchmark case end to end
 (e.g. `bench/corpus/starlette-cve-2023-29159`), which is the way to smoke-test
-the Action on a runner with Docker.
+the Action on a runner with Docker. `case:` without `replay: "true"` is
+refused, and no key is exported on the `case:` path.
 
 ## Setup in GitHub (step by step)
 

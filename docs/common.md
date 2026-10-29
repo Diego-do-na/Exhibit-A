@@ -88,3 +88,4 @@ Protocol:
 - A-14 assistant: marked docker tests, added sandbox CI job; pending: none
 - T078 Muse: gated proven on the full proof standard (one post-verify verdict; unverified fix discarded_unproven; surviving bypass stays proven with fix_incomplete; exploit/variants in work/tests/; reason_code+effect in verdict payload; SPEC 4 decision); pending: Docker suites need a Docker host (Colima broken here, e2e needs network)
 - T075 Copilot: added bounded PR-diff execution with sandboxed proof loop, CI result/index output, exit-code docs, and smoke script; pending: action.yml still passes --diff instead of --pr-diff, full suite has pre-existing dashboard/Python failures
+- A-26 Muse: wired action.yml to run --pr-diff BASE..HEAD with SHA validation, provider/model passthrough, CLI exit-code mapping, surface_ran/not_run fail-closed gates, case-requires-replay refusal and no key export on the case path; verified SHAs, tests and docs; pending: none
