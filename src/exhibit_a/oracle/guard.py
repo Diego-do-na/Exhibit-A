@@ -655,7 +655,11 @@ def _source_problem(path: Path) -> str | None:
     flows = _flow_hits(tree)
     if flows:
         return f"test tampers with the application tree: {path.name} matches rule '{flows[0]}'"
-    if _canary_dir_hit(tree):
+    try:
+        chosen_root = _canary_dir_hit(tree)
+    except RecursionError:
+        chosen_root = True  # too deep to evaluate: fail closed
+    if chosen_root:
         return f"test chooses where the app is rooted: {path.name} matches rule '{CANARY_DIR_RULE}'"
     return None
 
