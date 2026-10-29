@@ -1,9 +1,15 @@
 # Second vulnerability class — decision (A-8)
 
 The engine had one real case: Starlette `StaticFiles` path traversal (CVE-2023-29159), a
-**read** effect proven with a canary file. One case looks like a trick, so we add a second
-class that is *different in kind* yet proven by the same loop
+**read** effect proven with a canary file. One case looks like a trick, so we added a second
+class that is *different in kind* and meant to be proven by the same loop
 (BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY).
+
+When A-8 landed, that class ran only at the oracle layer (`run_oracle(effect=...)`). The
+sandbox-backed loop and the CLI were wired later by T076 (A-21; see
+`docs/sandbox-write-effect.md`): `TestRunner`, `SandboxRunner` and `VerificationLoop` take an
+`effect`, and `exhibit-a run --case bench/corpus/archive-extraction-pathtraversal --replay`
+answers from the case materials. The `--case` baseline still runs as a host child process.
 
 ## Criteria
 
@@ -63,7 +69,7 @@ An app fetches a user-controlled URL; the effect is a request to a forbidden tar
 **Archive-extraction path traversal (zip-slip), proven through a `canary_write` effect.** It is
 the strongest fit for every criterion and forces the oracle to grow a new, honest observed
 effect (a write outside the allowed directory) while reusing the existing provenance and signed
--event machinery unchanged.
+-event machinery. The signed-event functions were not changed, but the plugin was (see below).
 
 ## CVE honesty
 
@@ -83,8 +89,10 @@ effect (a write outside the allowed directory) while reusing the existing proven
   (`case.json`, `profile.json`, `suspicion.json`) validated against `src/exhibit_a/schemas`.
 - Oracle extension: `run_oracle(..., effect="canary_write")` plus a read/write access classifier
   in `src/exhibit_a/oracle/oracle.py`; a fail-closed symlink-walk fix in `plugin.py` so an
-  open-for-write of a not-yet-existing file is not mistaken for a symlink. The signed-events
-  channel (`sign_event`/`verify_lines`) is untouched.
+  open-for-write of a not-yet-existing file is not mistaken for a symlink. A-8 left
+  `sign_event`/`verify_lines` untouched, but `plugin.py` itself was changed here, and again by
+  T079 (open flags, `os.rename`/`os.replace`/`os.link` observation, `EXHIBIT_A_CANARY` popped
+  after install).
 - Tests: `tests/test_case_archive_extraction.py` (baseline before/after the fix, fix
   verification, the incomplete-fix **bypass check**, schema validation) and
   `tests/test_oracle_eval_archive.py` (the labelled evaluation set across both classes, with the
