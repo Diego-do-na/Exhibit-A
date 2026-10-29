@@ -89,6 +89,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Model name to use for every role (overrides EXHIBIT_A_MODEL).",
     )
     run.add_argument(
+        "--profile",
+        choices=("standard", "compact"),
+        default="standard",
+        help=(
+            "Prompt profile. 'compact' bounds every answer, asks the fixer for search/replace "
+            "edits, and defaults to --reasoning-effort minimal plus per-role output caps, "
+            "to cut cost. 'standard' (default) matches the recorded replays."
+        ),
+    )
+    run.add_argument(
+        "--reasoning-effort",
+        choices=("minimal", "low", "medium", "high", "max"),
+        default=None,
+        help="Reasoning effort sent to chat-completions providers (default: provider default; minimal with --profile compact).",
+    )
+    run.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Output-token ceiling per model call (default: none; per-role caps with --profile compact).",
+    )
+    run.add_argument(
         "--budget-usd",
         type=float,
         default=None,

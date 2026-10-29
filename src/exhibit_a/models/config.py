@@ -31,6 +31,10 @@ class RoleConfig:
     recording: str = ""
     timeout: float = 120.0
     pricing: Pricing = field(default_factory=Pricing)
+    #: Cost controls for chat-completions backends (openai_compatible, meta). Empty / 0
+    #: means "not sent"; see OpenAICompatibleProvider.configure_generation.
+    reasoning_effort: str = ""
+    max_output_tokens: int = 0
 
 
 #: Builds a Provider from a validated RoleConfig.
@@ -69,13 +73,15 @@ def _openai_compatible_factory(spec: RoleConfig) -> Provider:
         raise ValueError("openai_compatible provider needs a base_url")
     if not spec.model:
         raise ValueError("openai_compatible provider needs a model name")
-    return OpenAICompatibleProvider(
+    provider = OpenAICompatibleProvider(
         spec.base_url,
         spec.model,
         spec.api_key_env,
         pricing=spec.pricing,
         timeout=spec.timeout,
     )
+    provider.configure_generation(spec.reasoning_effort, spec.max_output_tokens)
+    return provider
 
 
 def _meta_factory(spec: RoleConfig) -> Provider:
@@ -86,13 +92,15 @@ def _meta_factory(spec: RoleConfig) -> Provider:
         # No explicit pricing configured: fall back to the Meta pricing table
         # (whose rates are UNVERIFIED placeholders; see meta.py).
         pricing = META_PRICING.get(spec.model, pricing)
-    return MetaProvider(
+    provider = MetaProvider(
         spec.model,
         base_url=spec.base_url,
         api_key_env=spec.api_key_env,
         pricing=pricing,
         timeout=spec.timeout,
     )
+    provider.configure_generation(spec.reasoning_effort, spec.max_output_tokens)
+    return provider
 
 
 register_provider("replay", _replay_factory)
