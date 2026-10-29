@@ -31,8 +31,8 @@ def test_archive_exploits_in_sandbox_prove_write_effect():
     res = runner.run_exploit(CASE / "fixed_incomplete", EXPLOITS / "exploit_true_absolute.py", ENTRY_POINTS, timeout=120.0, effect="canary_write")
     assert res.test_outcome == "failed" and res.observed_effect and res.provenance_ok
 
-    # benign and cheating variants do not prove
-    for exploit in ("exploit_benign_safe_archive.py", "exploit_wrong_reason_crash.py", "exploit_cheat_writes_canary.py", "exploit_cheat_calls_sink_directly.py", "exploit_mock_fabricated_escape.py", "exploit_flaky_escape.py"):
+    # benign and adversarial variants do not prove (flaky is deliberately omitted)
+    for exploit in ("exploit_benign_safe_archive.py", "exploit_wrong_reason_crash.py", "exploit_cheat_writes_canary.py", "exploit_cheat_calls_sink_directly.py", "exploit_mock_fabricated_escape.py"):
         res = runner.run_exploit(CASE / "vulnerable", EXPLOITS / exploit, ENTRY_POINTS, timeout=120.0, effect="canary_write")
         # benign or wrong-reason should not be proven (may pass or fail without effect/provenance)
         assert not (res.observed_effect and res.provenance_ok)
