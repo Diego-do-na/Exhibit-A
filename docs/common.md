@@ -87,3 +87,4 @@ Protocol:
 - M-1b claude: safe_pip_install takes timeout=300 (TimeoutExpired -> RuntimeError without env/cmd text), also passes HOME and non-secret PIP_*; bench/loop_pipeline.py uses it instead of _pip_env/_install_requirements; timeout tests added; pending: none
 - A-14 assistant: marked docker tests, added sandbox CI job; pending: none
 - T078 Muse: gated proven on the full proof standard (one post-verify verdict; unverified fix discarded_unproven; surviving bypass stays proven with fix_incomplete; exploit/variants in work/tests/; reason_code+effect in verdict payload; SPEC 4 decision); pending: Docker suites need a Docker host (Colima broken here, e2e needs network)
+- T075 Copilot: added bounded PR-diff execution with sandboxed proof loop, CI result/index output, exit-code docs, and smoke script; pending: action.yml still passes --diff instead of --pr-diff, full suite has pre-existing dashboard/Python failures
