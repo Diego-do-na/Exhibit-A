@@ -78,6 +78,7 @@ class TestRunner(Protocol):
         entry_points: Collection[str],
         *,
         timeout: float,
+        effect: str = "canary_read",
     ) -> Judgement:
         """Run one exploit test against ``app_root`` and judge why it failed or passed."""
         ...
@@ -106,6 +107,7 @@ class SandboxRunner:
         entry_points: Collection[str],
         *,
         timeout: float,
+        effect: str = "canary_read",
     ) -> Judgement:
         """Run the exploit in the sandbox and judge it; raises ``OSError`` if it could not run."""
         from exhibit_a.sandbox import run
@@ -145,6 +147,7 @@ class SandboxRunner:
                 events_path=str(Path(tmp) / "events.jsonl"),
                 env={ENV_CANARY_TOKEN: token, ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed"},
                 manifest=manifest,
+                effect=effect,
             )
             if result["outcome"] == "env_failure":
                 raise OSError(f"sandbox could not run the exploit: {result['stderr']}")
@@ -159,6 +162,8 @@ class SandboxRunner:
                 app_tree=AppTree(str(_WORKSPACE), stage, manifest),
                 app_tree_changes=result.get("app_tree_changes", []),
                 allowed_dir=f"{_SCRATCH}/allowed",
+                effect=effect,
+                canary_written=result.get("canary_written", None),
             )
 
 
