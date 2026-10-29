@@ -26,6 +26,7 @@ full system (the default) meets the proof standard; the others exist to be measu
 from __future__ import annotations
 
 import difflib
+import inspect
 import json
 import re
 import shutil
@@ -198,7 +199,20 @@ class VerificationLoop:
         # ``requirements`` only shape the default runner; an injected one carries its own.
         self.runner = runner if runner is not None else SandboxRunner(requirements=tuple(requirements))
         self.baseline_runner = baseline_runner or self.runner.run_baseline
-        self.judge = judge or self.runner.run_exploit
+        # The judge may be a callable supplied by callers (e.g. bench.make_pipeline's
+        # _make_judge) that does not accept an `effect` keyword. Wrap it so the loop
+        # can always call `self.judge(..., effect=self.effect)` safely.
+        base_judge = judge or self.runner.run_exploit
+        try:
+            params = inspect.signature(base_judge).parameters
+        except (TypeError, ValueError):
+            params = {}
+        if "effect" in params:
+            self.judge = base_judge
+        else:
+            def _judge_no_effect(app_root: Path, test_path: Path, entry_points: Collection[str], *, timeout: float, effect: str = "canary_read"):
+                return base_judge(app_root, test_path, entry_points, timeout=timeout)
+            self.judge = _judge_no_effect
         self.flags: LoopFlags = flags if flags is not None else FullSystem()
         # Which oracle effect the judge proves ("canary_read" or "canary_write").
         # Recorded on the verdict payload (audit F7); the signed oracle-event

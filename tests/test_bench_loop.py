@@ -505,13 +505,23 @@ def test_archive_case_with_incapable_runner_fails_closed(tmp_path, capsys):
     case = cases["archive-extraction-pathtraversal"]
 
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    pipeline = make_pipeline(CaseMaterialsProvider(case), runner=SandboxRunner(requirements=()))
+    # Use a runner that intentionally lacks an `effect` parameter on run_exploit
+    # to emulate an incapable runner and ensure the pipeline fails closed.
+    class IncapableRunner:
+        def run_baseline(self, clone_path: str, test_path: str, timeout: float) -> dict:
+            return {"outcome": "passed", "exit_code": 0, "stdout": "", "stderr": "", "oracle_events": []}
+
+        def run_exploit(self, app_root, test_path, entry_points, *, timeout: float):
+            # Should never be called when the pipeline detects the unsupported effect.
+            raise RuntimeError("run_exploit should not be invoked")
+
+    pipeline = make_pipeline(CaseMaterialsProvider(case), runner=IncapableRunner())
     rows = run_benchmark([case], pipeline, ledger, ablations=select(["full"]))
 
     assert rows and rows[0].proven == 0
     # Nothing executed: no clone was ever staged.
     assert not (tmp_path / "out").exists()
-    reason = "effect canary_write not supported by SandboxRunner yet (T076)"
+    reason = f"effect canary_write not supported by {type(IncapableRunner()).__name__} yet (T076)"
     assert reason in capsys.readouterr().err
     baselines = [e for e in ledger.replay("bench:full:archive-extraction-pathtraversal") if e.type == EventType.BASELINE_DONE]
     assert baselines and baselines[0].payload.get("ok") is False
