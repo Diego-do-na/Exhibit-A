@@ -43,6 +43,31 @@ ENV_CANARY_TOKEN = "EXHIBIT_A_CANARY_TOKEN"
 
 TestOutcome = Literal["passed", "failed", "error", "timeout"]
 
+# Which effect on the canary counts as proof for this run. "canary_read" is the original
+# path-traversal style effect (the app leaks a file outside the allowed directory);
+# "canary_write" is the archive-extraction / zip-slip style effect (the app creates a file
+# outside the allowed directory). Both are observed through the same signed ``open`` events;
+# only the access the event carries (read vs write) differs. See docs/second-class.md.
+Effect = Literal["canary_read", "canary_write"]
+_WRITE_MODE_CHARS = frozenset("wax+")
+
+
+def _access(mode: str | None) -> str:
+    """Classify an ``open`` mode string as a ``read`` or a ``write`` (``unknown`` otherwise).
+
+    ``mode`` is the second argument the ``open`` audit event carries. For ``builtins.open``
+    it is a mode string such as ``"rb"`` or ``"w"``; for ``os.open`` it is ``None`` (the
+    intent is in the flags), which we cannot classify here and report as ``unknown``.
+    """
+    if not mode or mode == "None":
+        return "unknown"
+    lowered = mode.lower()
+    if any(char in _WRITE_MODE_CHARS for char in lowered):
+        return "write"
+    if "r" in lowered:
+        return "read"
+    return "unknown"
+
 # Machine-readable reasons a judgement is not a proof (Judgement.reason_code).
 REASON_CHANNEL_TRIPWIRE = "channel_tripwire"
 REASON_FORGED_EVENTS = "forged_events"
@@ -101,13 +126,22 @@ def run_oracle(
     entry_points: Collection[str],
     *,
     timeout: float = 60.0,
+    effect: Effect = "canary_read",
 ) -> Judgement:
     """Run ``test_path`` against the app in ``app_root`` and judge the result.
 
     ``entry_points`` are the function names (plain or qualified) through which a real
     request enters the application, e.g. ``{"App.handle_request"}``. The test finds the
     allowed directory and the canary through the ``EXHIBIT_A_*`` environment variables.
+
+    ``effect`` selects what counts as proof: ``"canary_read"`` (the app reads a file outside
+    the allowed directory) or ``"canary_write"`` (the app creates a file outside it, as in an
+    archive-extraction / zip-slip escape). For a write effect the canary file is not planted:
+    the proof is that the app itself opens the canary path for writing, so it must not exist
+    beforehand.
     """
+    if effect not in ("canary_read", "canary_write"):
+        raise ValueError(f"unknown effect {effect!r}")
     app_root = Path(app_root).resolve()
     test_path = Path(test_path).resolve()
 
@@ -144,7 +178,10 @@ def run_oracle(
         (allowed / "public.txt").write_text("public file\n", encoding="utf-8")
         token = "CANARY-" + secrets.token_hex(16)
         canary = outside / "canary.txt"
-        canary.write_text(token + "\n", encoding="utf-8")
+        if effect == "canary_read":
+            # Read effect: the canary must exist for the app to leak it.
+            canary.write_text(token + "\n", encoding="utf-8")
+        # Write effect: leave the canary absent; the app proves the escape by creating it.
         events_path = work / "events.jsonl"
         ini = work / "pytest.ini"
         ini.write_text("[pytest]\n", encoding="utf-8")
@@ -160,7 +197,7 @@ def run_oracle(
     # change to it is reported above and rules out a proof, so its content is the staged one.
     return _judge(
         outcome, events, app_root, test_path, set(entry_points),
-        forged_events=forged, forged_reason=forged_reason,
+        effect=effect, forged_events=forged, forged_reason=forged_reason,
         app_tree=AppTree(str(app_root), app_root, manifest), app_tree_changes=changes,
     )
 
@@ -271,6 +308,7 @@ def _judge(
     test_path: Path,
     entry_points: set[str],
     *,
+    effect: Effect = "canary_read",
     forged_events: int = 0,
     forged_reason: str = "",
     app_tree: AppTree | None = None,
@@ -321,27 +359,37 @@ def _judge(
             app_tree_changes=changes,
             reason_code=REASON_APP_TREE_CHANGED,
         )
-    if not events:
+    # Only opens of the kind this effect looks for count. A write-effect run ignores a read of
+    # the canary path, and a read-effect run ignores a write: the wrong access never proves the
+    # intended vulnerability. The full event list is still returned for the record.
+    wanted = "write" if effect == "canary_write" else "read"
+    verb = "written" if wanted == "write" else "read"
+    # An ``os.open`` event carries no mode string, so its access is "unknown". For the read
+    # effect that still counts (the original behaviour, and what dir_fd reads produce); a
+    # write effect requires a positively identified write.
+    accepted = {"read", "unknown"} if wanted == "read" else {"write"}
+    relevant = [event for event in events if _access(event.mode) in accepted]
+    if not relevant:
         reasons = {
-            "failed": "test failed but the canary was never read: it failed for the wrong reason",
-            "passed": "test passed and the canary was never read: nothing was proven",
-            "error": "test did not run to a result and the canary was never read",
-            "timeout": "test timed out and the canary was never read",
+            "failed": f"test failed but the canary was never {verb}: it failed for the wrong reason",
+            "passed": f"test passed and the canary was never {verb}: nothing was proven",
+            "error": f"test did not run to a result and the canary was never {verb}",
+            "timeout": f"test timed out and the canary was never {verb}",
         }
         return Judgement(
-            observed_effect=False, provenance_ok=False, reason=reasons[outcome], test_outcome=outcome,
-            reason_code=REASON_NO_EFFECT,
+            observed_effect=False, provenance_ok=False, reason=reasons[outcome],
+            test_outcome=outcome, events=events, reason_code=REASON_NO_EFFECT,
         )
 
     test_dir = test_path.parent
     problems = []
-    for event in events:
+    for event in relevant:
         problem = _provenance_problem(event, app_root, test_dir, entry_points, app_tree)
         if problem is None:
             if outcome == "failed":
-                reason = "canary read by application code reached through an entry point; test failed"
+                reason = f"canary {verb} by application code reached through an entry point; test failed"
             else:
-                reason = f"canary read through an entry point, but the test did not fail ({outcome})"
+                reason = f"canary {verb} through an entry point, but the test did not fail ({outcome})"
             return Judgement(
                 observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
                 reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
@@ -351,7 +399,7 @@ def _judge(
     return Judgement(
         observed_effect=True,
         provenance_ok=False,
-        reason="canary read without valid provenance: " + message,
+        reason=f"canary {verb} without valid provenance: " + message,
         test_outcome=outcome,
         events=events,
         reason_code=code,

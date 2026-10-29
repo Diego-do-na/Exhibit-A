@@ -1,0 +1,8 @@
+{
+  "id": "archive-extraction-unchecked-member-path",
+  "class": "archive_extraction_path_traversal",
+  "location": {"file": "vulnerable/archive.py", "line": 63},
+  "entry_point": "App.handle_request",
+  "hypothesis": "An uploaded archive whose member name uses '..' or an absolute path escapes the extraction directory: Extractor._target joins the member name onto the destination without confining it, so extract_member writes a file outside dest_dir (archive-extraction path traversal / zip-slip).",
+  "source": "manual (case author); real-world analog CVE-2007-4559"
+}

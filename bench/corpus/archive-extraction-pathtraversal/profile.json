@@ -1,0 +1,11 @@
+{
+  "commit": "",
+  "language": "python",
+  "interpreter": "python3.11",
+  "dependency_manager": "none",
+  "install_cmd": "",
+  "test_cmd": "python -m pytest baseline_test.py",
+  "framework": "none (stdlib only)",
+  "dependencies": [],
+  "baseline": {"passed": 4, "failed": 0, "seconds": 0.0}
+}
