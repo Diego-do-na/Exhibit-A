@@ -10,12 +10,14 @@ from exhibit_a.models import (
     OllamaProvider,
     OpenAICompatibleProvider,
     Pricing,
+    ProviderError,
     ReplayProvider,
     Role,
     RoleConfig,
     build_roles,
     register_provider,
 )
+from exhibit_a.models.meta import MetaProvider
 
 SCHEMA = {
     "type": "object",
@@ -59,7 +61,7 @@ def fake_backend():
 
 
 def test_registry_lists_the_builtin_providers():
-    assert {"replay", "ollama", "openai_compatible"} <= set(PROVIDER_REGISTRY)
+    assert {"replay", "ollama", "openai_compatible", "meta"} <= set(PROVIDER_REGISTRY)
 
 
 def test_build_roles_returns_one_model_role_per_role(fake_backend):
@@ -144,9 +146,27 @@ def test_unknown_provider_name_is_rejected():
         build_roles({Role.DEFENDER: RoleConfig(provider="smoke-signals")})
 
 
-def test_meta_provider_is_explicitly_not_built_yet():
-    with pytest.raises(ValueError, match="not built yet"):
-        build_roles({Role.DEFENDER: RoleConfig(provider="meta", model="m")})
+def test_meta_provider_builds_from_env_key_without_network(monkeypatch):
+    monkeypatch.setenv("META_API_KEY", "fake-key-for-test")
+    monkeypatch.delenv("META_BASE_URL", raising=False)
+    roles = build_roles({Role.DEFENDER: RoleConfig(provider="meta", model="meta-model")})
+    provider = roles[Role.DEFENDER].provider
+    assert isinstance(provider, MetaProvider)
+    assert provider.name == "meta"
+    assert provider.model == "meta-model"
+
+
+def test_meta_provider_missing_key_error_is_clear_and_does_not_leak(monkeypatch):
+    monkeypatch.delenv("META_API_KEY", raising=False)
+    monkeypatch.delenv("META_BASE_URL", raising=False)
+    provider = build_roles({Role.DEFENDER: RoleConfig(provider="meta", model="m")})[
+        Role.DEFENDER
+    ].provider
+    with pytest.raises(ProviderError) as excinfo:
+        provider.complete(Role.DEFENDER, "p", SCHEMA)
+    message = str(excinfo.value)
+    assert "META_API_KEY" in message
+    assert "fake-key-for-test" not in message
 
 
 def test_unknown_role_key_is_rejected(fake_backend):
