@@ -73,3 +73,4 @@ Protocol:
 - T060 claude: tests/conftest.py fails (not skips) docker-marked tests when docker info fails; removed Docker skipif/skip in sandbox events/security/limits/image tests, all marked docker; pending: sandbox_internal_tests.py keeps one in-container skip for a missing mount binary (not a Docker skip)
 - A-6 assistant: added --provider/--model flags to run CLI and passed them to live roles; pending: run full tests
 - T061 claude: tests/test_e2e_cve_fixed.py now carries pytest.mark.docker and asserts every verdict is exactly discarded_unproven (env_failure no longer passes); pending: none
+- M-1 assistant: installed case requirements with binary-only and stripped env; pending: wheels can still be malicious at import time
