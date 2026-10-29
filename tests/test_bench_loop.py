@@ -383,7 +383,7 @@ def _stub_installer(monkeypatch, expected_requirements, *, vulnerable):
         else "os.path.commonpath([full_path, directory])"
     )
 
-    def fake_install(target: Path, requirements):
+    def fake_install(*, target, requirements, timeout=300):
         assert tuple(requirements) == tuple(expected_requirements)
         package = Path(target) / "starlette"
         package.mkdir(parents=True, exist_ok=True)
@@ -393,7 +393,7 @@ def _stub_installer(monkeypatch, expected_requirements, *, vulnerable):
             STUB_STATICFILES.replace("CHECK", check)
         )
 
-    monkeypatch.setattr(loop_pipeline, "_install_requirements", fake_install)
+    monkeypatch.setattr(loop_pipeline, "safe_pip_install", fake_install)
 
 
 class StarletteScripted:
@@ -518,8 +518,9 @@ def test_archive_case_with_incapable_runner_fails_closed(tmp_path, capsys):
     assert baselines[0].payload.get("outcome") == f"env_failure: {reason}"
 
 
-def test_install_requirements_uses_only_binary_and_scrubbed_env(tmp_path, monkeypatch):
+def test_safe_pip_install_uses_only_binary_and_scrubbed_env(tmp_path, monkeypatch):
     import os
+    import subprocess
 
     monkeypatch.setenv("PIP_INDEX_URL", "https://example.invalid/simple")
     monkeypatch.setenv("PIP_API_TOKEN", "trap")
@@ -539,8 +540,8 @@ def test_install_requirements_uses_only_binary_and_scrubbed_env(tmp_path, monkey
         seen.update(kwargs)
         return Proc()
 
-    monkeypatch.setattr(loop_pipeline.subprocess, "run", fake_run)
-    loop_pipeline._install_requirements(tmp_path, ["pkg==1.0"])
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    loop_pipeline.safe_pip_install(target=str(tmp_path), requirements=["pkg==1.0"])
 
     assert "--only-binary=:all:" in seen["cmd"]
     assert "--target" in seen["cmd"]
