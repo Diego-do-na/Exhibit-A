@@ -217,6 +217,8 @@ def _genuine(state, line_of=None):
 
     return {
         "path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "via_symlink": False,
+        # Recorded since A-11 F2/F4: the open's flags and access, and the path as requested.
+        "flags": 0, "access": "read", "requested": "/tmp/exhibit_a_oracle/allowed/../outside/canary.txt",
         "stack": [
             {"file": f"{test_dir}/test_exploit.py", "function": "test_download_must_not_escape_base_dir",
              "qualname": "test_download_must_not_escape_base_dir", "line": 5},

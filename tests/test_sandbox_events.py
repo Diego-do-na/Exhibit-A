@@ -6,10 +6,12 @@ from exhibit_a.sandbox import run
 
 # Individual tests marked docker where needed so non-Docker tests run in the fast job.
 
+# The plugin removes EXHIBIT_A_CANARY from the environment after install (finding A-11 F2), so
+# these in-container tests name the mount point itself.
 READER = (
     "import os\n"
     "def read_secret():\n"
-    "    return open(os.environ['EXHIBIT_A_CANARY']).read()\n"
+    "    return open('/oracle/canary').read()\n"
     "def test_read():\n"
     "    assert read_secret() == 'TOKEN'\n"
 )
@@ -77,10 +79,10 @@ def test_canary_can_be_mounted_as_a_real_file_under_tmp(tmp_path: Path):
     body = (
         "import os\n"
         "def read_secret():\n"
-        "    return open(os.environ['EXHIBIT_A_CANARY']).read()\n"
+        "    return open('/tmp/oracle_work/outside/canary.txt').read()\n"
         "def test_real_file():\n"
-        "    path = os.environ['EXHIBIT_A_CANARY']\n"
-        "    assert path == '/tmp/oracle_work/outside/canary.txt'\n"
+        "    assert 'EXHIBIT_A_CANARY' not in os.environ  # popped by the plugin after install\n"
+        "    path = '/tmp/oracle_work/outside/canary.txt'\n"
         "    assert not os.path.islink(path) and os.path.realpath(path) == path\n"
         "    os.mkdir('/tmp/oracle_work/allowed')  # the tree around it stays writable\n"
         "    assert read_secret() == 'TOKEN'\n"

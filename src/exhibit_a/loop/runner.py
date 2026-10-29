@@ -158,6 +158,7 @@ class SandboxRunner:
                 forged_reason=result.get("oracle_forged_reason", ""),
                 app_tree=AppTree(str(_WORKSPACE), stage, manifest),
                 app_tree_changes=result.get("app_tree_changes", []),
+                allowed_dir=f"{_SCRATCH}/allowed",
             )
 
 
