@@ -74,3 +74,4 @@ Protocol:
 - A-6 assistant: added --provider/--model flags to run CLI and passed them to live roles; pending: run full tests
 - T061 claude: tests/test_e2e_cve_fixed.py now carries pytest.mark.docker and asserts every verdict is exactly discarded_unproven (env_failure no longer passes); pending: none
 - M-1 assistant: installed case requirements with binary-only and stripped env; pending: wheels can still be malicious at import time
+- T065 assistant: added rule-based scan.detect module and tests; pending: CLI wiring and broader language support
