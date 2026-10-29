@@ -154,6 +154,58 @@ def run_args(case_file, out, **overrides):
     return args
 
 
+def test_cli_flags_and_env_precedence(tmp_path, monkeypatch, fake_provider, capsys):
+    """Verify CLI flags override env vars and env vars are used when flags are absent."""
+    monkeypatch.setattr(run_mod, "SandboxRunner", FakeRunner)
+    case_file = stage_case(tmp_path)
+    out = tmp_path / "out"
+
+    # Set env vars and ensure they are used when flags absent.
+    monkeypatch.setenv("EXHIBIT_A_PROVIDER", "fake-live")
+    monkeypatch.setenv("EXHIBIT_A_MODEL", "fake-model")
+    # Call via CLI main (parses and dispatches to cmd_run)
+    rc = run_mod.main(["run", "--case", str(case_file), "--out", str(out), "--budget-usd", "10.0"])
+    assert rc == 0
+    captured = fake_provider
+    assert captured
+    assert all(spec.provider == "fake-live" for spec in captured)
+    assert all(spec.model == "fake-model" for spec in captured)
+
+    # Flags override env vars.
+    out2 = tmp_path / "out2"
+    rc2 = run_mod.main(["run", "--case", str(case_file), "--out", str(out2), "--provider", "fake-live", "--model", "override-model", "--budget-usd", "10.0"])
+    assert rc2 == 0
+    # The last factory calls should have seen the override model.
+    assert any(spec.model == "override-model" for spec in fake_provider)
+
+
+def test_model_without_provider_uses_default_provider(tmp_path, monkeypatch, capsys, fake_provider):
+    """--model without --provider uses the default provider name (ollama) — we override ollama in the registry."""
+    monkeypatch.setattr(run_mod, "SandboxRunner", FakeRunner)
+    case_file = stage_case(tmp_path)
+    out = tmp_path / "out3"
+
+    # Temporarily register a fake 'ollama' provider to observe the spec.
+    from exhibit_a.models.config import PROVIDER_REGISTRY
+
+    seen = []
+
+    def ollama_factory(spec):
+        seen.append(spec)
+        return FakeLive(spec)
+
+    PROVIDER_REGISTRY["ollama"] = ollama_factory
+    try:
+        rc = run_mod.main(["run", "--case", str(case_file), "--out", str(out), "--model", "some-model", "--budget-usd", "10.0"])
+        assert rc == 0
+        assert seen
+        assert all(spec.provider == "ollama" for spec in seen)
+        assert all(spec.model == "some-model" for spec in seen)
+    finally:
+        # restore
+        del PROVIDER_REGISTRY["ollama"]
+
+
 def test_live_run_proves_and_packages(tmp_path, monkeypatch, fake_provider, capsys) -> None:
     monkeypatch.setattr(run_mod, "SandboxRunner", FakeRunner)
     case_file = stage_case(tmp_path)
