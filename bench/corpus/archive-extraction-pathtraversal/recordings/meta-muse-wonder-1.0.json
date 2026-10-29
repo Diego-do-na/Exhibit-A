@@ -1,0 +1,76 @@
+{
+  "aborted": "",
+  "base_url": "https://api.meta.ai/v1",
+  "baseline_ok": true,
+  "budget_usd": {
+    "case": 2.0,
+    "run_total": 5.0
+  },
+  "calls": 6,
+  "calls_by_role": {
+    "adversary": 1,
+    "test_writer": 5
+  },
+  "case": "archive-extraction-pathtraversal",
+  "cost_usd": 0.735708,
+  "date_utc": "2026-10-29T23:27:07Z",
+  "exhibit_a": {
+    "commit": "76024e4b1eb01918d525e11b105ce5db899d1a17",
+    "dirty": true
+  },
+  "hand_authored": false,
+  "model": "muse-wonder-1.0",
+  "pricing_usd_per_mtok": {
+    "input": 4.0,
+    "output": 20.0
+  },
+  "provider": "meta",
+  "recording": "meta-muse-wonder-1.0.jsonl",
+  "stop_detail": "",
+  "stopped": "",
+  "suspicions_raised": 5,
+  "tokens_in": 6262,
+  "tokens_out": 35533,
+  "verdicts": [
+    {
+      "fix_incomplete": false,
+      "fix_verified": false,
+      "reason": "test failed but the canary was never written: it failed for the wrong reason",
+      "reason_code": "no_effect",
+      "suspicion_id": "S1",
+      "verdict": "invalid_test"
+    },
+    {
+      "fix_incomplete": false,
+      "fix_verified": false,
+      "reason": "test failed but the canary was never written: it failed for the wrong reason",
+      "reason_code": "no_effect",
+      "suspicion_id": "S2",
+      "verdict": "invalid_test"
+    },
+    {
+      "fix_incomplete": false,
+      "fix_verified": false,
+      "reason": "test failed but the canary was never written: it failed for the wrong reason",
+      "reason_code": "no_effect",
+      "suspicion_id": "S3",
+      "verdict": "invalid_test"
+    },
+    {
+      "fix_incomplete": false,
+      "fix_verified": false,
+      "reason": "test passed and the canary was never written: nothing was proven",
+      "reason_code": "no_effect",
+      "suspicion_id": "S4",
+      "verdict": "discarded_unproven"
+    },
+    {
+      "fix_incomplete": false,
+      "fix_verified": false,
+      "reason": "test failed but the canary was never written: it failed for the wrong reason",
+      "reason_code": "no_effect",
+      "suspicion_id": "S5",
+      "verdict": "invalid_test"
+    }
+  ]
+}
