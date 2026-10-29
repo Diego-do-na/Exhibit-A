@@ -75,3 +75,4 @@ Protocol:
 - T061 claude: tests/test_e2e_cve_fixed.py now carries pytest.mark.docker and asserts every verdict is exactly discarded_unproven (env_failure no longer passes); pending: none
 - M-1 assistant: installed case requirements with binary-only and stripped env; pending: wheels can still be malicious at import time
 - A-3 Muse: repaired python -m bench on the real corpus (dir/single-file corpus, per-case replay-or-materials providers, run.tree staging, run.requirements install, canary_write judge plumbing, per-case output rows) with real-case tests green; pending: Docker-host rerun for nonzero numbers, SandboxRunner canary_write support
+- A-5 Muse: added a real-path bench CLI test (copied Starlette vuln+fixed corpus with shipped replays, host runner, hermetic wheelhouse; asserts rows, per-case output, ordered ledger kinds, proven/discarded_unproven verdicts; verified it fails when the loop is skipped); pending: Docker-host rerun for container-backed numbers
