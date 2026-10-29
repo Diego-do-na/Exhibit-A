@@ -78,7 +78,7 @@ execution; code it ships is trusted only as "the app" by the oracle (see R2).
 | Kernel | container escape through a kernel or runtime bug | none beyond the container runtime; shared host kernel | limit | `docs/sandbox.md` ("What these flags do not guarantee") |
 | Cases that still run on the host | the project baseline of `--case ... --replay` runs as a host child process (`_local_baseline`), and `run_oracle` is a host path; exploit, fixed-code and bypass runs, including the write effect, go through the sandbox (T076) | scrubbed child env only for the host baseline | open | `src/exhibit_a/cli/run.py`, `src/exhibit_a/loop/runner.py` (audit F8) |
 | Docker absent | tests silently skipped and counted as green | sandbox tests fail (not skip) without Docker | done | `tests/conftest.py` (T060; audit F15) |
-| Argument handling | `bash -lc` wrapper in the sandbox command | not changed | open | `src/exhibit_a/sandbox/runner.py` (audit F17) |
+| Argument handling | `bash -lc` wrapper that interpolated the test path into shell text | the container command is an argv list: `pytest` runs directly, and the write-effect dump uses `bash -c` with every value passed as a positional parameter, never spliced into the script (T081) | done | `src/exhibit_a/sandbox/runner.py`, `tests/test_sandbox_fake_docker.py` (audit F17) |
 
 ### 2.4 Oracle
 
@@ -159,8 +159,8 @@ execution; code it ships is trusted only as "the app" by the oracle (see R2).
 | Live server | remote access to ledgers and diffs | binds `127.0.0.1` by default; bind failure reported; `--host` can override (user's choice) | done | `src/exhibit_a/live/server.py`, `tests/test_live.py::test_cli_defaults_and_bind_failure` |
 | Live server routes | path traversal through static file serving | unknown routes 404; no authentication (loopback only) | limit | `tests/test_live.py::test_unknown_route_is_404` |
 | Advisory data | network data (OSV records, versions) reaches `exec`/`eval` | records are parsed into typed models; ranges are evaluated by local code; no `eval`/`exec` in the module; a match is a hint, never a verdict | done | `src/exhibit_a/advisory/osv.py`, `src/exhibit_a/schemas/advisory.py`, `tests/test_advisory_osv.py` |
-| Advisory parsers | hostile version strings or records (huge numbers, deep recursion) | version parsing is bounded only partly; no length caps or `RecursionError` handling | open | `src/exhibit_a/advisory/version.py` (audit F12) |
-| Advisory HTTP | live service never exercised; redirects not restricted | stdlib `urllib` backend; replay backend used in tests | limit | `src/exhibit_a/advisory/osv.py`, `docs/advisory.md` |
+| Advisory parsers | hostile version strings or records (huge numbers, deep recursion) | numeric version components over 20 digits are rejected as `InvalidVersion`; `RecursionError` from deep JSON becomes `AdvisoryDataError`; one bad record is skipped and reported as a warning; at most 200 ids are fetched per package (T081) | done | `src/exhibit_a/advisory/version.py`, `osv.py`, `tests/test_advisory_robustness.py` (audit F12) |
+| Advisory HTTP | live service never exercised; redirects could downgrade to http | stdlib `urllib` backend that follows redirects only to https (T081); the live service has still never been exercised, and the replay backend is used in tests | limit | `src/exhibit_a/advisory/osv.py`, `docs/advisory.md` |
 
 ## 3. Audit coverage (docs/audit-integration.md sections 2, 7, 9)
 
@@ -179,18 +179,18 @@ tree after T075, T076, T078, T079 and T082 were merged.
 | F6 | high | defender blind on host path | fixed: T078 | `src/exhibit_a/loop/pipeline.py`; `tests/test_loop.py::test_defender_sees_a_bypass_through_the_fixed_code_on_the_host_path` |
 | F7 | medium | `reason_code`, `effect` not persisted in verdict | partly fixed: T078 puts `reason_code` and `effect` in the `verdict` payload and `evidence.json`; T079 adds `access`/`op` to events. Open: `forged_events` and `app_tree_changes` are not persisted, `OracleEvent.type` is still `canary_read`, and malformed signed events on the sandbox path are not counted | `src/exhibit_a/loop/pipeline.py`, `src/exhibit_a/oracle/oracle.py` |
 | F8 | medium | `case:` mode: host install and baseline with key readable | partly fixed: T062 (binary-only install, stripped env); T082 (the Action refuses `case:` without `replay` and exports no key on the `case:` path). Open: the replay baseline still runs as a host child process | `src/exhibit_a/install.py`, `action.yml`, `src/exhibit_a/cli/run.py` |
-| F9 | medium | oracle-eval archive test not parallel-safe, rewrites a doc | open: flaky counters live in the repository tree and the test rewrites `docs/oracle-eval.md` on every run, so do not run the suite in parallel | `tests/test_oracle_eval_archive.py` |
+| F9 | medium | oracle-eval archive test not parallel-safe, rewrites a doc | fixed: T081 (exploits run from a per-run scratch copy so flaky counters stay out of the repository; the test writes `docs/oracle-eval.md` only with `EXHIBIT_A_WRITE_EVAL_DOC=1` and otherwise compares its numbers with the tracked doc) | `tests/test_oracle_eval_archive.py` |
 | F10 | medium | README/SPEC/docs over-claims | fixed: T080, except that "results and demo come from Meta models" (SPEC section 15) is marked pending, because no Meta-model recording exists | `README.md`, `SPEC.md`, `docs/second-class.md`, `docs/oracle-eval.md`, `docs/github-action.md` |
 | F11 | medium | Action lacks `--provider/--model` and a diff surface | fixed: T058 (flags), T075 (`--pr-diff`, exit codes 0/10/20/2), T082 (`action.yml` passes `--pr-diff`, `--provider`, `--model`; fails on exit 20, 2 and `not_run`) | `src/exhibit_a/cli/parser.py`, `src/exhibit_a/cli/run.py`, `action.yml`, `docs/cli-exit-codes.md` |
-| F12 | low | advisory version parser unbounded | open: no component length cap, no `RecursionError` handling | `src/exhibit_a/advisory/version.py`, `osv.py` |
+| F12 | low | advisory version parser unbounded | fixed: T081 (20-digit cap on numeric components; `RecursionError` handled in the parser, the recorded and HTTP backends and the report; per-record error isolation; 200 ids per package; https-only redirects) | `src/exhibit_a/advisory/version.py`, `osv.py`, `report.py`, `tests/test_advisory_robustness.py` |
 | F13 | low | no schema for `result.json`, no `schema_version` on evidence | open: `result.json` has `schema_version "1"` but no model or JSON Schema; `evidence.json` and `verdict.json` are unversioned | `src/exhibit_a/ci/summary.py` |
 | F14 | low | project CI actions not SHA-pinned; no Docker job | fixed: A-14 (Docker job; actions pinned by SHA in `ci.yml`) | `.github/workflows/ci.yml` |
 | F15 | low | sandbox tests hard-fail or skip without Docker | fixed: T060 | `tests/conftest.py` |
 | F16 | low | Python 3.14 code-key failure (PEP 649) | fixed: T068 (`code_keys` walks the compiled module) | `src/exhibit_a/oracle/provenance.py`, `tests/test_oracle_provenance.py::test_code_keys_cover_every_code_object_of_the_fixture_apps` |
-| F17 | low | `bash -lc` in the sandbox command | open | `src/exhibit_a/sandbox/runner.py` |
-| F18 | low | `tests/test_probe.py` assertion style | open: `test_repeats_must_be_positive` still uses `try/except` | `tests/test_probe.py` |
+| F17 | low | `bash -lc` in the sandbox command | fixed: T081 (argv list, no login shell; the write-effect dump still runs through `bash -c` with positional parameters) | `src/exhibit_a/sandbox/runner.py`, `tests/test_sandbox_fake_docker.py` |
+| F18 | low | `tests/test_probe.py` assertion style | fixed: T081 (`test_repeats_must_be_positive` uses `pytest.raises(ValueError)`) | `tests/test_probe.py` |
 | F19 | low | action install not hash-pinned; engine output not scanned | open | `action.yml` |
-| F20 | low | host path: `package_src` writable | open | `src/exhibit_a/oracle/oracle.py` |
+| F20 | low | host path: `package_src` writable | fixed: T081 (`run_oracle` loads a private per-run copy of the plugin, mode 0400 in a 0500 directory, instead of putting the repository's `src/` on `PYTHONPATH`) | `src/exhibit_a/oracle/oracle.py`, `tests/test_oracle_plugin_copy.py` |
 | R1 | residual | plugin introspection (FALSE_PROVEN) | limit | `tests/test_oracle_residual.py` (strict xfail) |
 | R2 | residual | `sitecustomize` in app tree (FALSE_PROVEN, host path) | limit | `tests/test_oracle_residual.py` (strict xfail) |
 | R3 | residual | subprocess reads (recall) | limit | `tests/test_oracle_residual.py` (strict xfail) |
