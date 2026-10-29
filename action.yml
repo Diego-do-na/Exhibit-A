@@ -1,0 +1,351 @@
+name: Exhibit A
+description: >-
+  Run the Exhibit A verification engine on a pull request. The check is red
+  only when a finding is proven by execution; green means "nothing could be
+  proven", never "safe".
+author: Exhibit A contributors
+branding:
+  icon: shield
+  color: gray-dark
+
+# Security notes (details in docs/github-action-security.md):
+# - Every input reaches shell code through env vars, never through ${{ }}
+#   inside a script, so a crafted input cannot inject commands.
+# - The model API key is materialised only in the "Run Exhibit A" step and is
+#   scanned for in every file before anything is uploaded.
+# - Third-party actions are pinned by full commit SHA.
+
+inputs:
+  provider:
+    description: Model provider for the roles (replay, ollama, openai_compatible, meta).
+    required: false
+    default: meta
+  model:
+    description: Model name for every role. Empty lets the engine choose its default.
+    required: false
+    default: ""
+  api-key:
+    description: >-
+      Model API key. Pass a secret from a protected environment, e.g.
+      secrets.EXHIBIT_A_API_KEY. Never a literal value.
+    required: false
+    default: ""
+  api-key-env:
+    description: Name of the environment variable the provider reads the key from.
+    required: false
+    default: META_API_KEY
+  fail-on:
+    description: "proven: fail the check when a proven finding exists. never: report only."
+    required: false
+    default: proven
+  working-directory:
+    description: Repository directory to analyse, relative to the workspace.
+    required: false
+    default: "."
+  max-runtime-minutes:
+    description: Hard wall-clock limit for the engine run (1-360).
+    required: false
+    default: "30"
+  budget-usd:
+    description: Hard model-cost limit in USD (passed to --budget-usd). Empty means none.
+    required: false
+    default: ""
+  base-sha:
+    description: Base commit for the PR diff. Defaults to the pull_request base SHA.
+    required: false
+    default: ""
+  case:
+    description: >-
+      Optional benchmark case.json (relative to working-directory) to run instead
+      of the PR-diff surface. Useful for smoke-testing the Action.
+    required: false
+    default: ""
+  replay:
+    description: Replay recorded model calls (true/false). Only meaningful with a case.
+    required: false
+    default: "false"
+  risk-gate:
+    description: "true: skip exploits for docs/tests-only PRs. false: always run."
+    required: false
+    default: "true"
+  comment:
+    description: Post or update one PR comment with the summary (needs pull-requests write).
+    required: false
+    default: "false"
+  comment-author:
+    description: Login whose marker comment is updated in place.
+    required: false
+    default: github-actions[bot]
+  github-token:
+    description: Token used only for the PR comment.
+    required: false
+    default: ${{ github.token }}
+  python-version:
+    description: Python used to run the engine.
+    required: false
+    default: "3.11"
+  artifact-name:
+    description: Name of the uploaded ledger artifact.
+    required: false
+    default: exhibit-a-ledger
+  artifact-retention-days:
+    description: Days to keep the ledger artifact.
+    required: false
+    default: "14"
+
+outputs:
+  status:
+    description: completed, aborted, timed_out, not_run or skipped.
+    value: ${{ steps.summary.outputs.status }}
+  proven:
+    description: Number of proven findings.
+    value: ${{ steps.summary.outputs.proven }}
+  dropped:
+    description: Suspicions judged but not proven.
+    value: ${{ steps.summary.outputs.dropped }}
+  discarded-unproven:
+    description: Count of discarded_unproven verdicts.
+    value: ${{ steps.summary.outputs.discarded-unproven }}
+  invalid-test:
+    description: Count of invalid_test verdicts.
+    value: ${{ steps.summary.outputs.invalid-test }}
+  flaky:
+    description: Count of flaky verdicts.
+    value: ${{ steps.summary.outputs.flaky }}
+  env-failure:
+    description: Count of env_failure verdicts.
+    value: ${{ steps.summary.outputs.env-failure }}
+  risk:
+    description: Risk gate classification (low, medium, high).
+    value: ${{ steps.gate.outputs.risk }}
+  result-json:
+    description: Path of the machine-readable result (schema_version 1).
+    value: ${{ steps.summary.outputs.result-json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      # actions/setup-python v7.1.0
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Validate inputs and install Exhibit A
+      id: setup
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        IN_FAIL_ON: ${{ inputs.fail-on }}
+        IN_WORKDIR: ${{ inputs.working-directory }}
+        IN_MAX_MINUTES: ${{ inputs.max-runtime-minutes }}
+        IN_BUDGET: ${{ inputs.budget-usd }}
+        IN_KEY_ENV: ${{ inputs.api-key-env }}
+        IN_REPLAY: ${{ inputs.replay }}
+        IN_RISK_GATE: ${{ inputs.risk-gate }}
+        IN_COMMENT: ${{ inputs.comment }}
+        IN_RETENTION: ${{ inputs.artifact-retention-days }}
+      run: |
+        set -euo pipefail
+        fail() { echo "::error title=Exhibit A::$1"; exit 1; }
+        case "$IN_FAIL_ON" in proven|never) ;; *) fail "fail-on must be 'proven' or 'never'";; esac
+        [[ "$IN_MAX_MINUTES" =~ ^[0-9]+$ ]] && (( IN_MAX_MINUTES >= 1 && IN_MAX_MINUTES <= 360 )) \
+          || fail "max-runtime-minutes must be an integer from 1 to 360"
+        [[ -z "$IN_BUDGET" || "$IN_BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || fail "budget-usd must be a number"
+        [[ "$IN_KEY_ENV" =~ ^[A-Z_][A-Z0-9_]*$ ]] || fail "api-key-env must be an upper-case variable name"
+        case "$IN_KEY_ENV" in PATH|HOME|PYTHONPATH|LD_*|GITHUB_*|RUNNER_*|EXHIBIT_A_*) fail "api-key-env may not shadow $IN_KEY_ENV";; esac
+        for flag in "$IN_REPLAY" "$IN_RISK_GATE" "$IN_COMMENT"; do
+          case "$flag" in true|false) ;; *) fail "boolean inputs must be 'true' or 'false'";; esac
+        done
+        [[ "$IN_RETENTION" =~ ^[0-9]+$ ]] || fail "artifact-retention-days must be an integer"
+
+        workspace="$(realpath "$GITHUB_WORKSPACE")"
+        workdir="$(realpath -m "$workspace/$IN_WORKDIR")"
+        [[ "$workdir" == "$workspace" || "$workdir" == "$workspace/"* ]] || fail "working-directory must stay inside the workspace"
+        [[ -d "$workdir" ]] || fail "working-directory does not exist"
+
+        out="$RUNNER_TEMP/exhibit-a"
+        rm -rf "$out"
+        mkdir -p "$out/run" "$out/report"
+        python -m venv "$out/venv"
+        "$out/venv/bin/python" -m pip install --quiet --disable-pip-version-check "$ACTION_PATH"
+        {
+          echo "workdir=$workdir"
+          echo "out=$out"
+          echo "python=$out/venv/bin/python"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Classify PR risk
+      id: gate
+      shell: bash
+      env:
+        WORKDIR: ${{ steps.setup.outputs.workdir }}
+        OUT: ${{ steps.setup.outputs.out }}
+        PY: ${{ steps.setup.outputs.python }}
+        IN_BASE_SHA: ${{ inputs.base-sha }}
+        EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        IN_RISK_GATE: ${{ inputs.risk-gate }}
+      run: |
+        set -euo pipefail
+        base="${IN_BASE_SHA:-$EVENT_BASE_SHA}"
+        : > "$OUT/report/changed-files.txt"
+        : > "$OUT/run/pr.diff"
+        if [[ -n "$base" ]]; then
+          [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Exhibit A::base-sha must be a full commit SHA"; exit 1; }
+          if ! git -C "$WORKDIR" cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "::error title=Exhibit A::base commit not in the checkout; use actions/checkout with fetch-depth: 0"
+            exit 1
+          fi
+          git -C "$WORKDIR" -c core.quotePath=false diff --no-ext-diff --no-textconv --name-only "$base...HEAD" -- . \
+            > "$OUT/report/changed-files.txt"
+          git -C "$WORKDIR" diff --no-ext-diff --no-textconv "$base...HEAD" -- . > "$OUT/run/pr.diff"
+          "$PY" -m exhibit_a.ci.gate --files "$OUT/report/changed-files.txt" > "$OUT/report/risk.json"
+        else
+          echo "::warning title=Exhibit A::no base commit (not a pull_request event?); treating the change as high risk"
+          printf '%s\n' '{"reasons": {}, "risk": "high", "should_run_exploits": true}' > "$OUT/report/risk.json"
+        fi
+        risk="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["risk"])' "$OUT/report/risk.json")"
+        should_run="$("$PY" -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["should_run_exploits"]).lower())' "$OUT/report/risk.json")"
+        if [[ "$IN_RISK_GATE" == "false" ]]; then should_run=true; fi
+        echo "Risk: $risk, run exploits: $should_run"
+        { echo "risk=$risk"; echo "should-run=$should_run"; } >> "$GITHUB_OUTPUT"
+
+    - name: Run Exhibit A
+      id: engine
+      if: steps.gate.outputs.should-run == 'true'
+      shell: bash
+      env:
+        # The key exists only in this step's environment. It is copied to the
+        # variable the provider reads and removed from this name immediately.
+        EXHIBIT_A_API_KEY: ${{ inputs.api-key }}
+        IN_KEY_ENV: ${{ inputs.api-key-env }}
+        EXHIBIT_A_PROVIDER: ${{ inputs.provider }}
+        EXHIBIT_A_MODEL: ${{ inputs.model }}
+        WORKDIR: ${{ steps.setup.outputs.workdir }}
+        OUT: ${{ steps.setup.outputs.out }}
+        IN_MAX_MINUTES: ${{ inputs.max-runtime-minutes }}
+        IN_BUDGET: ${{ inputs.budget-usd }}
+        IN_CASE: ${{ inputs.case }}
+        IN_REPLAY: ${{ inputs.replay }}
+      run: |
+        set -uo pipefail
+        key="$EXHIBIT_A_API_KEY"
+        unset EXHIBIT_A_API_KEY
+        # Values from secrets are already masked in logs by the runner; the
+        # key is never printed, not even to register a mask.
+        [[ -n "$key" ]] && export "$IN_KEY_ENV=$key"
+        if ! docker info > /dev/null 2>&1; then
+          echo "::warning title=Exhibit A::docker info failed; sandbox runs will end as env_failure"
+        fi
+
+        args=(run --repo "$WORKDIR" --out "$OUT/run")
+        if [[ -n "$IN_CASE" ]]; then
+          args+=(--case "$WORKDIR/$IN_CASE")
+        else
+          args+=(--diff "$OUT/run/pr.diff")
+        fi
+        [[ "$IN_REPLAY" == "true" ]] && args+=(--replay)
+        [[ -n "$IN_BUDGET" ]] && args+=(--budget-usd "$IN_BUDGET")
+
+        # The CLI exits non-zero whenever nothing was proven, so its code is
+        # not the verdict; only a timeout (124/137) changes the reported status.
+        # GitHub runs bash with -e, so capture the code instead of dying on it.
+        code=0
+        timeout --signal=TERM --kill-after=30s "${IN_MAX_MINUTES}m" \
+          "$OUT/venv/bin/exhibit-a" "${args[@]}" || code=$?
+        echo "engine-exit=$code" >> "$GITHUB_OUTPUT"
+
+        if [[ -n "$key" ]] && grep -rqF -f <(printf '%s\n' "$key") "$OUT/run" "$OUT/report"; then
+          echo "::error title=Exhibit A::the API key was found in the run output; refusing to publish it"
+          rm -rf "$OUT/run" "$OUT/report"
+          exit 1
+        fi
+        exit 0
+
+    - name: Write summary and result JSON
+      id: summary
+      # Skipped when the engine step failed (e.g. the key leaked into the
+      # output and the files were deleted): then nothing is published.
+      if: always() && steps.setup.outcome == 'success' && steps.engine.outcome != 'failure'
+      shell: bash
+      env:
+        OUT: ${{ steps.setup.outputs.out }}
+        PY: ${{ steps.setup.outputs.python }}
+        IN_FAIL_ON: ${{ inputs.fail-on }}
+        ENGINE_EXIT: ${{ steps.engine.outputs.engine-exit }}
+        SHOULD_RUN: ${{ steps.gate.outputs.should-run }}
+      run: |
+        set -euo pipefail
+        args=(build --ledger "$OUT/run/ledger.jsonl" --out-dir "$OUT/report"
+              --fail-on "$IN_FAIL_ON" --step-summary "$GITHUB_STEP_SUMMARY"
+              --github-output "$GITHUB_OUTPUT")
+        [[ -f "$OUT/report/risk.json" ]] && args+=(--risk "$OUT/report/risk.json")
+        [[ -n "$ENGINE_EXIT" ]] && args+=(--engine-exit "$ENGINE_EXIT")
+        if [[ "$SHOULD_RUN" == "false" ]]; then
+          args+=(--skipped-reason "risk gate: only documentation or tests changed")
+        fi
+        "$PY" -m exhibit_a.ci.summary "${args[@]}"
+        cp "$OUT/run/ledger.jsonl" "$OUT/report/ledger.jsonl" 2>/dev/null || true
+        echo "result-json=$OUT/report/result.json" >> "$GITHUB_OUTPUT"
+
+    - name: Post or update PR comment
+      if: always() && inputs.comment == 'true' && steps.summary.outcome == 'success' && github.event.pull_request.number
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        OUT: ${{ steps.setup.outputs.out }}
+        PY: ${{ steps.setup.outputs.python }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        AUTHOR: ${{ inputs.comment-author }}
+      run: |
+        set -uo pipefail
+        report="$OUT/report"
+        "$PY" -c 'import json,sys; json.dump({"body": open(sys.argv[1], encoding="utf-8").read()}, open(sys.argv[2], "w"))' \
+          "$report/comment.md" "$report/comment-payload.json"
+        if ! gh api --paginate --slurp "repos/$REPO/issues/$PR_NUMBER/comments" > "$report/comments.json"; then
+          echo "::warning title=Exhibit A::could not list PR comments; summary is in the job summary"
+          exit 0
+        fi
+        id="$("$PY" -m exhibit_a.ci.summary find-comment "$report/comments.json" --author "$AUTHOR")"
+        rm -f "$report/comments.json"
+        if [[ -n "$id" ]]; then
+          gh api --method PATCH "repos/$REPO/issues/comments/$id" --input "$report/comment-payload.json" > /dev/null \
+            || echo "::warning title=Exhibit A::could not update the PR comment"
+        else
+          gh api --method POST "repos/$REPO/issues/$PR_NUMBER/comments" --input "$report/comment-payload.json" > /dev/null \
+            || echo "::warning title=Exhibit A::could not create the PR comment"
+        fi
+        rm -f "$report/comment-payload.json"
+
+    - name: Upload ledger artifact
+      if: always() && steps.summary.outcome == 'success'
+      # actions/upload-artifact v7.0.2
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ steps.setup.outputs.out }}/report/ledger.jsonl
+          ${{ steps.setup.outputs.out }}/report/result.json
+          ${{ steps.setup.outputs.out }}/report/summary.md
+        if-no-files-found: warn
+        retention-days: ${{ inputs.artifact-retention-days }}
+        include-hidden-files: false
+
+    - name: Gate on proven findings
+      if: always()
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.summary.outputs.exit-code }}
+        STATUS: ${{ steps.summary.outputs.status }}
+        PROVEN: ${{ steps.summary.outputs.proven }}
+      run: |
+        if [[ -z "$EXIT_CODE" ]]; then
+          echo "::error title=Exhibit A::no result was produced (see earlier steps)"
+          exit 1
+        fi
+        if [[ "$EXIT_CODE" != "0" ]]; then
+          echo "::error title=Exhibit A::$PROVEN proven finding(s); see the job summary and the ledger artifact"
+          exit 1
+        fi
+        echo "Exhibit A status: $STATUS. Nothing could be proven (this is not a claim that the change is secure)."
