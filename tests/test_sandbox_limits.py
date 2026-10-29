@@ -6,13 +6,14 @@ import pytest
 from src.exhibit_a.sandbox import run
 
 
+@pytest.mark.docker
 def test_sandbox_limits_run_inside_sandbox():
     """Run the sandbox-internal limits tests inside an ephemeral sandbox via runner.run()."""
     repo_root = Path(__file__).resolve().parents[1]
     result = run(str(repo_root), "tests/sandbox_internal_tests.py", timeout=120)
 
     if result.get("outcome") == "env_failure":
-        pytest.skip(f"docker not available: {result.get('stderr')!r}")
+        pytest.fail(f"sandbox environment failure: {result.get('stderr')!r}")
 
     # Expect the inner pytest suite to pass inside the sandbox.
     assert result.get("outcome") == "passed", (
