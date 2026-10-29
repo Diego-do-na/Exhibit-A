@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from exhibit_a.scan import detect
+from exhibit_a.scan import detect, ScanResult
 
 
 ROOT = Path(__file__).resolve().parent
@@ -17,29 +17,38 @@ def test_detects_python_pyproject(tmp_path):
     repo.mkdir()
     (repo / "pyproject.toml").write_text("[tool.poetry]\nname = 'x'\n")
     (repo / "requirements.txt").write_text("pytest\n")
-    profile = detect(str(repo))
+    res = detect(str(repo))
+    assert isinstance(res, ScanResult)
+    profile = res.profile
     assert profile.language == "python"
-    assert "pytest" in profile.test_cmd
-    assert "poetry" in profile.dependency_manager or "pip" in profile.dependency_manager
+    assert profile.framework == "pytest"
+    assert res.supported is True
+    assert "python" in res.languages
 
 
 def test_detects_javascript_package_json(tmp_path):
     repo = tmp_path / "js"
     repo.mkdir()
     (repo / "package.json").write_text('{"name":"x","devDependencies":{"jest":"^29.0.0"}}')
-    profile = detect(str(repo))
+    res = detect(str(repo))
+    profile = res.profile
     assert profile.language == "javascript"
-    assert "jest" in profile.framework
-    assert "npm" in profile.dependency_manager or "yarn" in profile.dependency_manager
+    assert profile.framework == "jest"
+    assert res.supported is False
+    assert res.reasons and len(res.reasons) >= 1
+    assert "javascript" in res.languages
 
 
 def test_detects_java_pom(tmp_path):
     repo = tmp_path / "java"
     repo.mkdir()
     (repo / "pom.xml").write_text("<project></project>")
-    profile = detect(str(repo))
+    res = detect(str(repo))
+    profile = res.profile
     assert profile.language == "java"
-    assert "junit" in profile.framework
+    assert profile.framework == "junit"
+    assert res.supported is False
+    assert "java" in res.languages
 
 
 def test_detects_monorepo(tmp_path):
@@ -47,17 +56,25 @@ def test_detects_monorepo(tmp_path):
     repo.mkdir()
     (repo / "pyproject.toml").write_text("[tool.poetry]\n")
     (repo / "package.json").write_text('{"name":"x"}')
-    # detection prefers python if python files present
-    profile = detect(str(repo))
-    assert profile.language in ("python", "javascript")
+    # detection prefers python if python files present; languages must list both
+    res = detect(str(repo))
+    profile = res.profile
+    assert profile.language == "python"
+    assert "python" in res.languages and "javascript" in res.languages
+    # framework should be a clean value like 'pytest' or 'unittest'
+    assert profile.framework in ("pytest", "unittest")
+    assert isinstance(res.reasons, list)
 
 
 def test_empty_repo_returns_unknown(tmp_path):
     repo = tmp_path / "empty"
     repo.mkdir()
-    profile = detect(str(repo))
+    res = detect(str(repo))
+    profile = res.profile
     assert profile.language == "unknown"
-    assert "unsupported" in profile.framework
+    assert profile.framework == "unknown"
+    assert res.supported is False
+    assert res.reasons and len(res.reasons) >= 1
 
 
 def test_no_subprocess_in_scan_module():
