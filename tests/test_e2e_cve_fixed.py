@@ -29,6 +29,9 @@ def test_case_is_fixed_and_pinned():
     assert not (CASE / spec["run"]["tree"]).exists()
 
 
+pytestmark = pytest.mark.docker
+
+
 @pytest.fixture(scope="module")
 def cycle(tmp_path_factory):
     out = tmp_path_factory.mktemp("starlette-fixed")
@@ -49,4 +52,9 @@ def test_ledger_records_no_proven_verdict(cycle):
     assert totals["verdicts"][VerdictValue.PROVEN.value] == 0
     verdicts = [e for e in ledger.replay(CASE_ID) if e.type == EventType.VERDICT]
     assert verdicts, "expected the raised suspicion to reach a verdict"
-    assert all(v.payload.get("verdict") != VerdictValue.PROVEN.value for v in verdicts)
+    # Exactly discarded_unproven: env_failure here would mean a broken sandbox, not a fixed app.
+    found = [v.payload.get("verdict") for v in verdicts]
+    assert found == [VerdictValue.DISCARDED_UNPROVEN.value] * len(verdicts), (
+        f"expected every verdict to be discarded_unproven for the fixed case, got {found}; "
+        "env_failure points at a broken sandbox rather than a clean fixed run"
+    )
