@@ -49,12 +49,14 @@ def test_case_uses_pinned_pypi_installation():
     assert not (CASE / "vulnerable").exists()
 
 
+@pytest.mark.docker
 def test_cli_closes_the_cycle(cycle, capsys):
     code, out = cycle
     assert code == 0
     assert (out / "packages" / SUSPICION).is_dir()
 
 
+@pytest.mark.docker
 def test_package_contents_and_verdict(cycle):
     _, out = cycle
     pkg = out / "packages" / SUSPICION
@@ -70,6 +72,7 @@ def test_package_contents_and_verdict(cycle):
     assert "+            if os.path.commonpath([full_path, directory]) != directory:" in patch
 
 
+@pytest.mark.docker
 def test_exploit_is_red_on_vulnerable_and_green_on_fixed(cycle, tmp_path):
     _, out = cycle
     pkg = out / "packages" / SUSPICION
@@ -104,6 +107,7 @@ def test_exploit_is_red_on_vulnerable_and_green_on_fixed(cycle, tmp_path):
     assert not green.observed_effect
 
 
+@pytest.mark.docker
 def test_ledger_records_the_cycle(cycle):
     _, out = cycle
     ledger = Ledger(out / "ledger.jsonl")
