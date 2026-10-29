@@ -5,12 +5,17 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+import shutil
 
 import pytest
 
 from exhibit_a.cli import NOT_WIRED_YET, main
 from exhibit_a.ledger import Ledger
 from exhibit_a.schemas import Event, EventType, RepoProfile
+from exhibit_a.models import Completion, Role
+from exhibit_a.models.cost import Pricing
+from tests.test_run_live import FakeLive, FIXTURES, TRAVERSAL, suspicion, BASELINE_TEST, FakeRunner
+from exhibit_a.cli import run as run_mod
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -133,3 +138,58 @@ def test_python_m_entry_point_reports_scan_placeholder() -> None:
     assert done.returncode == 0, done.stderr
     profile = RepoProfile.model_validate(json.loads(done.stdout))
     assert profile.language == "unknown"
+
+
+def _stage_case(root):
+    case_dir = root / "case"
+    shutil.copytree(Path(__file__).parent / "fixtures" / "oracle" / "vulnerable", case_dir / "tree")
+    (case_dir / "baseline_test.py").write_text(BASELINE_TEST)
+    spec = {
+        "cases": [{"id": "cli-case"}],
+        "run": {
+            "tree": "tree",
+            "source_file": "app.py",
+            "baseline_test": "baseline_test.py",
+            "recording": "replay.jsonl",
+        },
+    }
+    case_file = case_dir / "case.json"
+    case_file.write_text(json.dumps(spec))
+    return case_file
+
+
+def test_run_cli_honours_provider_and_model_and_does_not_leak_key(tmp_path, monkeypatch, capsys):
+    """CLI main([...]) honours --provider/--model for every role and never prints the API key."""
+    from exhibit_a.models.config import PROVIDER_REGISTRY
+
+    # Fake provider that records specs and returns canned completions similar to FakeLive.
+    seen = []
+
+    def factory(spec):
+        seen.append(spec)
+        return FakeLive(spec)
+
+    monkeypatch.setitem(PROVIDER_REGISTRY, "fake-cli", factory)
+    monkeypatch.setattr(run_mod, "SandboxRunner", FakeRunner)
+
+    case_file = _stage_case(tmp_path)
+    out = tmp_path / "out"
+    monkeypatch.setenv("EXHIBIT_A_API_KEY", "SECRET_KEY")
+    # run via CLI main
+    rc = main(["run", "--case", str(case_file), "--out", str(out), "--provider", "fake-cli", "--model", "fake-model", "--budget-usd", "10.0"])
+    assert rc == 0
+    printed = capsys.readouterr().out
+    assert "PACKAGE" in printed
+    ledger_text = (out / "ledger.jsonl").read_text()
+    assert "SECRET_KEY" not in printed
+    assert "SECRET_KEY" not in ledger_text
+    assert seen
+    assert all(spec.provider == "fake-cli" for spec in seen)
+    assert all(spec.model == "fake-model" for spec in seen)
+
+
+def test_run_cli_invalid_provider_exits_usage_error():
+    """An unknown --provider should exit with code 2 (argparse usage error)."""
+    with pytest.raises(SystemExit) as exc:
+        main(["run", "--provider", "no-such", "--model", "m"])
+    assert exc.value.code == 2
