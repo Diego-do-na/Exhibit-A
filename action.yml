@@ -54,6 +54,10 @@ inputs:
     description: Base commit for the PR diff. Defaults to the pull_request base SHA.
     required: false
     default: ""
+  head-sha:
+    description: Head commit for the PR diff. Defaults to the pull_request head SHA.
+    required: false
+    default: ""
   case:
     description: >-
       Optional benchmark case.json (relative to working-directory) to run instead
@@ -141,6 +145,7 @@ runs:
         IN_MAX_MINUTES: ${{ inputs.max-runtime-minutes }}
         IN_BUDGET: ${{ inputs.budget-usd }}
         IN_KEY_ENV: ${{ inputs.api-key-env }}
+        IN_CASE: ${{ inputs.case }}
         IN_REPLAY: ${{ inputs.replay }}
         IN_RISK_GATE: ${{ inputs.risk-gate }}
         IN_COMMENT: ${{ inputs.comment }}
@@ -157,6 +162,13 @@ runs:
         for flag in "$IN_REPLAY" "$IN_RISK_GATE" "$IN_COMMENT"; do
           case "$flag" in true|false) ;; *) fail "boolean inputs must be 'true' or 'false'";; esac
         done
+        # A case run installs the case's requirements and executes its baseline
+        # on the host with the step's environment in reach (audit F8). Live
+        # case execution is refused: only replay runs are allowed, and the
+        # engine step exports no key on the case path.
+        if [[ -n "$IN_CASE" && "$IN_REPLAY" != "true" ]]; then
+          fail "case runs require replay: 'true'"
+        fi
         [[ "$IN_RETENTION" =~ ^[0-9]+$ ]] || fail "artifact-retention-days must be an integer"
 
         workspace="$(realpath "$GITHUB_WORKSPACE")"
@@ -189,7 +201,6 @@ runs:
         set -euo pipefail
         base="${IN_BASE_SHA:-$EVENT_BASE_SHA}"
         : > "$OUT/report/changed-files.txt"
-        : > "$OUT/run/pr.diff"
         if [[ -n "$base" ]]; then
           [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Exhibit A::base-sha must be a full commit SHA"; exit 1; }
           if ! git -C "$WORKDIR" cat-file -e "$base^{commit}" 2>/dev/null; then
@@ -198,7 +209,6 @@ runs:
           fi
           git -C "$WORKDIR" -c core.quotePath=false diff --no-ext-diff --no-textconv --name-only "$base...HEAD" -- . \
             > "$OUT/report/changed-files.txt"
-          git -C "$WORKDIR" diff --no-ext-diff --no-textconv "$base...HEAD" -- . > "$OUT/run/pr.diff"
           "$PY" -m exhibit_a.ci.gate --files "$OUT/report/changed-files.txt" > "$OUT/report/risk.json"
         else
           echo "::warning title=Exhibit A::no base commit (not a pull_request event?); treating the change as high risk"
@@ -217,22 +227,34 @@ runs:
       env:
         # The key exists only in this step's environment. It is copied to the
         # variable the provider reads and removed from this name immediately.
+        # It is exported only on the PR-diff path: a case run executes
+        # PR-controlled installs and baselines on the host, so the key is
+        # never in reach there (audit F8). Case runs need no key (replay).
         EXHIBIT_A_API_KEY: ${{ inputs.api-key }}
         IN_KEY_ENV: ${{ inputs.api-key-env }}
-        EXHIBIT_A_PROVIDER: ${{ inputs.provider }}
-        EXHIBIT_A_MODEL: ${{ inputs.model }}
+        IN_PROVIDER: ${{ inputs.provider }}
+        IN_MODEL: ${{ inputs.model }}
         WORKDIR: ${{ steps.setup.outputs.workdir }}
         OUT: ${{ steps.setup.outputs.out }}
         IN_MAX_MINUTES: ${{ inputs.max-runtime-minutes }}
         IN_BUDGET: ${{ inputs.budget-usd }}
         IN_CASE: ${{ inputs.case }}
         IN_REPLAY: ${{ inputs.replay }}
+        IN_BASE_SHA: ${{ inputs.base-sha }}
+        IN_HEAD_SHA: ${{ inputs.head-sha }}
+        EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       run: |
         set -uo pipefail
         key="$EXHIBIT_A_API_KEY"
         unset EXHIBIT_A_API_KEY
         # Values from secrets are already masked in logs by the runner; the
         # key is never printed, not even to register a mask.
+        if [[ -n "$IN_CASE" ]]; then
+          # Replay case runs authenticate nothing: keep the key out of reach
+          # of the PR-controlled code this path executes on the host.
+          key=""
+        fi
         [[ -n "$key" ]] && export "$IN_KEY_ENV=$key"
         if ! docker info > /dev/null 2>&1; then
           echo "::warning title=Exhibit A::docker info failed; sandbox runs will end as env_failure"
@@ -242,17 +264,34 @@ runs:
         if [[ -n "$IN_CASE" ]]; then
           args+=(--case "$WORKDIR/$IN_CASE")
         else
-          args+=(--diff "$OUT/run/pr.diff")
+          base="${IN_BASE_SHA:-$EVENT_BASE_SHA}"
+          head="${IN_HEAD_SHA:-$EVENT_HEAD_SHA}"
+          [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Exhibit A::base-sha must be a full commit SHA"; exit 1; }
+          [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Exhibit A::head-sha must be a full commit SHA"; exit 1; }
+          # Both SHAs are validated above and stay quoted: never interpolated
+          # into shell unquoted, so a crafted value cannot inject commands.
+          args+=(--pr-diff "$base..$head" --provider "$IN_PROVIDER")
+          [[ -n "$IN_MODEL" ]] && args+=(--model "$IN_MODEL")
         fi
         [[ "$IN_REPLAY" == "true" ]] && args+=(--replay)
         [[ -n "$IN_BUDGET" ]] && args+=(--budget-usd "$IN_BUDGET")
 
-        # The CLI exits non-zero whenever nothing was proven, so its code is
-        # not the verdict; only a timeout (124/137) changes the reported status.
+        # CLI exit codes (docs/cli-exit-codes.md): 0 ran, nothing proven;
+        # 10 ran, at least one finding proven; 20 incomplete (timeout,
+        # environment or model failure); 2 usage or input error, for example
+        # an unsupported provider. Only 0 and 10 continue to the summary;
+        # anything else fails the check here so a crash can never look
+        # green. 124/137 come from timeout itself and mean the time limit hit.
         # GitHub runs bash with -e, so capture the code instead of dying on it.
         code=0
         timeout --signal=TERM --kill-after=30s "${IN_MAX_MINUTES}m" \
           "$OUT/venv/bin/exhibit-a" "${args[@]}" || code=$?
+        case "$code" in
+          0|10|124|137) ;;
+          20) echo "::error title=Exhibit A::the run was incomplete (timeout, environment failure or model error); nothing could be proven"; exit 1 ;;
+          2) echo "::error title=Exhibit A::the engine reported a usage or input error (for example an unsupported provider); nothing could be proven"; exit 1 ;;
+          *) echo "::error title=Exhibit A::the engine exited with code $code; nothing could be proven"; exit 1 ;;
+        esac
         echo "engine-exit=$code" >> "$GITHUB_OUTPUT"
 
         if [[ -n "$key" ]] && grep -rqF -f <(printf '%s\n' "$key") "$OUT/run" "$OUT/report"; then
@@ -285,6 +324,15 @@ runs:
           args+=(--skipped-reason "risk gate: only documentation or tests changed")
         fi
         "$PY" -m exhibit_a.ci.summary "${args[@]}"
+        # The surface must have run: an empty ledger (surface_ran false)
+        # means nothing was verified, and that must fail, never pass.
+        # A skipped risk-gate run is the only exception.
+        surface="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["surface_ran"])' "$OUT/report/result.json")"
+        result_status="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$OUT/report/result.json")"
+        if [[ "$result_status" != "skipped" && "$surface" != "True" ]]; then
+          echo "::error title=Exhibit A::the verification surface did not run (surface_ran is false); nothing was verified"
+          exit 1
+        fi
         cp "$OUT/run/ledger.jsonl" "$OUT/report/ledger.jsonl" 2>/dev/null || true
         echo "result-json=$OUT/report/result.json" >> "$GITHUB_OUTPUT"
 
@@ -342,6 +390,12 @@ runs:
       run: |
         if [[ -z "$EXIT_CODE" ]]; then
           echo "::error title=Exhibit A::no result was produced (see earlier steps)"
+          exit 1
+        fi
+        # not_run is never a passing default: without verdicts nothing was
+        # verified, so the check fails even when fail-on is 'never'.
+        if [[ "$STATUS" == "not_run" ]]; then
+          echo "::error title=Exhibit A::the engine produced no verdicts (status not_run); nothing was verified"
           exit 1
         fi
         if [[ "$EXIT_CODE" != "0" ]]; then
