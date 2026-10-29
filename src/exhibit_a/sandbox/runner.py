@@ -358,6 +358,8 @@ def run(
             "64",
             "--memory",
             "512m",
+            "--memory-swap",
+            "512m",
             "--cpus",
             "0.5",
             "-v",

@@ -204,7 +204,7 @@ Executes untrusted exploit and regression code in an isolated container.
     - Capabilities: `--cap-drop ALL`, `--security-opt no-new-privileges`.
     - Networking: `--network none`.
     - Filesystem: `--read-only`, with isolated memory-backed `--tmpfs /tmp:rw,size=64m,mode=1777`.
-    - Resource controls: `--pids-limit 64`, `--memory 512m`, `--cpus 0.5`.
+    - Resource controls: `--pids-limit 64`, `--memory 512m` with `--memory-swap 512m` (no swap), `--cpus 0.5`.
   - Cleans up containers and temporary image tags upon completion.
   - Returns dict with keys: `outcome` (`"passed"`, `"failed"`, `"timeout"`, or `"env_failure"`), `exit_code`, `stdout`, `stderr`, `oracle_events`.
 
@@ -485,7 +485,7 @@ The security and integrity of Exhibit A rest on clean, uncrossable boundaries be
 - **Dropped Privileges**: Containers run with `--cap-drop ALL`, `--security-opt no-new-privileges`, and under the host user's non-root UID/GID (`--user uid:gid`).
 - **Filesystem Lockdown**: Root filesystem is mounted read-only (`--read-only`), with a strictly limited tmpfs mounted at `/tmp` (`size=64m,mode=1777`).
 - **Host Separation**: Neither the Docker daemon socket (`/var/run/docker.sock`) nor host directories (other than a temporary isolated copy of the repository clone) are ever mounted into the container.
-- **Resource Constraints**: Strict cgroup boundaries prevent denial of service (`--memory 512m`, `--cpus 0.5`, `--pids-limit 64`).
+- **Resource Constraints**: Strict cgroup boundaries prevent denial of service (`--memory 512m`, `--memory-swap 512m`, `--cpus 0.5`, `--pids-limit 64`).
 
 ### Boundary 3: The Oracle / Runner Boundary
 - **Separation of Concerns**: The sandbox determines *how* to run code safely without compromising the host. The oracle determines *what the execution meant*.
