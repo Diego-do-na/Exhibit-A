@@ -19,7 +19,19 @@ _NO_WHEEL_PATTERNS = [
 ]
 
 
-_SECRET_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET")
+# Only these pip settings reach the subprocess: names alone cannot tell a secret from a setting.
+_PIP_ALLOWLIST = (
+    "PIP_INDEX_URL",
+    "PIP_EXTRA_INDEX_URL",
+    "PIP_CACHE_DIR",
+    "PIP_TIMEOUT",
+    "PIP_RETRIES",
+    "PIP_DISABLE_PIP_VERSION_CHECK",
+    "PIP_NO_INDEX",
+    "PIP_FIND_LINKS",
+)
+# '://user@' or '://user:pass@': credentials embedded in a URL (a space-separated list may hold several).
+_URL_USERINFO = re.compile(r"://[^/\s?#]*@")
 
 
 def _minimal_env() -> dict[str, str]:
@@ -31,9 +43,10 @@ def _minimal_env() -> dict[str, str]:
     env["PATH"] = os.environ.get("PATH", "")
     if "HOME" in os.environ:
         env["HOME"] = os.environ["HOME"]
-    # Keep pip configuration (index URL, proxies) but never credential-like values.
-    for key, value in os.environ.items():
-        if key.startswith("PIP_") and not key.endswith(_SECRET_SUFFIXES):
+    # Keep allowlisted pip configuration, and never a value with credentials in a URL.
+    for key in _PIP_ALLOWLIST:
+        value = os.environ.get(key)
+        if value is not None and not _URL_USERINFO.search(value):
             env[key] = value
     # PYTHONPATH may be useful for local targets; keep only if present.
     if "PYTHONPATH" in os.environ:
