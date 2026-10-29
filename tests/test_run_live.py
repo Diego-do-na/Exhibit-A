@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from exhibit_a.cli import run as run_mod
+from exhibit_a.cli import main as cli_main
 from exhibit_a.ledger import Ledger
 from exhibit_a.loop import Roles, VerificationLoop
 from exhibit_a.loop import pipeline as loop_pipeline
@@ -164,7 +165,7 @@ def test_cli_flags_and_env_precedence(tmp_path, monkeypatch, fake_provider, caps
     monkeypatch.setenv("EXHIBIT_A_PROVIDER", "fake-live")
     monkeypatch.setenv("EXHIBIT_A_MODEL", "fake-model")
     # Call via CLI main (parses and dispatches to cmd_run)
-    rc = run_mod.main(["run", "--case", str(case_file), "--out", str(out), "--budget-usd", "10.0"])
+    rc = cli_main(["run", "--case", str(case_file), "--out", str(out), "--budget-usd", "10.0"])
     assert rc == 0
     captured = fake_provider
     assert captured
@@ -173,7 +174,7 @@ def test_cli_flags_and_env_precedence(tmp_path, monkeypatch, fake_provider, caps
 
     # Flags override env vars.
     out2 = tmp_path / "out2"
-    rc2 = run_mod.main(["run", "--case", str(case_file), "--out", str(out2), "--provider", "fake-live", "--model", "override-model", "--budget-usd", "10.0"])
+    rc2 = cli_main(["run", "--case", str(case_file), "--out", str(out2), "--provider", "fake-live", "--model", "override-model", "--budget-usd", "10.0"])
     assert rc2 == 0
     # The last factory calls should have seen the override model.
     assert any(spec.model == "override-model" for spec in fake_provider)
@@ -196,7 +197,7 @@ def test_model_without_provider_uses_default_provider(tmp_path, monkeypatch, cap
 
     PROVIDER_REGISTRY["ollama"] = ollama_factory
     try:
-        rc = run_mod.main(["run", "--case", str(case_file), "--out", str(out), "--model", "some-model", "--budget-usd", "10.0"])
+        rc = cli_main(["run", "--case", str(case_file), "--out", str(out), "--model", "some-model", "--budget-usd", "10.0"])
         assert rc == 0
         assert seen
         assert all(spec.provider == "ollama" for spec in seen)

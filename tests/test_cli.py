@@ -11,6 +11,9 @@ import pytest
 from exhibit_a.cli import NOT_WIRED_YET, main
 from exhibit_a.ledger import Ledger
 from exhibit_a.schemas import Event, EventType, RepoProfile
+from exhibit_a.models import Completion, Role
+from exhibit_a.models.cost import Pricing
+from tests.test_run_live import FakeLive, FIXTURES, TRAVERSAL, suspicion
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -159,26 +162,6 @@ def test_run_cli_honours_provider_and_model_and_does_not_leak_key(tmp_path, monk
 
     # Fake provider that records specs and returns canned completions similar to FakeLive.
     seen = []
-
-    class FakeLive:
-        name = "fake-cli"
-        pricing = Pricing()
-        cost_usd = 0.5
-
-        def __init__(self, spec=None):
-            self.spec = spec
-
-        def complete(self, role, prompt, schema):
-            if role == Role.ADVERSARY:
-                body = {"suspicions": [suspicion()]}
-            elif role == Role.TEST_WRITER:
-                body = {"test_source": TRAVERSAL % "../outside/canary.txt"}
-            elif role == Role.FIXER:
-                fixed = (FIXTURES / "fixed" / "app.py").read_text()
-                body = {"files": [{"path": "app.py", "content": fixed}]}
-            else:
-                body = {"variants": [{"name": "dot", "test_source": TRAVERSAL % "./../outside/canary.txt"}]}
-            return Completion(json.dumps(body), 10, 10, 1, model="fake-model", cost_usd=self.cost_usd)
 
     def factory(spec):
         seen.append(spec)
