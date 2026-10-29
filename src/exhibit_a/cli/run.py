@@ -365,7 +365,12 @@ def _run_case(args: argparse.Namespace) -> int:
     if clone.exists():
         shutil.rmtree(clone)
     clone.mkdir(parents=True, exist_ok=True)
-    source_tree = root / settings["tree"]
+    # Support either a single "tree" key or the newer "trees" mapping.
+    if "trees" in settings and isinstance(settings["trees"], dict):
+        tree_name = settings["trees"].get("vulnerable") or next(iter(settings["trees"].values()))
+        source_tree = root / tree_name
+    else:
+        source_tree = root / settings.get("tree", ".")
     if source_tree.exists():
         shutil.copytree(source_tree, clone, dirs_exist_ok=True)
     requirements = [str(item) for item in settings.get("requirements", [])]
@@ -379,13 +384,27 @@ def _run_case(args: argparse.Namespace) -> int:
 
     ledger = Ledger(out / "ledger.jsonl")
     if args.replay:
-        provider = ReplayProvider(root / settings["recording"])
+        if "recording" in settings:
+            provider = ReplayProvider(root / settings["recording"])
+        else:
+            # A case without a recording (archive extraction) answers from its own labelled
+            # materials, the same deterministic provider the benchmark uses for it.
+            try:
+                from bench.corpus import load_corpus
+                from bench.loop_pipeline import CaseMaterialsProvider
+
+                provider = CaseMaterialsProvider(load_corpus(case_file)[0])
+            except (ImportError, ValueError, OSError, IndexError) as exc:
+                print(f"run: case {case_file} has no replay recording and its materials "
+                      f"cannot be used: {exc}", file=sys.stderr)
+                return 1
         roles = Roles(*(ModelRole(r, provider) for r in (
             Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
         loop = VerificationLoop(
             clone, out, ledger, roles, "test_baseline.py",
             run_id=case_id, baseline_runner=_local_baseline,
             requirements=requirements,
+            effect=settings.get("effect", "canary_read"),
         )
     else:
         try:
@@ -404,6 +423,7 @@ def _run_case(args: argparse.Namespace) -> int:
             runner=SandboxRunner(
                 requirements=tuple(settings.get("requirements", ()))
             ),
+            effect=settings.get("effect", "canary_read"),
         )
     try:
         result = loop.run(settings["source_file"])

@@ -105,8 +105,8 @@ class FakeRunner:
                 "stdout": proc.stdout.decode(), "stderr": proc.stderr.decode(),
                 "oracle_events": []}
 
-    def run_exploit(self, app_root, test_path, entry_points, *, timeout):
-        return run_oracle(app_root, test_path, entry_points, timeout=timeout)
+    def run_exploit(self, app_root, test_path, entry_points, *, timeout, effect: str = "canary_read"):
+        return run_oracle(app_root, test_path, entry_points, timeout=timeout, effect=effect)
 
 
 @pytest.fixture

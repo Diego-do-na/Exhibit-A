@@ -129,8 +129,8 @@ class FakeRunner:
         return {"outcome": "passed" if proc.returncode == 0 else "failed", "exit_code": proc.returncode,
                 "stdout": proc.stdout.decode(), "stderr": proc.stderr.decode(), "oracle_events": []}
 
-    def run_exploit(self, app_root, test_path, entry_points, *, timeout):
-        return run_oracle(app_root, test_path, entry_points, timeout=timeout)
+    def run_exploit(self, app_root, test_path, entry_points, *, timeout, effect: str = "canary_read"):
+        return run_oracle(app_root, test_path, entry_points, timeout=timeout, effect=effect)
 
 
 def make_clone(root):
@@ -340,7 +340,7 @@ def test_sandbox_runner_stages_the_exploit_with_a_canary_and_judges_container_ev
     calls = []
 
     def fake_run(clone_path, test_path, timeout, requirements=None, image=None,
-                 canary_path=None, events_path=None, env=None, canary_mount=None, manifest=None):
+                 canary_path=None, events_path=None, env=None, canary_mount=None, manifest=None, **kwargs):
         stage = Path(clone_path)
         calls.append({
             "files": {p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()},
@@ -426,8 +426,8 @@ def test_sandbox_that_cannot_run_the_exploit_is_an_env_failure(monkeypatch, tmp_
 class _BaselineOnlyOnHost(FakeRunner):
     """Host baseline, sandboxed exploits: isolates the exploit path for the loop test below."""
 
-    def run_exploit(self, app_root, test_path, entry_points, *, timeout):
-        return SandboxRunner().run_exploit(app_root, test_path, entry_points, timeout=timeout)
+    def run_exploit(self, app_root, test_path, entry_points, *, timeout, effect: str = "canary_read"):
+        return SandboxRunner().run_exploit(app_root, test_path, entry_points, timeout=timeout, effect=effect)
 
 
 def test_loop_turns_a_sandbox_env_failure_into_an_env_failure_verdict(recorded, tmp_path, monkeypatch):

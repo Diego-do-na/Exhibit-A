@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import json
 import re
 import shutil
 import uuid
@@ -198,6 +199,8 @@ class VerificationLoop:
         # ``requirements`` only shape the default runner; an injected one carries its own.
         self.runner = runner if runner is not None else SandboxRunner(requirements=tuple(requirements))
         self.baseline_runner = baseline_runner or self.runner.run_baseline
+        # The judge is a callable that must accept the `effect` keyword so the loop
+        # can call it uniformly as `self.judge(..., effect=self.effect)`.
         self.judge = judge or self.runner.run_exploit
         self.flags: LoopFlags = flags if flags is not None else FullSystem()
         # Which oracle effect the judge proves ("canary_read" or "canary_write").
@@ -333,7 +336,7 @@ class VerificationLoop:
         for n in range(self.runs):
             self._emit(EventType.RUN_STARTED, suspicion_id=suspicion.id, run=n + 1, of=self.runs)
             try:
-                judgement = self.judge(self.clone, exploit, entry_points, timeout=self.timeout)
+                judgement = self.judge(self.clone, exploit, entry_points, timeout=self.timeout, effect=self.effect)
             except OSError as exc:
                 return done(VerdictValue.ENV_FAILURE, f"run {n + 1} could not execute: {exc}",
                             reason_code="run_error")
@@ -545,7 +548,7 @@ class VerificationLoop:
         for n in range(self.runs):
             self._emit(EventType.RUN_STARTED, suspicion_id=sid, on="fixed", run=n + 1, of=self.runs)
             try:
-                judgement = self.judge(fixed, exploit, entry_points, timeout=self.timeout)
+                judgement = self.judge(fixed, exploit, entry_points, timeout=self.timeout, effect=self.effect)
             except OSError:
                 return False
             if judgement.test_outcome != "passed":
@@ -573,7 +576,7 @@ class VerificationLoop:
             )
             tried += 1
             try:
-                judgement = self.judge(fixed, path, entry_points, timeout=self.timeout)
+                judgement = self.judge(fixed, path, entry_points, timeout=self.timeout, effect=self.effect)
             except OSError:
                 self._emit(EventType.BYPASS_RESULT, suspicion_id=suspicion.id, name=variant["name"], bypassed=False, error=True)
                 continue
