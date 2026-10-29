@@ -469,6 +469,7 @@ class VerificationLoop:
         pkg = self.out / "packages" / _slug(outcome.suspicion.id)
         pkg.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(exploit, pkg / "test_exploit.py")
+        source = (self.clone / outcome.suspicion.location.file).read_text(encoding="utf-8")
         # Paths inside the package are relative to the package dir so it can be moved or shared.
         if outcome.fix_verified:
             (pkg / "fix.patch").write_text(patch_text, encoding="utf-8")
@@ -480,11 +481,21 @@ class VerificationLoop:
         (pkg / "verdict.json").write_text(json.dumps(verdict_json, indent=2), encoding="utf-8")
         evidence = {
             "suspicion": json.loads(outcome.suspicion.to_json()),
+            "suspicious_code": {
+                "file": outcome.suspicion.location.file,
+                "line": outcome.suspicion.location.line,
+                "content": source,
+            },
             "reason": outcome.reason,
             "fix_verified": outcome.fix_verified,
             "flags": _flags_payload(self.flags),
             "bypass_attempts": verdict_json.get("bypass_attempts") or {},
             "evidence": verdict_json.get("evidence") or {},
+            "discarded_suspicions": sum(
+                1 for event in self.ledger.replay(self.run_id)
+                if event.type == EventType.VERDICT and event.payload.get("verdict") != VerdictValue.PROVEN.value
+            ),
+            "usage": self.ledger.totals(self.run_id),
         }
         (pkg / "evidence.json").write_text(json.dumps(_portable(evidence, roots), indent=2), encoding="utf-8")
         self._emit(EventType.PACKAGED, suspicion_id=outcome.suspicion.id, path=str(pkg.relative_to(self.out)), fix_verified=outcome.fix_verified)

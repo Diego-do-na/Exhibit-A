@@ -82,3 +82,4 @@ Protocol:
 - T067 claude: added docs/THREAT_MODEL.md (diagram, trust boundaries, component/threat/mitigation/status/evidence tables, F1-F20 and R1-R5 coverage); pending: F1/F2/F4/F6 (critical/high audit findings) still open, re-check statuses when they land; docs/audit-integration.md is on main but not in this worktree's base
 - T065 assistant: added rule-based scan.detect module and tests; pending: CLI wiring and broader language support
 - A-5 Muse: added a real-path bench CLI test (copied Starlette vuln+fixed corpus with shipped replays, host runner, hermetic wheelhouse; asserts rows, per-case output, ordered ledger kinds, proven/discarded_unproven verdicts; verified it fails when the loop is skipped); pending: Docker-host rerun for container-backed numbers
+- T063 assistant: added deterministic Markdown and self-contained HTML finding reports with escaped package content and report tests; pending: none
