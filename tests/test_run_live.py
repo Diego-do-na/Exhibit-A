@@ -117,12 +117,13 @@ def fake_provider():
     def factory(spec):
         seen.append(spec)
         return FakeLive(spec)
-
+    saved = dict(PROVIDER_REGISTRY)
     PROVIDER_REGISTRY["fake-live"] = factory
     try:
         yield seen
     finally:
-        del PROVIDER_REGISTRY["fake-live"]
+        PROVIDER_REGISTRY.clear()
+        PROVIDER_REGISTRY.update(saved)
 
 
 def stage_case(root):
