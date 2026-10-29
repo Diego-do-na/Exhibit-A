@@ -1,25 +1,23 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List
 
 from ..schemas import Baseline, Dependency, RepoProfile
-
 
 MAX_READ_BYTES = 32 * 1024  # 32 KiB cap per file read
 VENDORED_DIRS = {"node_modules", ".venv", "venv"}
 
 
 def _safe_read(path: Path, repo_root: Path) -> str:
-    """Read file with size cap and avoid symlinks escaping repo_root."""
     try:
         resolved = path.resolve(strict=True)
     except FileNotFoundError:
         return ""
     if not str(resolved).startswith(str(repo_root.resolve())):
         return ""
-    # skip vendored dirs
     for part in resolved.parts:
         if part in VENDORED_DIRS:
             return ""
@@ -36,7 +34,7 @@ def _safe_read(path: Path, repo_root: Path) -> str:
         return ""
 
 
-def _find_files(root: Path, names: Iterable[str]) -> list[Path]:
+def _find_files(root: Path, names: Iterable[str]) -> List[Path]:
     found = []
     for name in names:
         p = root / name
@@ -45,27 +43,37 @@ def _find_files(root: Path, names: Iterable[str]) -> list[Path]:
     return found
 
 
-def detect(repo_root: str) -> RepoProfile:
-    """Rule-based detection of language, package manager and test command.
+@dataclass(frozen=True)
+class ScanResult:
+    profile: RepoProfile
+    supported: bool
+    reasons: list[str]
+    languages: list[str]
 
-    This function reads repository files only (no subprocess), uses simple
-    heuristics, and returns a RepoProfile object (placeholder baseline).
-    """
+
+def detect(repo_root: str) -> ScanResult:
+    """Rule-based detection of language, package manager and test command."""
     root = Path(repo_root)
     reasons: list[str] = []
-    language = "unknown"
     dependency_manager = "unknown"
     install_cmd = "unknown"
     test_cmd = "unknown"
     framework = "unknown"
     interpreter = "unknown"
 
-    # Python detection
-    py_files = _find_files(root, ("pyproject.toml", "requirements.txt", "setup.cfg"))
-    if py_files:
-        language = "python"
+    detected: list[str] = []
+    if any((root / n).exists() for n in ("pyproject.toml", "requirements.txt", "setup.cfg")):
+        detected.append("python")
+    if (root / "package.json").exists():
+        detected.append("javascript")
+    if (root / "pom.xml").exists() or (root / "build.gradle").exists():
+        detected.append("java")
+
+    languages = detected or ["unknown"]
+    primary = next((l for l in ("python", "javascript", "java") if l in detected), "unknown")
+
+    if primary == "python":
         interpreter = "python3"
-        # prefer pyproject/poetry
         pyproject = root / "pyproject.toml"
         if pyproject.exists():
             txt = _safe_read(pyproject, root)
@@ -82,8 +90,6 @@ def detect(repo_root: str) -> RepoProfile:
             dependency_manager = "pip"
             install_cmd = "python -m pip install -e ."
 
-        # test framework detection
-        # check requirements and pyproject for "pytest"
         maybe = ""
         for p in ("requirements.txt", "pyproject.toml", "setup.cfg"):
             maybe += _safe_read(root / p, root)
@@ -94,14 +100,9 @@ def detect(repo_root: str) -> RepoProfile:
             framework = "unittest"
             test_cmd = "python -m unittest"
 
-        # supported only when pytest detected
-        supported = framework == "pytest"
-        if not supported:
-            reasons.append("only pytest-run Python projects are supported in v1")
-
         profile = RepoProfile(
             commit="unknown",
-            language=language,
+            language="python",
             interpreter=interpreter,
             dependency_manager=dependency_manager,
             install_cmd=install_cmd,
@@ -110,34 +111,24 @@ def detect(repo_root: str) -> RepoProfile:
             dependencies=[],
             baseline=Baseline(passed=0, failed=0, seconds=0.0),
         )
-        # encode notes into framework string when schema doesn't yet include supported/reasons
+        supported = framework == "pytest"
         if not supported:
-            profile.framework = f"{framework} (unsupported: {'; '.join(reasons)})"
-        return profile
+            reasons.append("only pytest-run Python projects are supported in v1")
+        return ScanResult(profile=profile, supported=supported, reasons=reasons, languages=languages)
 
-    # JavaScript / TypeScript detection
-    pkg = root / "package.json"
-    if pkg.exists():
-        language = "javascript"
-        txt = _safe_read(pkg, root)
+    if primary == "javascript":
+        txt = _safe_read(root / "package.json", root)
         try:
             data = json.loads(txt) if txt else {}
         except Exception:
             data = {}
-        # package manager guess
         if (root / "yarn.lock").exists():
             dependency_manager = "yarn"
             install_cmd = "yarn install"
         else:
             dependency_manager = "npm"
             install_cmd = "npm install"
-        # scripts test
-        scripts = data.get("scripts", {}) if isinstance(data, dict) else {}
-        if scripts.get("test"):
-            test_cmd = f"{dependency_manager} test"
-        else:
-            test_cmd = f"{dependency_manager} test"
-        # framework detection via devDependencies or dependencies
+        test_cmd = f"{dependency_manager} test"
         deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
         if any(k.lower().startswith("jest") or k == "jest" for k in deps):
             framework = "jest"
@@ -147,40 +138,40 @@ def detect(repo_root: str) -> RepoProfile:
             framework = "mocha"
         else:
             framework = "npm"
+
         profile = RepoProfile(
             commit="unknown",
-            language=language,
+            language="javascript",
             interpreter="node",
             dependency_manager=dependency_manager,
             install_cmd=install_cmd,
             test_cmd=test_cmd,
-            framework=f"{framework} (unsupported: scanner v1 supports only Python/pytest)",
+            framework=framework,
             dependencies=[],
             baseline=Baseline(passed=0, failed=0, seconds=0.0),
         )
-        return profile
+        reasons.append("scanner v1 supports only Python/pytest")
+        return ScanResult(profile=profile, supported=False, reasons=reasons, languages=languages)
 
-    # Java detection
-    if (root / "pom.xml").exists() or (root / "build.gradle").exists():
-        language = "java"
+    if primary == "java":
         dependency_manager = "maven" if (root / "pom.xml").exists() else "gradle"
         install_cmd = "mvn -DskipTests package" if (root / "pom.xml").exists() else "gradle build -x test"
         test_cmd = "mvn test" if (root / "pom.xml").exists() else "gradle test"
         framework = "junit"
         profile = RepoProfile(
             commit="unknown",
-            language=language,
+            language="java",
             interpreter="java",
             dependency_manager=dependency_manager,
             install_cmd=install_cmd,
             test_cmd=test_cmd,
-            framework=f"{framework} (unsupported: scanner v1 supports only Python/pytest)",
+            framework=framework,
             dependencies=[],
             baseline=Baseline(passed=0, failed=0, seconds=0.0),
         )
-        return profile
+        reasons.append("scanner v1 supports only Python/pytest")
+        return ScanResult(profile=profile, supported=False, reasons=reasons, languages=languages)
 
-    # empty or unknown
     profile = RepoProfile(
         commit="unknown",
         language="unknown",
@@ -188,9 +179,9 @@ def detect(repo_root: str) -> RepoProfile:
         dependency_manager="unknown",
         install_cmd="unknown",
         test_cmd="unknown",
-        framework="unknown (unsupported: no recognizable project files)",
+        framework="unknown",
         dependencies=[],
         baseline=Baseline(passed=0, failed=0, seconds=0.0),
     )
-    return profile
-
+    reasons.append("no recognizable project files")
+    return ScanResult(profile=profile, supported=False, reasons=reasons, languages=languages)
