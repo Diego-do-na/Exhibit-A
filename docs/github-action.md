@@ -136,29 +136,17 @@ rule decides a path, the highest risk decides the PR:
 interface so `action.yml` does not change. This task deliberately does not
 create `triage/`.
 
-## Requires (CLI gaps)
+## Requires
 
-The Action only uses flags that exist today. These engine changes are needed
-before it gives real PR verdicts; they belong to the CLI owners
-(`cli/parser.py`, `cli/run.py`), not to this task:
+The CLI now provides the PR-diff loop, bounded changed-file validation,
+append-only ledger output, and documented exit codes. `result.json` remains
+compatible with `ci/summary.py`. The Action still needs to pass the
+`BASE..HEAD` value to `--pr-diff`; its current step passes a diff file to
+`--diff`, so that wiring mismatch remains outside this task.
 
-1. **PR-diff surface.** `exhibit-a run --repo X --diff Y` is a placeholder: it
-   prints "the core loop is not wired yet", exits 0 and writes no ledger. Until
-   SCAN/SLICE and the diff surface are wired, every PR run reports
-   `status: not_run` ("nothing was verified, so nothing could be proven").
-2. **`--provider` and `--model` flags.** `cli/run.py` already reads
-   `args.provider` / `args.model` via `getattr`, but `cli/parser.py` does not
-   define them, so live runs fall back to `ollama` / `llama3.1:8b`. The Action
-   exports `EXHIBIT_A_PROVIDER` / `EXHIBIT_A_MODEL` (read by nothing yet). Needed:
-   `--provider` and `--model` (or an env fallback); then pass them in
-   `action.yml`'s "Run Exhibit A" step.
-3. **Ledger path for the diff surface.** The Action expects `--out DIR` to
+1. **Ledger path for the diff surface.** The Action expects `--out DIR` to
    produce `DIR/ledger.jsonl`, as `--case` runs already do.
-4. **Exit codes.** `run` exits 1 whenever no fix-verified package exists and
-   also on aborts, so the Action ignores the exit code except for timeouts
-   (124/137) and gates on the ledger. Distinct codes or a `--result-json`
-   flag would make this explicit.
-5. **Optional: in-engine deadline.** The `timeout` wrapper kills the process;
+2. **Optional: in-engine deadline.** The `timeout` wrapper kills the process;
    an internal `--max-runtime` would let the engine write a final ledger event.
 
 What works today: `case:` + `replay: "true"` runs a benchmark case end to end

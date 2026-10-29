@@ -112,6 +112,7 @@ def run(
     env: Mapping[str, str] | None = None,
     canary_mount: str = _CANARY_MOUNT,
     manifest: Mapping[str, str] | None = None,
+    effect: str = "canary_read",
 ) -> Dict[str, Any]:
     """
     Execute pytest inside an ephemeral, hardened docker container.
@@ -175,7 +176,9 @@ def run(
         ):
             return _env_failure(f"invalid canary_mount: {canary_mount!r}")
 
-        observe = canary_path is not None or events_path is not None
+        if effect not in ("canary_read", "canary_write"):
+            return _env_failure(f"unknown oracle effect: {effect}")
+        observe = canary_path is not None or events_path is not None or effect == "canary_write"
         oracle_key = secrets.token_bytes(KEY_BYTES)
         events_file = os.path.join(tmpdir, "events.jsonl")
         extra_args: list[str] = []
@@ -209,6 +212,9 @@ def run(
                     # during the run (via_symlink) instead of relying on a read-only mount.
                     extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777"]
                 extra_args += ["-v", f"{canary_copy}:{mount}:ro", "-e", f"EXHIBIT_A_CANARY={mount}"]
+            elif effect == "canary_write":
+                extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777",
+                                "-e", f"EXHIBIT_A_CANARY={mount}"]
             plugin_flag = f"-p {_PLUGIN_MODULE} "
         for env_name, value in extra_env.items():
             if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY") and observe:
@@ -304,4 +310,3 @@ def run(
             shutil.rmtree(tmpdir)
         except Exception:
             pass
-

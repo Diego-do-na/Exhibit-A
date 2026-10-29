@@ -12,6 +12,14 @@ from ..models.config import PROVIDER_REGISTRY
 NOT_WIRED_YET = "not wired yet"
 
 
+def _provider_name(value: str) -> str:
+    if value not in PROVIDER_REGISTRY:
+        raise argparse.ArgumentTypeError(
+            f"unknown provider {value!r}; known providers: {sorted(PROVIDER_REGISTRY)}"
+        )
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the skeleton CLI."""
     parser = argparse.ArgumentParser(
@@ -34,12 +42,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Benchmark case.json (or its directory) to run the loop on.",
     )
     run.add_argument(
+        "--pr-diff",
+        default=None,
+        metavar="BASE..HEAD",
+        help="Run the proof loop on Python files changed between two commits.",
+    )
+    run.add_argument(
         "--out",
         default="runs/case",
         help="Output directory for the clone, ledger and packages (default: runs/case).",
     )
     run.add_argument("--repo", default=".", help="Path to the target clone.")
     run.add_argument("--diff", default=None, help="Path to the PR diff file.")
+    run.add_argument(
+        "--recording",
+        default=None,
+        help="Replay recording for a PR-diff run (also read from EXHIBIT_A_REPLAY_RECORDING).",
+    )
+    run.add_argument(
+        "--effect",
+        choices=("canary_read", "canary_write"),
+        default="canary_read",
+        help="Oracle effect to prove in PR-diff mode (default: canary_read).",
+    )
     run.add_argument(
         "--replay",
         action="store_true",
@@ -49,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     # provider registry so new backends appear automatically.
     run.add_argument(
         "--provider",
-        choices=sorted(PROVIDER_REGISTRY),
+        type=_provider_name,
         default=None,
         help="Model provider to use for every role (overrides EXHIBIT_A_PROVIDER).",
     )
