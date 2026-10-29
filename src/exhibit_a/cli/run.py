@@ -86,12 +86,13 @@ def _local_baseline(clone: str, test_path: str, timeout: float) -> dict[str, Any
 
 def _install_requirements(target: Path, requirements: list[str]) -> None:
     """Install the case's pinned dependencies into a local app root for the host and sandbox."""
+    # This helper is kept for backwards-compatibility but must not leak host secrets.
+    # Prefer installing inside the sandbox (SandboxRunner) instead of running pip on the host.
     if not requirements:
         return
-    install = [sys.executable, "-m", "pip", "install", "--target", str(target), *requirements]
-    proc = subprocess.run(install, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "pip install failed")
+    from ..install import safe_pip_install
+
+    safe_pip_install(target=str(target), requirements=requirements)
 
 
 def _run_case(args: argparse.Namespace) -> int:
