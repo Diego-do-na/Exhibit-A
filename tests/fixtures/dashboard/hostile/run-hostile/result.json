@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "run_id": "<script>alert(1)</script>",
+  "status": "completed",
+  "skipped_reason": "<script>alert(\"xss\")</script><img src=x onerror=alert(1)> javascript:alert(1)",
+  "engine_exit": 0,
+  "risk": {
+    "risk": "high",
+    "should_run_exploits": true,
+    "reasons": {
+      "<script>alert(\"xss\")</script><img src=x onerror=alert(1)> javascript:alert(1)": "javascript:alert(1)"
+    }
+  },
+  "findings": [
+    {
+      "suspicion_id": "<script>alert(\"xss\")</script><img src=x onerror=alert(1)>"
+    }
+  ]
+}
