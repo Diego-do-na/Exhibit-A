@@ -169,10 +169,30 @@ def comparable(verdicts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{key: row.get(key) for key in VERDICT_KEYS} for row in verdicts]
 
 
+def replay_meter(case_id: str, model: str) -> SplitMeter:
+    """The caps the recorded run had, so a replay stops exactly where the live run did.
+
+    Every recorded completion carries its real cost, which the replayed roles charge again.
+    The run-wide meter starts with what the cases before this one (in ``CASES`` order, the
+    order one invocation records them in) spent.
+    """
+    _, metadata_path = recording_paths(case_id, model)
+    meta = json.loads(metadata_path.read_text(encoding="utf-8"))
+    total = CostMeter(meta["budget_usd"]["run_total"])
+    spent_before = 0.0
+    for earlier in CASES[: CASES.index(case_id)]:
+        path = recording_paths(earlier, model)[1]
+        if path.exists():
+            spent_before += json.loads(path.read_text(encoding="utf-8"))["cost_usd"]
+    if spent_before:
+        total.charge(spent_before)
+    return SplitMeter(CostMeter(meta["budget_usd"]["case"]), total)
+
+
 def replay_case(case_id: str, model: str, out_dir: Path) -> CaseOutcome:
     """Replay a recorded Meta run offline (no network); the sandbox still runs every test."""
     recording, _ = recording_paths(case_id, model)
-    return run_case(load_case(case_id), ReplayProvider(recording), out_dir)
+    return run_case(load_case(case_id), ReplayProvider(recording), out_dir, replay_meter(case_id, model))
 
 
 def _usage(recording: Path) -> dict[str, Any]:
