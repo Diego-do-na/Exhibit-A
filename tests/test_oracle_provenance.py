@@ -8,8 +8,10 @@ Tests that exercise a layer *below* the static tripwire switch the tripwire off 
 ``unguarded``: the guard is bypassable by obfuscation, so each deeper layer must hold alone.
 """
 
+import hashlib
 import json
 import os
+import sys
 import textwrap
 import time
 from pathlib import Path
@@ -27,7 +29,9 @@ from exhibit_a.oracle.plugin import (
     KEY_MAGIC,
     MANIFEST_MAGIC,
     _SYMLINK_SLACK,
+    _Admission,
     _absolute,
+    _dir_fd_path,
     _dir_origin,
     _DIR_ORIGINS,
     _resolve,
@@ -198,6 +202,100 @@ def _compiled_keys(source: bytes):
 def test_code_keys_cover_every_code_object_of_the_fixture_apps(app):
     source = (FIXTURES / app / "app.py").read_bytes()
     assert _compiled_keys(source) <= code_keys(source)
+
+
+ANNOTATED_SOURCE = textwrap.dedent('''\
+    from dataclasses import dataclass
+
+    x: int = 1
+
+    @dataclass
+    class Response:
+        status: int
+        body: "bytes" = b""
+
+        def render(self, scale: float = 1.0) -> str:
+            local: list[int] = [i for i in range(3)]
+            return str(local)
+
+    def handler(request: dict[str, int], *args: int, **kw: str) -> Response:
+        return Response(200)
+
+    lam = lambda: 0
+''')
+
+TYPE_PARAM_SOURCE = textwrap.dedent('''\
+    type Alias[T] = list[T]
+
+    def first[T: int](items: list[T]) -> T:
+        return items[0]
+
+    class Box[T]:
+        item: T
+
+        def get[U](self, other: U) -> T | U:
+            return self.item
+''')
+
+
+def test_code_keys_cover_annotation_scopes():
+    """3.14 compiles ``__annotate__`` functions (PEP 649); on 3.11 the same check still holds."""
+    source = ANNOTATED_SOURCE.encode()
+    compiled = _compiled_keys(source)
+    keys = code_keys(source)
+    assert compiled <= keys
+    if sys.version_info >= (3, 14):
+        assert ("Response.__annotate__", 5) in compiled  # the class, from its decorator line
+        assert {k for k in compiled if k[0].endswith("__annotate__")} <= keys
+
+
+def test_code_keys_cover_type_parameter_scopes():
+    source = TYPE_PARAM_SOURCE.encode()
+    if sys.version_info < (3, 12):
+        # PEP 695 syntax: not Python on 3.11, so admission treats such a file as not source.
+        with pytest.raises(SyntaxError):
+            code_keys(source)
+        return
+    compiled = _compiled_keys(source)
+    assert any("<generic parameters of" in q for q, _ in compiled)
+    assert compiled <= code_keys(source)
+
+
+def _staged(tmp_path, source: bytes):
+    path = tmp_path / "app.py"
+    path.write_bytes(source)
+    admission = _Admission(str(tmp_path), {"app.py": hashlib.sha256(source).hexdigest()})
+    return admission, str(path.resolve())
+
+
+def _all_codes(code):
+    todo, out = [code], []
+    while todo:
+        c = todo.pop()
+        out.append(c)
+        todo.extend(k for k in c.co_consts if hasattr(k, "co_code"))
+    return out
+
+
+def test_every_code_object_of_an_annotated_staged_file_is_admitted(tmp_path):
+    source = ANNOTATED_SOURCE.encode()
+    admission, path = _staged(tmp_path, source)
+    for code in _all_codes(compile(source, path, "exec", dont_inherit=True)):
+        assert admission.check("app.py", code) is None, code.co_qualname
+
+
+def test_an_annotation_scope_from_other_source_is_not_admitted(tmp_path):
+    source = ANNOTATED_SOURCE.encode()
+    admission, path = _staged(tmp_path, source)
+    # Same qualnames and lines, different annotations: every code object that differs fails.
+    other = source.replace(b"status: int", b"status: str").replace(b"-> str", b"-> bytes")
+    staged = {(c.co_qualname, c.co_firstlineno): c for c in _all_codes(compile(source, path, "exec", dont_inherit=True))}
+    rejected = 0
+    for code in _all_codes(compile(other, path, "exec", dont_inherit=True)):
+        if staged.get((code.co_qualname, code.co_firstlineno)) != code:
+            assert admission.check("app.py", code) is not None, code.co_qualname
+            rejected += 1
+    assert rejected  # the forgery differs somewhere on every Python version
 
 
 def test_code_keys_use_the_first_decorator_line_and_scope_qualnames():
@@ -494,22 +592,86 @@ def test_dir_fd_through_a_preexisting_symlinked_directory_is_proven(tmp_path):
     assert result.events[0].via_symlink is False
 
 
+def _no_proc(monkeypatch):
+    def no_proc(path):
+        raise OSError("no /proc")
+
+    monkeypatch.setattr(os, "readlink", no_proc)
+
+
+def _no_fd_path(monkeypatch):
+    """Neither /proc nor F_GETPATH: the directory's path cannot be read from the descriptor."""
+    _no_proc(monkeypatch)
+    import fcntl
+
+    monkeypatch.delattr(fcntl, "F_GETPATH", raising=False)
+
+
 def test_resolve_falls_back_to_identity_without_proc(tmp_path, monkeypatch):
     canary = tmp_path / "canary.txt"
     canary.write_text("x")
     st = canary.stat()
+    real = str(canary.resolve())
     dfd = os.open(tmp_path, os.O_RDONLY)
     try:
-        assert _resolve("canary.txt", dfd, (st.st_dev, st.st_ino)) == str(canary.resolve())
-
-        def no_proc(path):
-            raise OSError("no /proc")
-
-        monkeypatch.setattr(os, "readlink", no_proc)
-        assert _resolve("canary.txt", dfd, (st.st_dev, st.st_ino)) == "\0canary"
+        assert _resolve("canary.txt", dfd, (st.st_dev, st.st_ino)) == real
+        # Without /proc (macOS): F_GETPATH where available, else identity. Never a synthetic path.
+        _no_proc(monkeypatch)
+        assert _resolve("canary.txt", dfd, (st.st_dev, st.st_ino), real) == real
+        _no_fd_path(monkeypatch)
+        assert _resolve("canary.txt", dfd, (st.st_dev, st.st_ino), real) == real
+        assert _resolve("canary.txt", dfd, (st.st_dev, st.st_ino)) is None  # canary path unknown
         # A hard link makes identity ambiguous: no match rather than a wrong one.
         os.link(canary, tmp_path / "other.txt")
-        assert _resolve("canary.txt", dfd, (st.st_dev, st.st_ino)) is None
+        assert _resolve("canary.txt", dfd, (st.st_dev, st.st_ino), real) is None
+    finally:
+        os.close(dfd)
+
+
+def test_dir_fd_path_without_proc_uses_f_getpath_or_gives_up(tmp_path, monkeypatch):
+    import fcntl
+
+    dfd = os.open(tmp_path, os.O_RDONLY)
+    try:
+        _no_proc(monkeypatch)
+        found = _dir_fd_path(dfd)
+        if hasattr(fcntl, "F_GETPATH"):
+            assert found is not None and os.path.realpath(found) == str(tmp_path.resolve())
+        else:
+            assert found is None
+        _no_fd_path(monkeypatch)
+        assert _dir_fd_path(dfd) is None
+    finally:
+        os.close(dfd)
+
+
+def test_dir_fd_path_rejects_a_truncated_f_getpath_buffer(tmp_path, monkeypatch):
+    import fcntl
+
+    _no_proc(monkeypatch)
+    monkeypatch.setattr(fcntl, "F_GETPATH", 50, raising=False)
+    monkeypatch.setattr(fcntl, "fcntl", lambda fd, op, buf: b"/" + b"a" * (len(buf) - 1))
+    assert _dir_fd_path(3) is None
+    monkeypatch.setattr(fcntl, "fcntl", lambda fd, op, buf: b"relative\0".ljust(len(buf), b"\0"))
+    assert _dir_fd_path(3) is None
+
+
+def test_resolve_without_proc_does_not_take_another_file_for_the_canary(tmp_path, monkeypatch):
+    canary = tmp_path / "canary.txt"
+    canary.write_text("x")
+    (tmp_path / "other.txt").write_text("y")
+    st = canary.stat()
+    real = str(canary.resolve())
+    dfd = os.open(tmp_path, os.O_RDONLY)
+    try:
+        _no_proc(monkeypatch)
+        import fcntl
+
+        # Resolved by path through F_GETPATH (macOS), or not matched by identity (Linux).
+        expected = str((tmp_path / "other.txt").resolve()) if hasattr(fcntl, "F_GETPATH") else None
+        assert _resolve("other.txt", dfd, (st.st_dev, st.st_ino), real) == expected
+        _no_fd_path(monkeypatch)
+        assert _resolve("other.txt", dfd, (st.st_dev, st.st_ino), real) is None
     finally:
         os.close(dfd)
 

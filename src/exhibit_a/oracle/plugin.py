@@ -97,6 +97,7 @@ _TASK_EDGE = "task"
 _SYMLINK_SLACK = 2.0
 _MAX_SYMLINK_HOPS = 40
 _MAX_FIELD = 512
+_MAX_PATH = 1024  # MAXPATHLEN on macOS, the buffer size F_GETPATH writes into
 
 # A captured stack is a tuple of code objects, outermost first; None marks a thread boundary
 # and _TASK_EDGE a task boundary.
@@ -106,6 +107,8 @@ _ORIGIN: contextvars.ContextVar[tuple[int, tuple] | None] = contextvars.ContextV
 )
 _local = threading.local()
 _THREAD_ORIGIN = "_exhibit_a_origin"
+# Bound at import, before any test code runs, like the primitives _Admission keeps.
+_COMPILE = compile
 # Creator stacks keyed by the task's coroutine, registered before the task can run (eager
 # tasks run their first step inside create_task).
 _TASK_ORIGINS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -190,13 +193,24 @@ def _stack(frame, admission: _Admission | None = None) -> list[dict[str, object]
 
 
 def code_keys(source: bytes) -> frozenset[tuple[str, int]]:
-    """``(qualname, first line)`` of every code object ``source`` defines, read with ``ast``.
+    """``(qualname, first line)`` of every code object ``source`` defines.
 
+    Two readings are combined. The ``ast`` walk names functions, classes, lambdas and
+    comprehensions in every scope, listing comprehensions even where 3.12+ inlines them. The
+    compiled module, walked through ``co_consts``, adds whatever else the running interpreter
+    creates from this source, such as 3.14 ``__annotate__`` functions (PEP 649) and 3.12+
+    type-parameter scopes (PEP 695). Either way the key comes from ``source`` itself; a frame is
+    still admitted only if its code object equals one compiled from it (``_Admission.check``).
     The first line is what CPython puts in ``co_firstlineno``: the first decorator's line for a
-    decorated function or class. Comprehensions are listed even where 3.12+ inlines them.
-    Raises ``SyntaxError``/``ValueError`` if ``source`` is not Python.
+    decorated function or class. Raises ``SyntaxError``/``ValueError`` if ``source`` is not
+    Python.
     """
     keys = {("<module>", 1)}
+    compiled = [_COMPILE(source, "<staged>", "exec", dont_inherit=True)]
+    while compiled:
+        code = compiled.pop()
+        keys.add((code.co_qualname, code.co_firstlineno))
+        compiled.extend(c for c in code.co_consts if hasattr(c, "co_code"))
     comprehensions = {
         ast.GeneratorExp: "<genexpr>",
         ast.ListComp: "<listcomp>",
@@ -599,25 +613,56 @@ def _absolute(requested: str, dir_fd: int | None) -> str | None:
     return None if base is None else os.path.join(base, requested)
 
 
-def _resolve(requested: str, dir_fd: int | None, canary_id: tuple[int, int]) -> str | None:
-    """The real path an open of ``requested`` (relative to ``dir_fd``, if set) reaches.
+def _dir_fd_path(dir_fd: int) -> str | None:
+    """The absolute path of the directory ``dir_fd`` refers to, or None if it cannot be read.
 
-    With a ``dir_fd`` and a relative name the directory is found through
-    ``/proc/self/fd/<dir_fd>``. Where that does not exist (macOS) the opened file is compared to
-    the canary by identity instead; that comparison is used only while the canary has a single
-    link, so a hard link elsewhere cannot be mistaken for it. Returns None when unresolvable.
+    Linux exposes it as ``/proc/self/fd/<dir_fd>``; macOS has no ``/proc`` and answers
+    ``fcntl(F_GETPATH)`` instead. Anything but a complete absolute path is None.
     """
-    if dir_fd is None or os.path.isabs(requested):
-        return os.path.realpath(requested)
     try:
         base = os.readlink(f"/proc/self/fd/{dir_fd}")
     except OSError:
         base = None
-    if base is not None and base.startswith("/"):
+    if base is None:
+        try:
+            import fcntl
+        except ImportError:
+            return None
+        get_path = getattr(fcntl, "F_GETPATH", None)
+        if get_path is None:
+            return None
+        try:
+            raw = fcntl.fcntl(dir_fd, get_path, bytes(_MAX_PATH))
+        except (OSError, ValueError, TypeError):
+            return None
+        end = raw.find(b"\0")
+        if end < 0:
+            return None  # no terminator: the path may have been cut short
+        base = os.fsdecode(raw[:end])
+    return base if base.startswith("/") else None
+
+
+def _resolve(
+    requested: str, dir_fd: int | None, canary_id: tuple[int, int], canary: str | None = None
+) -> str | None:
+    """The real path an open of ``requested`` (relative to ``dir_fd``, if set) reaches.
+
+    With a ``dir_fd`` and a relative name the directory's path is read from the descriptor
+    (``_dir_fd_path``). Where that is unavailable the opened file is compared to the canary by
+    identity instead and, on a match, ``canary`` (its real path) is returned; that comparison is
+    used only while the canary has a single link, so a hard link elsewhere cannot be mistaken
+    for it. Never returns a synthetic or partial path: None when unresolvable.
+    """
+    if dir_fd is None or os.path.isabs(requested):
+        return os.path.realpath(requested)
+    base = _dir_fd_path(dir_fd)
+    if base is not None:
         return os.path.realpath(os.path.join(base, requested))
+    if canary is None:
+        return None
     st = os.stat(requested, dir_fd=dir_fd)
     if (st.st_dev, st.st_ino) == canary_id and st.st_nlink == 1:
-        return "\0canary"  # matched by identity; see the caller
+        return canary
     return None
 
 
@@ -676,8 +721,7 @@ def _install(canary: str, events_path: str, key: bytes | None, app: dict | None 
         dir_fd = getattr(_local, "dir_fd", None)
         try:
             requested = os.fsdecode(target)
-            resolved = _resolve(requested, dir_fd, canary_id)
-            if resolved != canary and resolved != "\0canary":
+            if _resolve(requested, dir_fd, canary_id, canary) != canary:
                 return
         except (OSError, ValueError, TypeError):
             return
