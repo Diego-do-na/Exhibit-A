@@ -1,0 +1,5 @@
+# Spike build artifacts
+*.static
+*.o
+ptrace_observer
+fanotify_observer
