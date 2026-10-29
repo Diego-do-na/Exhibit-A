@@ -1,7 +1,10 @@
 # GitHub Action
 
-Run Exhibit A on every pull request and use it as a **required status check**
-that turns red only when a finding is `proven`.
+Run Exhibit A on every pull request and use it as a **required status check** that
+turns red only when a finding is `proven`. Note: the required check is meaningful only
+once the PR-diff surface exists and `--provider`/`--model` inputs are honoured (PR-diff
+surface: T075; provider/model passthrough needs CLI/Action wiring). Until then runs may
+report `not_run` and the check can be misleading.
 
 A green check means **"nothing could be proven"**. It never means the change is
 safe: the engine may not have reached the vulnerable path, or the run may have

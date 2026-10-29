@@ -1,9 +1,10 @@
 # Second vulnerability class — decision (A-8)
 
 The engine had one real case: Starlette `StaticFiles` path traversal (CVE-2023-29159), a
-**read** effect proven with a canary file. One case looks like a trick, so we add a second
-class that is *different in kind* yet proven by the same loop
-(BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY).
+**read** effect proven with a canary file. We added a second class that is different in kind
+and has been wired through the same loop and sandbox (BASELINE → SUSPECT → EXPLOIT → RUN →
+VERDICT → FIX → VERIFY). The plugin was hardened to pop `EXHIBIT_A_CANARY` from the test
+contract and to record access flags/requests observed during runs.
 
 ## Criteria
 
@@ -14,10 +15,12 @@ whose license permits vendoring, or an original equivalent.
 
 ## Candidates considered
 
-### (a) Archive-extraction path traversal / zip-slip — **CHOSEN**
+### (a) Archive-extraction path traversal / zip-slip — **CHOSEN** (loop & sandbox)
 
 A crafted archive member (`../x` or an absolute path) escapes the extraction directory and the
-extractor **writes a file outside** it.
+extractor **writes a file outside** it. The archive-extraction write effect (`canary_write`)
+is implemented in the loop and supported by the sandbox runner (no pre-planted canary for
+writes, writable `outside/` tmpfs and post-run listing).
 
 - **Offline / deterministic:** yes — pure filesystem, no network, no clock.
 - **Observable effect:** a **write** to a canary path outside the allowed directory. This is a

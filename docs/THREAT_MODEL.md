@@ -163,8 +163,9 @@ execution; code it ships is trusted only as "the app" by the oracle (see R2).
 ## 3. Audit coverage (docs/audit-integration.md sections 2, 7, 9)
 
 Every finding F1-F20 and risk R1-R5 appears below as fixed (task id), pending, or a declared limit.
-Nothing is listed as fixed unless a change on `main` is named. At the time of writing none of the
-critical findings (F1, F2) is fixed.
+Nothing is listed as fixed unless a change on `main` is named. Since this repository's recent
+updates, several findings that were previously open have been implemented on `main` (see
+T078, T079, T076, T075); update rows below for the current status/links.
 
 | ID | Sev | Subject | Status | Task / evidence |
 |---|---|---|---|---|

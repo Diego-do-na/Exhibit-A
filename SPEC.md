@@ -214,7 +214,7 @@ Every module sits behind a flag so it can be ablated.
 - baseline check: implemented (local/host baseline runner present; some corpus cases still run baseline as a host child process).
 - oracle with provenance: implemented (canary + stack-provenance checks).
 - differential verification & repeated runs: implemented in the loop (N runs, fix/verify).
-- vulnerability classes: path-traversal/SSRF class implemented and exercised (1 of 3).
+ - vulnerability classes: path-traversal read and archive-extraction write realised (1 of 3).
 - PR-diff surface: placeholder in CLI; core wiring for PR-diff is not yet implemented.
 - ledger: implemented (append-only JSONL).
 - benchmark with ablations: bench corpus and probe tooling present; replay-driven cases work.
@@ -266,7 +266,7 @@ Resolved / updated:
   against `dev.meta.ai` before relying on them.
 
 Still open / UNVERIFIED:
-- Final three vulnerability classes (only path-traversal/SSRF is realised so far).
+- Final three vulnerability classes (path-traversal read and archive-extraction write realised; others pending).
 - Which specific Meta model serves each role (to be decided by measurement and gating).
 - Provider data terms and full pricing confirmation.
 - Whether multimodal ingestion is built.
