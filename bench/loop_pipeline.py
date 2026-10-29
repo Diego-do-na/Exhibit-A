@@ -136,7 +136,7 @@ def _runner_supports_effect(runner: Any, effect: str) -> bool:
 
 
 def _unsupported_effect_reason(runner: Any, effect: str) -> str:
-    return f"effect {effect} not supported by {type(runner).__name__} yet (T076)"
+    return f"effect {effect} not supported by {type(runner).__name__}: its run_exploit takes no effect argument"
 
 
 def _make_judge(runner: Any, effect: str) -> Callable[..., Any]:

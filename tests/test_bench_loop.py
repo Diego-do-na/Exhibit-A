@@ -521,7 +521,7 @@ def test_archive_case_with_incapable_runner_fails_closed(tmp_path, capsys):
     assert rows and rows[0].proven == 0
     # Nothing executed: no clone was ever staged.
     assert not (tmp_path / "out").exists()
-    reason = f"effect canary_write not supported by {type(IncapableRunner()).__name__} yet (T076)"
+    reason = "effect canary_write not supported by IncapableRunner: its run_exploit takes no effect argument"
     assert reason in capsys.readouterr().err
     baselines = [e for e in ledger.replay("bench:full:archive-extraction-pathtraversal") if e.type == EventType.BASELINE_DONE]
     assert baselines and baselines[0].payload.get("ok") is False
