@@ -231,8 +231,91 @@ unknown origin>`, which fails closed. Tests: `test_dir_fd_*`, `test_relative_ope
 No new top-level verdict was added. Tampering is the test cheating or misbehaving, which the
 existing taxonomy already calls `invalid_test`. An environment that cannot be verified is
 `env_failure`. `Judgement.reason_code` (`channel_tripwire`, `forged_events`,
-`app_tree_changed`, `frame_not_admitted`, `provenance`, `no_effect`, `manifest_failed`) says
-which, without parsing the reason text.
+`app_tree_changed`, `frame_not_admitted`, `provenance`, `no_effect`, `manifest_failed`,
+`canary_not_via_allowed_dir`) says which, without parsing the reason text.
+
+`SandboxRunner` also passes the container's allowed directory (`/tmp/exhibit_a_oracle/allowed`)
+to `_judge`, so the route check of §3.7 applies on both paths. It does not yet pass
+`canary_written` (§3.7): the write effect is not wired through the sandbox (T076).
+
+### 3.7 Layer 6: the canary's route and access (A-11 F2, F4, F5)
+
+The integration audit (`docs/audit-integration.md` §2.1) found that a test could choose where
+the app is rooted. Rooting a correctly confined app at the canary's directory makes it read
+(P1b) or write (P1) the canary through its real entry point. Gating that on the source hash
+(P7) also passes on any fix. Separately, every `os.open` was recorded with mode `"None"` and
+counted as a read (P3), a failed `open(..., "r+")` counted as a write (P6), and `os.open`
+writes and `os.replace` onto the canary were missed (P2, P5).
+
+**The test never learns the canary's path.** `EXHIBIT_A_CANARY` is no longer in the test
+contract (`guard.TEST_CONTRACT`; it was never in the prompt text, `loop/prompts.py`). The
+plugin pops it from `os.environ` after install, like `EXHIBIT_A_EVENTS`, and the tripwire's
+`exhibit_a_env` rule now hits any mention of it. A real exploit reaches the canary from the
+allowed directory: it sits at `../outside/canary.txt` beside it. All shipped exploits do so.
+
+**Guard rule `canary_dir_to_call`** (`guard.CANARY_DIR_RULE`, reason "test chooses where the
+app is rooted"). Paths derived from `EXHIBIT_A_ALLOWED_DIR` are evaluated symbolically:
+`os.path.join`/`dirname`/`abspath`/`realpath`, `Path(...)`, `.parent`, `.parents[i]`, `/`,
+string `+` and f-strings, with constant strings folded. A value that is the canary's directory
+or one of its ancestors is a hit when it is passed to any call other than path arithmetic and
+read-only queries (`os.path.exists`, `os.listdir`, `os.symlink`'s target, ...), including
+inside a literal list/tuple/dict or a `*`/`**` argument, and when it is assigned to an
+attribute or subscript. `os.chdir(outside)` is a hit. The Starlette CVE exploit's served
+directory, `<work>/out`, is a sibling that does not hold the canary, and is not a hit.
+
+**Route check, at run time** (`oracle._route_problem`). The plugin records `requested`: the
+path as the code asked for it, made absolute, not resolved. When the caller passes the allowed
+directory (`run_oracle` and `SandboxRunner` do), an event counts only if `requested`:
+
+- starts with `<allowed>/` lexically (a traversal starts inside and escapes, e.g.
+  `<allowed>/../outside/canary.txt`), or
+- is exactly the canary's real path. Apps that canonicalise before opening (Starlette's
+  `realpath`) and absolute archive members (`os.path.join(dest, "/abs")`) request this.
+
+Anything else fails closed with `reason_code = "canary_not_via_allowed_dir"`. That covers an
+app rooted at the canary's directory under another spelling (`<work>/outside/./canary.txt`),
+an unrecorded `requested` (older plugin, or a `dir_fd` of unknown origin), and a path longer
+than 4096 characters. An app rooted *exactly* at the canary's directory that canonicalises
+also requests the canary's own path, so at run time it looks the same as the two legitimate
+shapes above. Only the guard tells them apart, and an obfuscated root evades it: residual
+limit R6 (§7.6).
+
+**Access from the open flags** (`plugin.access_of`). The `open` audit event carries the OS
+flags for both `builtins.open` and `os.open`. The plugin records `flags` and classifies them on
+the platform it runs on: `O_RDONLY` is `read`, `O_WRONLY` is `write`, `O_RDWR` is `read_write`,
+and `O_CREAT`/`O_TRUNC`/`O_APPEND` add `write`; `O_PATH` and non-integers are `unknown`. Mode
+`"r+"` is `read_write`. Classifying in the plugin matters because the judge may run on another
+OS (a Linux container judged on macOS) where the flag values differ. A read effect needs `read`
+in the access; a write effect needs `write`. An event body without `flags` (older plugins) is
+`unknown` and proves neither effect. The signed channel format is unchanged: the body only
+gains fields (`op`, `flags`, `access`, `requested`).
+
+**Renames and links.** `os.rename`, `os.replace` (which raises the `os.rename` audit event) and
+`os.link` whose destination resolves to the canary are recorded with `op` `rename` or `link`
+and access `write`.
+
+**Write verified after the run.** For `canary_write`, `run_oracle` checks on the host, after the
+test, that the canary is a regular file (not a symlink), that it was absent before (it is never
+planted for this effect), and that it holds `EXHIBIT_A_CANARY_TOKEN`
+(`oracle.canary_written`). If not, nothing is proven (`no_effect`). This is what refuses P6, a
+failed `"r+"` open. Hook for the sandbox: `_judge(..., canary_written=...)`. `None` means "not
+checked", and the sandbox path does not check yet; T076 must read the container's `outside`
+directory and pass the result.
+
+Audit results with this layer (`tests/test_oracle.py`, `tests/test_oracle_eval_archive.py`):
+
+| PoC | app | effect | before | now |
+|---|---|---|---|---|
+| P1 dest = canary dir (plain, and derived from the allowed dir) | safe | write | proven | not proven: guard |
+| P1b base = canary dir (plain, and derived) | safe | read | proven | not proven: guard |
+| P7 gated on the source hash | safe | write | proven | not proven: guard |
+| P1/P1b/P7 plain, guard off | safe | both | proven | not proven: `KeyError`, the variable is gone |
+| root `<work>/outside/.` past the guard | safe | read | proven | not proven: `canary_not_via_allowed_dir` |
+| P2 `os.open` write | vulnerable | write | missed | proven |
+| P3 write-only `os.open` | no leak | read | proven | not proven: access `write` |
+| P4 `"r+"` read | vulnerable | read | missed | proven |
+| P5 `os.replace` onto the canary | vulnerable | write | missed | proven |
+| P6 failed `"r+"` on the absent canary | no write | write | proven | not proven: nothing written |
 
 ## 4. What each layer defends
 
@@ -358,7 +441,18 @@ re-run on fixed code helps only if the fix does not use the patched function, an
 test can defeat it as in `docs/oracle-redteam.md` §3.3. An out-of-process observer would not
 close this either: the read really happens in app code.
 
-### 7.6 Smaller limits
+### 7.6 R6: obfuscated test-chosen app root (FALSE_PROVEN)
+
+The test roots a safe, canonicalising app at the canary's directory through a computation the
+guard does not evaluate. `test_r6_*` uses `os.path.join(os.path.dirname(ALLOWED), *["outside"])`:
+the guard does not unpack a starred argument. The app requests the canary's own real path,
+which the route check (§3.7) must accept because Starlette-style canonicalising apps and
+absolute archive members request it too. Nothing at run time separates "the app was configured
+with the canary's directory" from "the payload named the canary". Only the guard sees the
+configuration, and it is a tripwire, not a boundary. Closing this would need the oracle, not
+the test, to construct the app, for example a harness-owned app factory in the case profile.
+
+### 7.7 Smaller limits
 
 - `dir_fd` origin is tracked only for descriptors opened through `os.open`. A directory fd
   from `posix.open`, from before install, or a reused number pointing at the same directory

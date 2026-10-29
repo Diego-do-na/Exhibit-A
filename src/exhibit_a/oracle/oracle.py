@@ -20,12 +20,20 @@ Provenance is authenticated against the app as staged (docs/oracle-provenance.md
 tree is hashed before the run and the manifest goes to the plugin on stdin with the key; only
 frames the plugin admitted against it, and that pass the host-side re-check, are application
 code. The tree is hashed again after the run; any change rules out a proof.
+
+The test is never told where the canary is (finding A-11 F2): it gets the allowed directory and
+the token, and a real exploit reaches the canary from there. Each event carries the path the
+code requested; one that neither starts inside the allowed directory nor names the canary
+exactly is refused (``canary_not_via_allowed_dir``). Access comes from the open flags, not the
+mode string (F4), and a write effect also needs the canary to exist with the token after the
+run (F5). See docs/oracle-provenance.md, section 3.7.
 """
 
 from __future__ import annotations
 
 import os
 import secrets
+import stat
 import subprocess
 import sys
 import tempfile
@@ -46,27 +54,25 @@ TestOutcome = Literal["passed", "failed", "error", "timeout"]
 # Which effect on the canary counts as proof for this run. "canary_read" is the original
 # path-traversal style effect (the app leaks a file outside the allowed directory);
 # "canary_write" is the archive-extraction / zip-slip style effect (the app creates a file
-# outside the allowed directory). Both are observed through the same signed ``open`` events;
-# only the access the event carries (read vs write) differs. See docs/second-class.md.
+# outside the allowed directory). Both are observed through the same signed events; only the
+# access the event carries differs. See docs/second-class.md.
 Effect = Literal["canary_read", "canary_write"]
-_WRITE_MODE_CHARS = frozenset("wax+")
+# Which accesses count for each effect: "r+" or O_RDWR is both a read and a write.
+_ACCEPTED_ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}
+# A write effect reads at most this much of the canary after the run to find the token.
+_MAX_CANARY_READ = 1 << 20
 
 
-def _access(mode: str | None) -> str:
-    """Classify an ``open`` mode string as a ``read`` or a ``write`` (``unknown`` otherwise).
+def _access(event: OracleEvent) -> str:
+    """``read``, ``write``, ``read_write`` or ``unknown``: what the observed operation could do.
 
-    ``mode`` is the second argument the ``open`` audit event carries. For ``builtins.open``
-    it is a mode string such as ``"rb"`` or ``"w"``; for ``os.open`` it is ``None`` (the
-    intent is in the flags), which we cannot classify here and report as ``unknown``.
+    The plugin classifies an open from its flags on the platform it runs on. An open event
+    without ``flags`` (older plugins recorded only the mode string, which is ``None`` for
+    ``os.open``) is ``unknown`` and proves neither effect; so is any event without ``access``.
     """
-    if not mode or mode == "None":
+    if event.access is None or (event.op == "open" and event.flags is None):
         return "unknown"
-    lowered = mode.lower()
-    if any(char in _WRITE_MODE_CHARS for char in lowered):
-        return "write"
-    if "r" in lowered:
-        return "read"
-    return "unknown"
+    return event.access
 
 # Machine-readable reasons a judgement is not a proof (Judgement.reason_code).
 REASON_CHANNEL_TRIPWIRE = "channel_tripwire"
@@ -76,6 +82,7 @@ REASON_FRAME_NOT_ADMITTED = "frame_not_admitted"
 REASON_NO_EFFECT = "no_effect"
 REASON_PROVENANCE = "provenance"
 REASON_MANIFEST_FAILED = "manifest_failed"
+REASON_NOT_VIA_ALLOWED_DIR = "canary_not_via_allowed_dir"
 
 
 class Frame(StrictModel):
@@ -91,12 +98,20 @@ class Frame(StrictModel):
 
 
 class OracleEvent(StrictModel):
-    """One observed open of the canary file."""
+    """One observed open of (or rename or link onto) the canary file."""
 
     type: Literal["canary_read"] = "canary_read"
     path: str
+    # The audit event's mode string for an open; the event name for a rename or link.
     mode: str
     stack: list[Frame]
+    # How the canary was reached and what the operation could do (see plugin.access_of).
+    # Missing in events from older plugins, which classify as "unknown": never a proof.
+    op: Literal["open", "rename", "link"] = "open"
+    flags: int | None = None
+    access: Literal["read", "write", "read_write", "unknown"] | None = None
+    # The path as the code asked for it, absolute but not resolved; None if unknown.
+    requested: str | None = None
     # Set when the opened path went through a symlink created during the run; such a read
     # has no provenance. Missing in events from older plugins, which means False.
     via_symlink: bool = False
@@ -191,6 +206,7 @@ def run_oracle(
             manifest=manifest,
         )
         events, forged, forged_reason = _read_events(events_path, key)
+        written = canary_written(canary, token) if effect == "canary_write" else None
     changes = tree_changes(app_root, manifest, exclude)
 
     # On this path the app root is also the source of truth for the host-side re-check; any
@@ -199,7 +215,25 @@ def run_oracle(
         outcome, events, app_root, test_path, set(entry_points),
         effect=effect, forged_events=forged, forged_reason=forged_reason,
         app_tree=AppTree(str(app_root), app_root, manifest), app_tree_changes=changes,
+        allowed_dir=str(allowed), canary_written=written,
     )
+
+
+def canary_written(canary: Path, token: str) -> bool:
+    """Whether the run left a regular file at ``canary`` (absent before) holding ``token``.
+
+    The write effect is planted nowhere, so the file can only come from the run. A symlink,
+    a directory, an empty or token-less file, or one that cannot be read is not a write.
+    """
+    try:
+        st = os.lstat(canary)
+        if not stat.S_ISREG(st.st_mode):
+            return False
+        with open(canary, "rb") as handle:
+            content = handle.read(_MAX_CANARY_READ)
+    except OSError:
+        return False
+    return token.encode("utf-8") in content
 
 
 def _run_test(
@@ -313,6 +347,8 @@ def _judge(
     forged_reason: str = "",
     app_tree: AppTree | None = None,
     app_tree_changes: list[str] | None = None,
+    allowed_dir: str | None = None,
+    canary_written: bool | None = None,
 ) -> Judgement:
     """Decide what a run means.
 
@@ -321,6 +357,13 @@ def _judge(
     product paths (``run_oracle`` and the sandbox runner) pass it; without it the check is the
     older lexical one, kept for direct callers of this function. ``app_tree_changes`` lists
     what changed in the app tree during the run; any change rules out a proof.
+
+    ``allowed_dir`` (the allowed directory as the run saw it) turns on the route check: an
+    event counts only if its ``requested`` path starts inside the allowed directory or is the
+    canary's own path (see ``_route_problem``). ``canary_written`` is the post-run check of a
+    write effect (``canary_written()``): False rules a write out. None means the caller did not
+    check; the sandbox path cannot yet (the canary_write side of the sandbox is T076, which must
+    pass it here), and a direct caller may judge events alone.
     """
     changes = list(app_tree_changes or [])
     tampered = bool(forged_events or changes)
@@ -362,13 +405,20 @@ def _judge(
     # Only opens of the kind this effect looks for count. A write-effect run ignores a read of
     # the canary path, and a read-effect run ignores a write: the wrong access never proves the
     # intended vulnerability. The full event list is still returned for the record.
-    wanted = "write" if effect == "canary_write" else "read"
-    verb = "written" if wanted == "write" else "read"
-    # An ``os.open`` event carries no mode string, so its access is "unknown". For the read
-    # effect that still counts (the original behaviour, and what dir_fd reads produce); a
-    # write effect requires a positively identified write.
-    accepted = {"read", "unknown"} if wanted == "read" else {"write"}
-    relevant = [event for event in events if _access(event.mode) in accepted]
+    verb = "written" if effect == "canary_write" else "read"
+    accepted = _ACCEPTED_ACCESS[effect]
+    relevant = [event for event in events if _access(event) in accepted]
+    if relevant and canary_written is False:
+        # Opened for writing, but nothing with the token is there after the run: a failed or
+        # empty open (e.g. "r+" on the absent canary) is not the escape this effect proves.
+        return Judgement(
+            observed_effect=False, provenance_ok=False, test_outcome=outcome, events=events,
+            reason=(
+                "the canary was opened for writing but no file holding the run's token was "
+                f"left there; test {outcome}: nothing was proven"
+            ),
+            reason_code=REASON_NO_EFFECT,
+        )
     if not relevant:
         reasons = {
             "failed": f"test failed but the canary was never {verb}: it failed for the wrong reason",
@@ -384,7 +434,9 @@ def _judge(
     test_dir = test_path.parent
     problems = []
     for event in relevant:
-        problem = _provenance_problem(event, app_root, test_dir, entry_points, app_tree)
+        problem = _route_problem(event, allowed_dir) or _provenance_problem(
+            event, app_root, test_dir, entry_points, app_tree
+        )
         if problem is None:
             if outcome == "failed":
                 reason = f"canary {verb} by application code reached through an entry point; test failed"
@@ -403,6 +455,33 @@ def _judge(
         test_outcome=outcome,
         events=events,
         reason_code=code,
+    )
+
+
+def _route_problem(event: OracleEvent, allowed_dir: str | None) -> tuple[str, str] | None:
+    """``(reason code, why)`` the canary was not reached from the allowed directory, or None.
+
+    A traversal starts inside the allowed directory and escapes, so its requested path starts
+    with it, lexically (``<allowed>/../outside/canary.txt``). An app that canonicalises before
+    it opens (Starlette's ``realpath``), or an absolute archive member, requests the canary's
+    own path; that is accepted too. Anything else, such as a test that roots the app in the
+    canary's directory under another spelling, or an unrecorded path, fails closed. An app
+    rooted *exactly* at the canary's directory also requests the canary's own path: only the
+    static guard sees that, and an obfuscated one is residual limit R6.
+    """
+    if allowed_dir is None:
+        return None
+    requested = event.requested
+    if requested is None:
+        return REASON_NOT_VIA_ALLOWED_DIR, (
+            "the requested path was not recorded (older plugin, or a dir_fd of unknown origin)"
+        )
+    allowed = allowed_dir.rstrip("/") or "/"
+    if requested.startswith(allowed + "/") or requested == event.path:
+        return None
+    return REASON_NOT_VIA_ALLOWED_DIR, (
+        f"the canary was requested as {requested[:200]!r}, which neither starts in the allowed "
+        "directory nor names the canary itself: the test chose where the app is rooted"
     )
 
 

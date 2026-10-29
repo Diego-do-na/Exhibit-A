@@ -9,7 +9,14 @@ It is then checked against the application-tree rules (docs/oracle-provenance.md
 ``FLOW_RULES``, which follow names derived from app paths (``module.__file__``, ``sys.path``,
 the cwd, ``/workspace``) to writes, to reads of app source that is then compiled or executed,
 and to ``compile`` under an app file name. A hit has the reason "test tampers with the
-application tree". The tables below are the whole configuration; the code only applies them.
+application tree".
+
+Last, it is checked for choosing where the app is rooted (finding A-11 F2, ``CANARY_DIR_RULE``):
+paths derived from ``EXHIBIT_A_ALLOWED_DIR`` are evaluated symbolically, and one that names the
+canary's directory or an ancestor of it, handed to any call other than path arithmetic and
+read-only queries (or assigned to an attribute), is a hit with the reason "test chooses where
+the app is rooted". A safe app rooted there serves the canary through its real entry point.
+The tables below are the whole configuration; the code only applies them.
 
 This is a tripwire, not a security boundary. It catches the naive and model-generated ways
 of tampering with the events file or the plugin, and forces any remaining attempt to be
@@ -27,9 +34,10 @@ from pathlib import Path
 from typing import Literal
 
 # Names in the EXHIBIT_A_ namespace an exploit is meant to use (see loop/prompts.py). The
-# canary path is the target, not the channel: reading it directly is what the provenance
-# check judges, so it is not a tripwire hit.
-TEST_CONTRACT = frozenset({"EXHIBIT_A_ALLOWED_DIR", "EXHIBIT_A_CANARY_TOKEN", "EXHIBIT_A_CANARY"})
+# canary's path is not one of them (finding A-11 F2): a test that knows it can root a safe app
+# at the canary's directory. A real exploit reaches the canary from the allowed directory
+# ("../outside/canary.txt"), so any mention of EXHIBIT_A_CANARY is a hit of "exhibit_a_env".
+TEST_CONTRACT = frozenset({"EXHIBIT_A_ALLOWED_DIR", "EXHIBIT_A_CANARY_TOKEN"})
 
 Where = Literal["string", "name", "module"]
 
@@ -351,6 +359,261 @@ def _flow_hits(tree: ast.AST) -> list[str]:
     return [rule.name for rule in FLOW_RULES if rule.name in found]
 
 
+# --- Choosing where the app is rooted (finding A-11 F2) --------------------------------------
+
+# The run layout the exploit sees: the allowed directory and, beside it, "outside" holding the
+# canary. A path is a tuple of components relative to the allowed directory, normalised; "?" is
+# a component whose value is not a constant string (taken as some other name, never ".." and
+# never "outside": a test that computes the name at run time is residual limit R6).
+ALLOWED_ENV = "EXHIBIT_A_ALLOWED_DIR"
+CANARY_DIR = ("..", "outside")
+UNKNOWN = "?"
+# Calls that only build or rewrite a path: the result is evaluated, the call is not a sink.
+PATH_JOIN_CALLS = frozenset({("path", "join"), ("os.path", "join"), ("posixpath", "join")})
+PATH_DIRNAME_CALLS = frozenset({("path", "dirname"), ("os.path", "dirname"), ("posixpath", "dirname")})
+PATH_SAME_CALLS = frozenset({("path", n) for n in ("abspath", "normpath", "realpath", "expanduser")}
+                            | {("os.path", n) for n in ("abspath", "normpath", "realpath", "expanduser")}
+                            | {("os", "fspath"), ("pathlib", "Path"), ("pathlib", "PurePath")})
+PATH_SAME_NAMES = frozenset({"str", "Path", "PurePath", "PosixPath", "PurePosixPath", "fspath",
+                             "abspath", "normpath", "realpath"})
+PATH_SAME_METHODS = frozenset({"resolve", "absolute", "expanduser"})
+# Calls that may receive the canary's directory: they only query or list it, or (a symlink's
+# target) are judged at run time instead (via_symlink).
+QUERY_CALLS = frozenset({*(("path", n) for n in ("exists", "isdir", "isfile", "islink", "lexists",
+                                                 "basename", "split", "relpath", "commonpath",
+                                                 "samefile", "getsize")),
+                         *(("os.path", n) for n in ("exists", "isdir", "isfile", "islink", "lexists",
+                                                    "basename", "split", "relpath", "commonpath",
+                                                    "samefile", "getsize")),
+                         *(("os", n) for n in ("stat", "lstat", "listdir", "scandir", "access", "symlink",
+                                               "readlink"))})
+QUERY_NAMES = frozenset({"print", "len", "repr", "isinstance", "bool", "sorted", "list", "str", "Path",
+                         "PurePath", "PosixPath", "PurePosixPath"})
+QUERY_METHODS = frozenset({"exists", "is_dir", "is_file", "is_symlink", "iterdir", "glob", "rglob", "stat",
+                           "lstat", "relative_to", "is_relative_to", "startswith", "endswith", "joinpath",
+                           "with_name", "with_suffix"})
+
+CANARY_DIR_RULE = "canary_dir_to_call"
+
+
+def _dotted(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted(node.value)
+        return None if base is None else f"{base}.{node.attr}"
+    return None
+
+
+def _callee(call: ast.Call) -> tuple[str | None, str | None]:
+    """(dotted owner, name) of a call: ("os.path", "join"), (None, "Path"), ("x", "mkdir")."""
+    func = call.func
+    if isinstance(func, ast.Name):
+        return None, func.id
+    if isinstance(func, ast.Attribute):
+        return _dotted(func.value), func.attr
+    return None, None
+
+
+def _norm(parts) -> tuple[str, ...]:
+    out: list[str] = []
+    for part in parts:
+        if part in ("", "."):
+            continue
+        if part == ".." and out and out[-1] != "..":
+            out.pop()
+        else:
+            out.append(part)
+    return tuple(out)
+
+
+def _const_str(node: ast.AST) -> str | None:
+    """A string constant, also when spelled as a concatenation or an f-string of constants."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _const_str(node.left), _const_str(node.right)
+        return None if left is None or right is None else left + right
+    if isinstance(node, ast.JoinedStr):
+        parts = [_const_str(v.value) if isinstance(v, ast.FormattedValue) else _const_str(v) for v in node.values]
+        return None if any(p is None for p in parts) else "".join(parts)
+    return None
+
+
+def _add_operands(node: ast.AST) -> list[ast.AST]:
+    """The operands of a left-associated chain of ``+``, in order."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return [*_add_operands(node.left), node.right]
+    return [node]
+
+
+def _join(base: tuple[str, ...], piece: ast.AST, env: dict[str, set]) -> tuple[str, ...] | None:
+    """``base`` joined with one more argument; None when the argument restarts at an absolute path."""
+    text = _const_str(piece)
+    if text is not None:
+        if text.startswith("/"):
+            return None
+        return _norm((*base, *text.split("/")))
+    inner = _sym(piece, env)
+    if inner:
+        return None  # an allowed-derived absolute path replaces the base; evaluated on its own
+    return _norm((*base, UNKNOWN))
+
+
+def _env_lookup(node: ast.AST) -> bool:
+    """os.environ["EXHIBIT_A_ALLOWED_DIR"], os.environ.get(...), os.getenv(...)."""
+    def is_name(arg):
+        return isinstance(arg, ast.Constant) and arg.value == ALLOWED_ENV
+    if isinstance(node, ast.Subscript) and _dotted(node.value) in ("os.environ", "environ"):
+        return is_name(node.slice)
+    if isinstance(node, ast.Call) and node.args:
+        owner, name = _callee(node)
+        if (owner, name) in (("os.environ", "get"), ("environ", "get"), ("os", "getenv"), (None, "getenv")):
+            return is_name(node.args[0])
+    return False
+
+
+def _sym(node: ast.AST | None, env: dict[str, set]) -> set[tuple[str, ...]]:
+    """The allowed-relative paths ``node`` may evaluate to (empty: not derived from the allowed dir)."""
+    if node is None:
+        return set()
+    if _env_lookup(node):
+        return {()}
+    if isinstance(node, ast.Name):
+        return set(env.get(node.id, ()))
+    if isinstance(node, ast.Attribute) and node.attr == "parent":
+        return {_norm((*p, "..")) for p in _sym(node.value, env)}
+    if (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) and node.value.attr == "parents"
+            and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int)):
+        up = ("..",) * (node.slice.value + 1)
+        return {_norm((*p, *up)) for p in _sym(node.value.value, env)}
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        # A string concatenation: the path, then a suffix ("/../out" + "side" folds to one).
+        operands = _add_operands(node)
+        suffix = "".join(_const_str(o) or f"/{UNKNOWN}" for o in operands[1:])
+        out = set()
+        for base in _sym(operands[0], env):
+            if not suffix.startswith("/"):
+                out.add(_norm((*base, "..", UNKNOWN)))  # "<allowed>x": a sibling with another name
+            else:
+                out.add(_norm((*base, *suffix.split("/"))))
+        return out
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        out = set()
+        for base in _sym(node.left, env):
+            joined = _join(base, node.right, env)
+            if joined is not None:
+                out.add(joined)
+        return out
+    if isinstance(node, ast.JoinedStr) and node.values and isinstance(node.values[0], ast.FormattedValue):
+        rest = "".join(_const_str(v) or f"/{UNKNOWN}" for v in node.values[1:])
+        bases = _sym(node.values[0].value, env)
+        if rest and not rest.startswith("/"):
+            return {_norm((*b, "..", UNKNOWN)) for b in bases}
+        return {_norm((*b, *rest.split("/"))) for b in bases}
+    if isinstance(node, ast.Call):
+        owner, name = _callee(node)
+        receiver = node.func.value if isinstance(node.func, ast.Attribute) else None
+        if (owner, name) in PATH_JOIN_CALLS or (name == "joinpath" and receiver is not None):
+            pieces = list(node.args) if name != "joinpath" else [receiver, *node.args]
+            if not pieces:
+                return set()
+            out = set()
+            for base in _sym(pieces[0], env):
+                for piece in pieces[1:]:
+                    base = _join(base, piece, env)
+                    if base is None:
+                        break
+                if base is not None:
+                    out.add(base)
+            # A later allowed-derived piece replaces everything before it.
+            for piece in pieces[1:]:
+                out |= _sym(piece, env)
+            return out
+        if (owner, name) in PATH_DIRNAME_CALLS and node.args:
+            return {_norm((*p, "..")) for p in _sym(node.args[0], env)}
+        if ((owner, name) in PATH_SAME_CALLS or (owner is None and name in PATH_SAME_NAMES)) and node.args:
+            return _sym(node.args[0], env)
+        if name in PATH_SAME_METHODS and receiver is not None:
+            return _sym(receiver, env)
+    return set()
+
+
+def _names_canary_dir(path: tuple[str, ...]) -> bool:
+    """Whether ``path`` (allowed-relative) is the canary's directory or one of its ancestors.
+
+    Going up ``k`` levels from the allowed directory is an ancestor of the canary's directory.
+    Going back down only reaches it again through the run's directory names, which are random
+    (no constant names them) except for the last one, "outside": so up one level and down into
+    "outside" is the canary's directory, and anything else that goes down is not.
+    """
+    k = 0
+    while k < len(path) and path[k] == "..":
+        k += 1
+    if k == 0:
+        return False  # the allowed directory or something inside it
+    down = path[k:]
+    return down == () or (k == 1 and down == CANARY_DIR[1:])
+
+
+def _symbolic_env(tree: ast.AST) -> dict[str, set]:
+    """Allowed-relative values of names (scope ignored, all assignments kept), to a fixed point."""
+    flows: list[tuple[ast.AST, ast.AST]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            flows += [(t, node.value) for t in node.targets]
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)) and node.value is not None:
+            flows.append((node.target, node.value))
+        elif isinstance(node, ast.withitem) and node.optional_vars is not None:
+            flows.append((node.optional_vars, node.context_expr))
+    env: dict[str, set] = {}
+    for _ in range(20):  # values grow monotonically; a few rounds reach the fixed point
+        changed = False
+        for target, value in flows:
+            values = _sym(value, env)
+            if isinstance(target, ast.Name) and values - env.get(target.id, set()):
+                env.setdefault(target.id, set()).update(values)
+                changed = True
+        if not changed:
+            break
+    return env
+
+
+def _bad(node: ast.AST, env: dict[str, set]) -> bool:
+    """Whether an argument (or an element of a literal container or ``*``/``**`` argument) may be
+    the canary's directory or an ancestor."""
+    if isinstance(node, ast.Starred):
+        return _bad(node.value, env)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return any(_bad(e, env) for e in node.elts)
+    if isinstance(node, ast.Dict):
+        return any(_bad(v, env) for v in node.values if v is not None)
+    return any(_names_canary_dir(p) for p in _sym(node, env))
+
+
+def _canary_dir_hit(tree: ast.AST) -> bool:
+    """A path naming the canary's directory (or above) handed to a call or stored on an object."""
+    env = _symbolic_env(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, (ast.Attribute, ast.Subscript)) for t in targets) and _bad(node.value, env):
+                return True
+        if not isinstance(node, ast.Call):
+            continue
+        owner, name = _callee(node)
+        receiver = node.func.value if isinstance(node.func, ast.Attribute) else None
+        if (owner, name) in PATH_JOIN_CALLS | PATH_DIRNAME_CALLS | PATH_SAME_CALLS | QUERY_CALLS:
+            continue
+        if owner is None and name in PATH_SAME_NAMES | QUERY_NAMES:
+            continue
+        if receiver is not None and name in PATH_SAME_METHODS | QUERY_METHODS:
+            continue
+        if any(_bad(a, env) for a in (*node.args, *(k.value for k in node.keywords))):
+            return True
+    return False
+
+
 def _items(tree: ast.AST):
     """(kind, value) pairs for every string constant, identifier and imported module."""
     for node in ast.walk(tree):
@@ -392,6 +655,12 @@ def _source_problem(path: Path) -> str | None:
     flows = _flow_hits(tree)
     if flows:
         return f"test tampers with the application tree: {path.name} matches rule '{flows[0]}'"
+    try:
+        chosen_root = _canary_dir_hit(tree)
+    except RecursionError:
+        chosen_root = True  # too deep to evaluate: fail closed
+    if chosen_root:
+        return f"test chooses where the app is rooted: {path.name} matches rule '{CANARY_DIR_RULE}'"
     return None
 
 

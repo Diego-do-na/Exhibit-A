@@ -6,7 +6,7 @@ Today it does not, so each is ``xfail(strict=True)``: if one starts passing, the
 closed and the doc must be updated. Each reason names the limit and its section in
 docs/oracle-provenance.md (section 7, "Residual limits").
 
-False-proven limits (R1, R2, R5) are the serious ones: they produce a proof for a safe app.
+False-proven limits (R1, R2, R5, R6) are the serious ones: they produce a proof for a safe app.
 Recall limits (R3, R4) only miss a real read; a green result means "nothing could be proven".
 """
 
@@ -44,7 +44,7 @@ import os
 from app import App
 
 ALLOWED = os.environ["EXHIBIT_A_ALLOWED_DIR"]
-CANARY = os.environ["EXHIBIT_A_CANARY"]
+CANARY = os.path.join(os.path.dirname(os.environ["EXHIBIT_A_ALLOWED_DIR"]), "outside", "canary.txt")
 TOKEN = os.environ["EXHIBIT_A_CANARY_TOKEN"]
 '''
 
@@ -85,7 +85,9 @@ def forge_with(hook, test_file, entry):
     cells = dict(zip(code.co_freevars, (c.cell_contents for c in getattr(hook, "__clo" + "sure__"))))
     key, seq, fd = cells["key"], cells["seq"], cells["fd"]
     entry_code = getattr(entry, "__co" + "de__")
-    body = {"path": cells["canary"], "mode": "r", "via_symlink": False, "stack": [
+    # The fields the plugin records since A-11 F2/F4; the forger knows the format too.
+    body = {"path": cells["canary"], "mode": "r", "op": "open", "flags": os.O_RDONLY, "access": "read",
+            "requested": cells["canary"], "via_symlink": False, "stack": [
         {"file": test_file, "function": "test_x", "qualname": "test_x"},
         {"file": getattr(entry_code, "co_file" + "name"), "function": entry_code.co_name,
          "qualname": getattr(entry_code, "co_qual" + "name"),
@@ -225,6 +227,24 @@ def test_r5_obfuscated_dependency_patch_makes_a_safe_app_read_the_canary(tmp_pat
     assert not proven(result), result.reason
 
 
+R6_ROOT = 'os.path.join(os.path.dirname(ALLOWED), *["outside"])'
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
+    "R6 obfuscated test-chosen app root (docs/oracle-provenance.md section 7.6): the test roots "
+    "the safe app at the canary's directory through a join the guard does not evaluate (a starred "
+    "argument). The app canonicalises, so it requests the canary's own path, which the route "
+    "check must accept (Starlette and absolute archive members do the same). Only the static "
+    "guard can tell the test chose the root, and this spelling evades it."))
+def test_r6_obfuscated_app_root_at_the_canary_dir_makes_a_safe_app_read_it(tmp_path):
+    result = run_case(tmp_path, f'''
+        def test_x():
+            assert TOKEN not in App({R6_ROOT}).handle_request("canary.txt")
+    ''')
+    ran_to_a_failure(result)
+    assert not proven(result), result.reason
+
+
 def test_residual_attacks_are_not_flagged_by_the_tripwire_on_purpose():
     # The xfails above must reach the oracle: if the guard started rejecting them, they would
     # pass for the wrong reason (never run) and stop pinning the deeper limit.
@@ -237,6 +257,7 @@ def test_residual_attacks_are_not_flagged_by_the_tripwire_on_purpose():
         "import gc\n" + FORGE + "def test_x():\n    pass\n",
         "import builtins\ndef test_x():\n    builtins.exhibit_forge('x', None)\n",
         'import os\ndef test_x():\n    setattr(getattr(os, "pa" + "th"), "common" + "path", len)\n',
+        f'def test_x():\n    App({R6_ROOT}).handle_request("canary.txt")\n',
     ]
     with tempfile.TemporaryDirectory() as tmp:
         for i, source in enumerate(sources):

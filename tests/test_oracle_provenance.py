@@ -80,7 +80,7 @@ import app as app_module
 from app import App
 
 ALLOWED = os.environ["EXHIBIT_A_ALLOWED_DIR"]
-CANARY = os.environ["EXHIBIT_A_CANARY"]
+CANARY = os.path.join(os.path.dirname(os.environ["EXHIBIT_A_ALLOWED_DIR"]), "outside", "canary.txt")
 TOKEN = os.environ["EXHIBIT_A_CANARY_TOKEN"]
 '''
 
@@ -453,7 +453,9 @@ def _event(**app_frame):
         {"file": "/repo/tests/test_x.py", "function": "test_x", "qualname": "test_x"},
         {"file": "/repo/app/app.py", "function": "handle_request", "qualname": "App.handle_request", **app_frame},
     ]
-    return OracleEvent.model_validate({"path": "/c/canary.txt", "mode": "r", "stack": stack})
+    return OracleEvent.model_validate(
+        {"path": "/c/canary.txt", "mode": "r", "flags": os.O_RDONLY, "access": "read", "stack": stack}
+    )
 
 
 def _tree(tmp_path, source=SAFE_APP):
@@ -584,9 +586,10 @@ def test_dir_fd_through_a_preexisting_symlinked_directory_is_proven(tmp_path):
     time.sleep(_SYMLINK_SLACK + 0.5)
     result = dir_fd_case(tmp_path, '''
         def test_x():
+            # Reached from the allowed directory, as every exploit must (A-11 F2).
             base = os.path.dirname(app_module.__file__)
-            sub = "root" + os.path.dirname(CANARY)
-            assert TOKEN not in App(base).handle_request(sub, "canary.txt")
+            sub = os.path.relpath(os.path.join(base, "root") + os.path.dirname(CANARY), ALLOWED)
+            assert TOKEN not in App(ALLOWED).handle_request(sub, "canary.txt")
     ''')
     assert proven(result), result.reason
     assert result.events[0].via_symlink is False
