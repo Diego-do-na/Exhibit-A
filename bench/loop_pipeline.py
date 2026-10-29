@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -22,7 +23,6 @@ from exhibit_a.ledger import Ledger
 from exhibit_a.loop import Roles, SandboxRunner, VerificationLoop
 from exhibit_a.models import Completion, ModelRole, Role
 from exhibit_a.models.cost import Pricing
-from exhibit_a.oracle import run_oracle
 from exhibit_a.schemas import Event, EventType
 from datetime import datetime, timezone
 
@@ -66,17 +66,41 @@ def _pick_source_file(clone: Path, case: Case) -> str:
     return STAGED_BASELINE
 
 
+def _pip_env() -> dict[str, str]:
+    """Minimal environment for the host ``pip install``.
+
+    Only ``PATH``, ``HOME`` and ``PIP_*`` pass through; anything looking like a
+    credential (``*_KEY``/``*_TOKEN``/``*_SECRET``) or a model-provider setting
+    (``META_*``) is dropped so the installer cannot leak it.
+    """
+    env: dict[str, str] = {"PATH": os.environ.get("PATH", "")}
+    if "HOME" in os.environ:
+        env["HOME"] = os.environ["HOME"]
+    for key, value in os.environ.items():
+        if key.startswith("PIP_"):
+            env[key] = value
+    for key in [k for k in env if k.startswith("META_") or k.endswith(("_KEY", "_TOKEN", "_SECRET"))]:
+        del env[key]
+    return env
+
+
 def _install_requirements(target: Path, requirements: Collection[str]) -> None:
-    """Install the case's pinned requirements into the staged clone directory."""
+    """Install the case's pinned requirements into the staged clone directory.
+
+    Binary-only wheels (``--only-binary=:all:``) so no setup script from the
+    network ever executes on the host, with the scrubbed environment from
+    ``_pip_env``.
+    """
     if not requirements:
         return
     cmd = [
         sys.executable, "-m", "pip", "install",
         "--timeout", "10", "--retries", "1",
+        "--only-binary=:all:",
         "--target", str(target), *requirements,
     ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=_pip_env())
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"pip install timed out after 180s: {exc}") from exc
     if proc.returncode != 0:
@@ -139,37 +163,45 @@ def _stage_case(case: Case, out_dir: Path) -> Path:
     return clone
 
 
+def _runner_supports_effect(runner: Any, effect: str) -> bool:
+    """Whether a runner can judge the case's oracle effect.
+
+    ``canary_read`` works with any runner; any other effect needs an
+    ``effect`` keyword on ``run_exploit``. Anything else must fail closed
+    before the loop runs: exploit tests never execute on the host.
+    """
+    if effect == "canary_read":
+        return True
+    try:
+        return "effect" in inspect.signature(runner.run_exploit).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _unsupported_effect_reason(runner: Any, effect: str) -> str:
+    return f"effect {effect} not supported by {type(runner).__name__} yet (T076)"
+
+
 def _make_judge(runner: Any, effect: str) -> Callable[..., Any]:
     """Return the loop judge for one case, honouring the case's oracle effect.
 
     Runners whose ``run_exploit`` accepts an ``effect`` keyword (such as test
-    fakes) receive it directly. Otherwise a ``canary_read`` case uses the
-    runner as-is, and any other effect falls back to the host oracle with that
-    effect: the same judge code and proof standard, host-executed. (The
-    sandbox-backed runner only supports the read effect; teaching it the write
-    effect is follow-up work outside this adapter.)
+    fakes) receive it directly; a ``canary_read`` case uses the runner as-is.
+    Any other combination fails closed by raising: the pipeline records
+    ``env_failure`` before the loop ever runs, and exploit tests are never
+    executed on the host. (The sandbox-backed runner only supports the read
+    effect; teaching it the write effect is T076.)
     """
     base = runner.run_exploit
     if effect == "canary_read":
-        try:
-            params = inspect.signature(base).parameters
-        except (TypeError, ValueError):
-            return base
-        if "effect" not in params:
-            return base
-    else:
-        try:
-            params = inspect.signature(base).parameters
-        except (TypeError, ValueError):
-            params = {}
-        if "effect" not in params:
-            def judge(app_root: Path, test_path: Path, entry_points: Collection[str], *, timeout: float) -> Any:
-                return run_oracle(
-                    Path(app_root), Path(test_path), set(entry_points),
-                    timeout=timeout, effect=effect,  # type: ignore[arg-type]
-                )
+        return base
+    try:
+        params = inspect.signature(base).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if "effect" not in params:
+        raise RuntimeError(_unsupported_effect_reason(runner, effect))
 
-            return judge
     def judge(app_root: Path, test_path: Path, entry_points: Collection[str], *, timeout: float) -> Any:
         return base(app_root, test_path, entry_points, timeout=timeout, effect=effect)
 
@@ -296,12 +328,31 @@ def make_pipeline(providers: Any, *, runner: Any = None) -> Pipeline:
 
         try:
             out_dir = ledger.path.parent / "out"
-            clone = _stage_case(case, out_dir)
             effective_runner = (
                 runner
                 if runner is not None
                 else SandboxRunner(requirements=tuple(case.requirements))
             )
+            if not _runner_supports_effect(effective_runner, case.effect):
+                # Fail closed before anything executes: the runner cannot
+                # judge this case's effect, and exploit tests must never run
+                # on the host as a substitute.
+                reason = _unsupported_effect_reason(effective_runner, case.effect)
+                print(f"bench: case {case.id} failed: {reason}", file=sys.stderr)
+                ledger.append(
+                    Event(
+                        ts=datetime.now(timezone.utc).isoformat(),
+                        run_id=run_id,
+                        type=EventType.BASELINE_DONE,
+                        payload={
+                            "ok": False,
+                            "outcome": f"env_failure: {reason}",
+                            "case": case.id,
+                        },
+                    )
+                )
+                return
+            clone = _stage_case(case, out_dir)
             # The VerificationLoop emits SUSPICION_RAISED events with a nested "suspicion"
             # key; the benchmark metrics expect the suspicion fields at top level. Wrap
             # the ledger to normalize those events when the loop appends them.

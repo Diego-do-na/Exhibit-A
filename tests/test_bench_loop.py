@@ -496,3 +496,62 @@ def test_archive_case_proves_canary_write_through_materials_provider(tmp_path):
     assert _proven_verdicts(ledger, run_id) == {"archive-extraction-unchecked-member-path"}
     assert runner.seen_effects and set(runner.seen_effects) == {"canary_write"}
     assert _evidence_fix_verified(tmp_path / "out")
+
+
+def test_archive_case_with_incapable_runner_fails_closed(tmp_path, capsys):
+    from exhibit_a.loop import SandboxRunner
+
+    cases = _by_id(load_corpus(ARCHIVE_DIR / "case.json"))
+    case = cases["archive-extraction-pathtraversal"]
+
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    pipeline = make_pipeline(CaseMaterialsProvider(case), runner=SandboxRunner(requirements=()))
+    rows = run_benchmark([case], pipeline, ledger, ablations=select(["full"]))
+
+    assert rows and rows[0].proven == 0
+    # Nothing executed: no clone was ever staged.
+    assert not (tmp_path / "out").exists()
+    reason = "effect canary_write not supported by SandboxRunner yet (T076)"
+    assert reason in capsys.readouterr().err
+    baselines = [e for e in ledger.replay("bench:full:archive-extraction-pathtraversal") if e.type == EventType.BASELINE_DONE]
+    assert baselines and baselines[0].payload.get("ok") is False
+    assert baselines[0].payload.get("outcome") == f"env_failure: {reason}"
+
+
+def test_install_requirements_uses_only_binary_and_scrubbed_env(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setenv("PIP_INDEX_URL", "https://example.invalid/simple")
+    monkeypatch.setenv("PIP_API_TOKEN", "trap")
+    monkeypatch.setenv("DEPLOY_KEY", "trap")
+    monkeypatch.setenv("API_TOKEN", "trap")
+    monkeypatch.setenv("AWS_SECRET", "trap")
+    monkeypatch.setenv("META_MODEL", "trap")
+    seen = {}
+
+    class Proc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = list(cmd)
+        seen.update(kwargs)
+        return Proc()
+
+    monkeypatch.setattr(loop_pipeline.subprocess, "run", fake_run)
+    loop_pipeline._install_requirements(tmp_path, ["pkg==1.0"])
+
+    assert "--only-binary=:all:" in seen["cmd"]
+    assert "--target" in seen["cmd"]
+    assert "pkg==1.0" in seen["cmd"]
+    env = seen["env"]
+    assert env["PATH"] == os.environ["PATH"]
+    if "HOME" in os.environ:
+        assert env["HOME"] == os.environ["HOME"]
+    else:  # pragma: no cover - test envs normally define HOME
+        assert "HOME" not in env
+    assert env["PIP_INDEX_URL"] == "https://example.invalid/simple"
+    for key in env:
+        assert not (key.startswith("META_") or key.endswith(("_KEY", "_TOKEN", "_SECRET"))), key
+    assert "PIP_API_TOKEN" not in env
