@@ -8,19 +8,263 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
+import time
+import io
+from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..ledger import Ledger
+from ..ci.summary import build_result
+from ..ledger import Ledger, append_run
 from ..loop import Roles, SandboxRunner, VerificationLoop
 from ..models import BudgetExceeded, CostMeter, ModelError, ModelRole, ReplayProvider, Role
 from ..models.config import RoleConfig, build_roles
+from ..schemas import Event, EventType, RunRecord, VerdictCounts
 
 #: Provider and model used for live runs when the caller names none. They are
 #: dev defaults (a local Ollama model); pass explicit values once the argument
 #: parser exposes --provider/--model flags.
 LIVE_PROVIDER_DEFAULT = "ollama"
 LIVE_MODEL_DEFAULT = "llama3.1:8b"
+
+PR_MAX_FILES = 100
+PR_MAX_FILE_BYTES = 1_000_000
+PR_MAX_TOTAL_BYTES = 10_000_000
+PR_MAX_DIFF_BYTES = 20_000_000
+
+
+@dataclass(frozen=True)
+class DiffEntry:
+    status: str
+    path: str
+    old_path: str | None = None
+    binary: bool = False
+
+
+def _validate_changed_path(raw: str, repo: Path) -> Path:
+    """Validate a Git path before it is opened as untrusted PR data."""
+    path = Path(raw)
+    if not raw or path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"unsafe changed path: {raw!r}")
+    candidate = (repo / path)
+    resolved_repo = repo.resolve()
+    resolved = candidate.resolve(strict=True)
+    if not resolved.is_relative_to(resolved_repo):
+        raise ValueError(f"changed path escapes repository: {raw!r}")
+    if candidate.is_symlink() or not candidate.is_file():
+        raise ValueError(f"changed path is not a regular file: {raw!r}")
+    if path.suffix.lower() != ".py":
+        raise ValueError(f"changed path is not Python: {raw!r}")
+    if candidate.stat().st_size > PR_MAX_FILE_BYTES:
+        raise ValueError(f"changed file is too large: {raw!r}")
+    try:
+        data = candidate.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"cannot read changed file {raw!r}: {exc}") from exc
+    if b"\x00" in data:
+        raise ValueError(f"changed file is binary: {raw!r}")
+    return resolved
+
+
+def _validate_path_shape(raw: str) -> None:
+    path = Path(raw)
+    if not raw or path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"unsafe changed path: {raw!r}")
+
+
+def parse_name_status(data: bytes, *, max_bytes: int = PR_MAX_DIFF_BYTES) -> list[DiffEntry]:
+    """Parse `git diff --name-status -z` without interpreting PR-controlled text."""
+    if len(data) > max_bytes:
+        raise ValueError("git diff is too large")
+    fields = data.split(b"\0")
+    entries: list[DiffEntry] = []
+    i = 0
+    while i < len(fields) and fields[i]:
+        try:
+            status = fields[i].decode("utf-8", "strict")
+        except UnicodeDecodeError as exc:
+            raise ValueError("git diff contains a non-UTF-8 status") from exc
+        i += 1
+        if not status or status[0] not in "AMCDRTUXB":
+            raise ValueError(f"unsupported git diff status: {status!r}")
+        count = 2 if status[0] == "R" or status[0] == "C" else 1
+        names: list[str] = []
+        for _ in range(count):
+            if i >= len(fields) or not fields[i]:
+                raise ValueError("truncated git diff name-status record")
+            try:
+                names.append(fields[i].decode("utf-8", "strict"))
+            except UnicodeDecodeError as exc:
+                raise ValueError("git diff contains a non-UTF-8 path") from exc
+            i += 1
+        entries.append(DiffEntry(status[0], names[-1], names[0] if count == 2 else None))
+    return entries
+
+
+def _git_diff(repo: Path, spec: str) -> list[DiffEntry]:
+    if spec.count("..") != 1:
+        raise ValueError("--pr-diff must be BASE..HEAD")
+    base, head = spec.split("..")
+    if not base or not head or any(c.isspace() for c in (base + head)):
+        raise ValueError("--pr-diff must contain non-empty commit names")
+    cmd = [
+        "git", "-C", str(repo), "diff", "--name-status", "-z",
+        "--no-ext-diff", "--no-textconv", f"{base}..{head}", "--",
+    ]
+    try:
+        proc = subprocess.run(cmd, check=False, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"could not compute PR diff: {exc}") from exc
+    if proc.returncode:
+        detail = proc.stderr.decode("utf-8", "replace")[-500:]
+        raise ValueError(f"could not compute PR diff: {detail}")
+    return parse_name_status(proc.stdout)
+
+
+def _stage_head(repo: Path, head: str, out: Path) -> Path:
+    """Materialize exactly HEAD from Git, never the caller's mutable worktree."""
+    clone = out / "clone"
+    if clone.exists():
+        shutil.rmtree(clone)
+    clone.mkdir(parents=True)
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "archive", "--format=tar", head],
+        check=False, capture_output=True, timeout=60,
+    )
+    if proc.returncode:
+        raise ValueError(f"could not stage head commit: {proc.stderr.decode('utf-8', 'replace')[-500:]}")
+    with tarfile.open(fileobj=io.BytesIO(proc.stdout), mode="r:") as archive:
+        root = clone.resolve()
+        for member in archive.getmembers():
+            target = (clone / member.name).resolve()
+            if not target.is_relative_to(root):
+                raise ValueError("Git archive contains a path outside the repository")
+            archive.extract(member, clone)
+    return clone
+
+
+def _pr_roles(args: argparse.Namespace) -> Roles:
+    recording = getattr(args, "recording", None) or os.environ.get("EXHIBIT_A_REPLAY_RECORDING")
+    if not recording:
+        raise ValueError("PR-diff runs require --recording or EXHIBIT_A_REPLAY_RECORDING")
+    provider = ReplayProvider(recording)
+    return Roles(*(ModelRole(role, provider) for role in (
+        Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
+
+
+def _write_result(out: Path, ledger: Ledger, run_id: str, code: int) -> dict[str, Any]:
+    result = build_result(ledger.read_all(), run_id=run_id, engine_exit=code)
+    (out / "result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return result
+
+
+def _append_run_index(out: Path, result: dict[str, Any], repo: Path, head: str, started: float) -> None:
+    verdicts = result["verdicts"]
+    status = "completed" if result["status"] == "completed" else "aborted"
+    record = RunRecord(
+        run_id=result["run_id"], repo=str(repo), commit=head,
+        ts=datetime.now(timezone.utc),
+        status=status,
+        verdict_counts=VerdictCounts(
+            proven=int(verdicts.get("proven", 0)),
+            discarded_unproven=int(verdicts.get("discarded_unproven", 0)),
+            invalid_test=int(verdicts.get("invalid_test", 0)),
+            flaky=int(verdicts.get("flaky", 0)),
+            env_failure=int(verdicts.get("env_failure", 0)),
+        ),
+        severity="high" if result["proven"] else None,
+        discarded_suspicions=int(result["dropped"]),
+        tokens_in=int(result["tokens_in"]), tokens_out=int(result["tokens_out"]),
+        cost_usd=float(result["cost_usd"]), duration_s=max(0.0, time.monotonic() - started),
+        ledger_path="ledger.jsonl",
+    )
+    append_run(out / "runs.jsonl", record)
+
+
+def _run_pr_diff(args: argparse.Namespace) -> int:
+    repo = Path(args.repo).resolve()
+    out = Path(args.out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    if not repo.is_dir():
+        print(f"run: repository does not exist: {repo}", file=sys.stderr)
+        return 2
+    started = time.monotonic()
+    try:
+        spec = str(args.pr_diff)
+        head = spec.rsplit("..", 1)[1]
+        entries = _git_diff(repo, spec)
+        candidates: list[str] = []
+        for entry in entries:
+            # Deletions have no head file to verify; renames use the new path.
+            if entry.status == "D":
+                continue
+            if entry.status in {"R", "C"}:
+                old = entry.old_path or ""
+                if old == entry.path:
+                    continue
+            if entry.path not in candidates:
+                candidates.append(entry.path)
+        if len(candidates) > PR_MAX_FILES:
+            raise ValueError("PR changes too many files")
+        changed: list[str] = []
+        total = 0
+        for path in candidates:
+            _validate_path_shape(path)
+            if Path(path).suffix.lower() != ".py":
+                continue
+            changed.append(path)
+        if len(changed) > PR_MAX_FILES:
+            raise ValueError("PR changes too many Python files")
+        clone = _stage_head(repo, head, out)
+        safe_changed: list[str] = []
+        total = 0
+        for path in changed:
+            resolved = _validate_changed_path(path, clone)
+            total += resolved.stat().st_size
+            if total > PR_MAX_TOTAL_BYTES:
+                raise ValueError("changed Python files exceed the total size cap")
+            safe_changed.append(path)
+        changed = safe_changed
+        ledger = Ledger(out / "ledger.jsonl")
+        run_id = f"pr-{head[:12]}"
+        if not changed:
+            ledger.append(Event(
+                ts=datetime.now(timezone.utc).isoformat(),
+                run_id=run_id, type=EventType.SCAN_DONE,
+                payload={"status": "not_applicable", "reason": "no changed regular Python files",
+                         "entries": len(entries)},
+            ))
+            result = _write_result(out, ledger, run_id, 0)
+            _append_run_index(out, result, repo, head, started)
+            return 0
+        roles = _pr_roles(args) if args.replay else _live_roles(args, _cost_meter(args))
+        runner = SandboxRunner()
+        baseline = "."
+        any_proven = False
+        incomplete = False
+        for source in changed:
+            loop = VerificationLoop(
+                clone, out, ledger, roles, baseline, run_id=run_id,
+                runner=runner,
+            )
+            try:
+                result_loop = loop.run(source)
+            except (BudgetExceeded, ModelError, OSError) as exc:
+                print(f"run: PR-diff incomplete: {exc}", file=sys.stderr)
+                incomplete = True
+                break
+            any_proven = any_proven or bool(result_loop.proven)
+            incomplete = incomplete or bool(result_loop.aborted)
+        code = 20 if incomplete else (10 if any_proven else 0)
+        result = _write_result(out, ledger, run_id, code)
+        _append_run_index(out, result, repo, head, started)
+        print(json.dumps({"status": result["status"], "proven": result["proven"]}, sort_keys=True))
+        return code
+    except ValueError as exc:
+        print(f"run: invalid PR diff: {exc}", file=sys.stderr)
+        return 2
 
 
 def _live_roles(args: argparse.Namespace, meter: CostMeter | None) -> Roles:
@@ -102,6 +346,9 @@ def _run_case(args: argparse.Namespace) -> int:
     call real providers (built through the provider registry) and every test
     runs in the sandbox-backed runner.
     """
+    if os.environ.get("GITHUB_ACTIONS") and not args.replay:
+        print("run: --case requires --replay; live case execution is disabled", file=sys.stderr)
+        return 2
     case_file = Path(args.case)
     if case_file.is_dir():
         case_file /= "case.json"
@@ -183,9 +430,11 @@ def _run_case(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """Run a benchmark case or report that the core loop is not wired."""
+    """Run a benchmark case or a bounded PR-diff verification."""
     if args.case:
         return _run_case(args)
+    if getattr(args, "pr_diff", None):
+        return _run_pr_diff(args)
     print(
         f"run: the core loop is not wired yet "
         f"(repo={args.repo!r}, diff={args.diff!r}, "
