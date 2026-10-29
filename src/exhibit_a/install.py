@@ -19,6 +19,9 @@ _NO_WHEEL_PATTERNS = [
 ]
 
 
+_SECRET_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET")
+
+
 def _minimal_env() -> dict[str, str]:
     """Return a minimal env for subprocess installs without secret-bearing vars.
 
@@ -26,6 +29,12 @@ def _minimal_env() -> dict[str, str]:
     """
     env = {}
     env["PATH"] = os.environ.get("PATH", "")
+    if "HOME" in os.environ:
+        env["HOME"] = os.environ["HOME"]
+    # Keep pip configuration (index URL, proxies) but never credential-like values.
+    for key, value in os.environ.items():
+        if key.startswith("PIP_") and not key.endswith(_SECRET_SUFFIXES):
+            env[key] = value
     # PYTHONPATH may be useful for local targets; keep only if present.
     if "PYTHONPATH" in os.environ:
         env["PYTHONPATH"] = os.environ["PYTHONPATH"]
@@ -33,17 +42,21 @@ def _minimal_env() -> dict[str, str]:
     return env
 
 
-def safe_pip_install(*, target: str, requirements: Iterable[str]) -> None:
+def safe_pip_install(*, target: str, requirements: Iterable[str], timeout: float = 300) -> None:
     """Run pip install into `target` using only wheels and a stripped env.
 
-    Raises RuntimeError when pip fails. If the failure looks like "no wheel found"
+    Raises RuntimeError when pip fails or runs longer than `timeout` seconds. If the failure looks like "no wheel found"
     the message clarifies that the requirement has no wheel available.
     """
     reqs = list(requirements)
     if not reqs:
         return
     cmd = [sys.executable, "-m", "pip", "install", "--only-binary=:all:", "--target", target, *reqs]
-    proc = subprocess.run(cmd, capture_output=True, text=True, env=_minimal_env())
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=_minimal_env(), timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Deliberately no chaining or exception text: it would carry the command line.
+        raise RuntimeError(f"pip install timed out after {timeout:g} s") from None
     if proc.returncode == 0:
         return
     stderr = proc.stderr or proc.stdout or ""

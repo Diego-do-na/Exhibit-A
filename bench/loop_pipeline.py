@@ -10,15 +10,14 @@ from __future__ import annotations
 
 import inspect
 import json
-import os
 import re
 import shutil
-import subprocess
 import sys
 from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from exhibit_a.install import safe_pip_install
 from exhibit_a.ledger import Ledger
 from exhibit_a.loop import Roles, SandboxRunner, VerificationLoop
 from exhibit_a.models import Completion, ModelRole, Role
@@ -66,48 +65,6 @@ def _pick_source_file(clone: Path, case: Case) -> str:
     return STAGED_BASELINE
 
 
-def _pip_env() -> dict[str, str]:
-    """Minimal environment for the host ``pip install``.
-
-    Only ``PATH``, ``HOME`` and ``PIP_*`` pass through; anything looking like a
-    credential (``*_KEY``/``*_TOKEN``/``*_SECRET``) or a model-provider setting
-    (``META_*``) is dropped so the installer cannot leak it.
-    """
-    env: dict[str, str] = {"PATH": os.environ.get("PATH", "")}
-    if "HOME" in os.environ:
-        env["HOME"] = os.environ["HOME"]
-    for key, value in os.environ.items():
-        if key.startswith("PIP_"):
-            env[key] = value
-    for key in [k for k in env if k.startswith("META_") or k.endswith(("_KEY", "_TOKEN", "_SECRET"))]:
-        del env[key]
-    return env
-
-
-def _install_requirements(target: Path, requirements: Collection[str]) -> None:
-    """Install the case's pinned requirements into the staged clone directory.
-
-    Binary-only wheels (``--only-binary=:all:``) so no setup script from the
-    network ever executes on the host, with the scrubbed environment from
-    ``_pip_env``.
-    """
-    if not requirements:
-        return
-    cmd = [
-        sys.executable, "-m", "pip", "install",
-        "--timeout", "10", "--retries", "1",
-        "--only-binary=:all:",
-        "--target", str(target), *requirements,
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=_pip_env())
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"pip install timed out after 180s: {exc}") from exc
-    if proc.returncode != 0:
-        tail = (proc.stderr.strip() or proc.stdout.strip() or "pip install failed")[-2000:]
-        raise RuntimeError(f"pip install failed: {tail}")
-
-
 def _stage_case(case: Case, out_dir: Path) -> Path:
     """Stage a hermetic clone directory for one case and return it.
 
@@ -148,7 +105,7 @@ def _stage_case(case: Case, out_dir: Path) -> Path:
                 f"{repo_note}; provide run.tree or run.requirements"
             )
         try:
-            _install_requirements(clone, case.requirements)
+            safe_pip_install(target=str(clone), requirements=case.requirements, timeout=180)
         except RuntimeError as exc:
             raise RuntimeError(
                 f"case {case.id!r}: cannot resolve its source tree: {exc}"

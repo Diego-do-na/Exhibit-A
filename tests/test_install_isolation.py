@@ -18,7 +18,7 @@ class FakeProc:
 def test_install_subprocess_receives_stripped_env(monkeypatch):
     called = {}
 
-    def fake_run(cmd, capture_output, text, env):
+    def fake_run(cmd, capture_output, text, env, timeout):
         called["cmd"] = cmd
         called["env"] = env
         return FakeProc(returncode=0, stdout="ok\n", stderr="")
@@ -42,7 +42,7 @@ def test_install_subprocess_receives_stripped_env(monkeypatch):
 
 
 def test_install_fails_clearly_when_no_wheel(monkeypatch):
-    def fake_run(cmd, capture_output, text, env):
+    def fake_run(cmd, capture_output, text, env, timeout):
         return FakeProc(returncode=1, stdout="", stderr="No matching distribution found for starlette==0.0.0\n")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -50,3 +50,31 @@ def test_install_fails_clearly_when_no_wheel(monkeypatch):
         safe_pip_install(target="/tmp/target", requirements=["starlette==0.0.0"])
     assert "no wheel" in str(exc.value).lower() or "no matching" in str(exc.value).lower()
 
+
+
+def test_install_times_out_without_leaking_env(monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, capture_output, text, env, timeout):
+        seen["timeout"] = timeout
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    monkeypatch.setenv("FOO_API_KEY", "secret-value")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError) as exc:
+        safe_pip_install(target="/tmp/target", requirements=["pkg==1.0"], timeout=7)
+    assert str(exc.value) == "pip install timed out after 7 s"
+    assert "secret-value" not in str(exc.value)
+    assert seen["timeout"] == 7
+
+
+def test_install_default_timeout_is_300(monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, capture_output, text, env, timeout):
+        seen["timeout"] = timeout
+        return FakeProc()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    safe_pip_install(target="/tmp/target", requirements=["pkg==1.0"])
+    assert seen["timeout"] == 300
