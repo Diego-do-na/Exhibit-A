@@ -911,6 +911,16 @@ def test_guard_allows_roots_that_do_not_hold_the_canary(tmp_path, name):
     assert channel_problem(test) is None
 
 
+def test_guard_fails_closed_on_a_path_too_deep_to_evaluate(tmp_path):
+    from exhibit_a.oracle.guard import channel_problem
+
+    test = tmp_path / "test_x.py"
+    deep = "ALLOWED" + ' + "/x"' * 3000
+    test.write_text(GUARD_ROOT_PRELUDE + f"create_app({deep})\n", encoding="utf-8")
+    problem = channel_problem(test)
+    assert problem is None or problem.startswith("test chooses where the app is rooted"), problem
+
+
 def test_guard_rejects_any_mention_of_the_canary_variable(tmp_path):
     from exhibit_a.oracle.guard import TEST_CONTRACT, channel_problem
 
