@@ -4,6 +4,7 @@ Every line of the ledger file is one serialized Event. Lines are only ever
 appended; this package offers no API to edit or delete them.
 """
 
+from .index import append_run, read_runs
 from .ledger import Ledger
 
-__all__ = ["Ledger"]
+__all__ = ["Ledger", "append_run", "read_runs"]
