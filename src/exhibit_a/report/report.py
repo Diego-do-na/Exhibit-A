@@ -42,6 +42,29 @@ def _md(value: Any, limit: int | None = None) -> str:
     return _MARKDOWN_SPECIAL.sub(r"\\\1", text)
 
 
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def _code(value: Any) -> str:
+    """One line of untrusted code for an indented Markdown code block, shown as written.
+
+    Markdown is not parsed inside an indented code block, so backslash escapes would only
+    show up as literal backslashes (and collapsing whitespace would destroy the code's
+    indentation). The text stays inert anyway: control characters are dropped, tabs become
+    spaces, and a zero-width space after every "<", "@" and "](" means no renderer that
+    ignores code blocks can see a tag, a mention or a link target in it.
+    """
+    text = _CONTROL.sub("", _text(value).replace("\t", "    ").replace("\r", ""))
+    return (text.replace("<", f"<{_ZERO_WIDTH}").replace("@", f"@{_ZERO_WIDTH}")
+            .replace("](", f"]{_ZERO_WIDTH}("))
+
+
+def _inline_code(value: Any, limit: int = 200) -> str:
+    """A short untrusted value (a file name) inside a Markdown code span."""
+    text = " ".join(_code(value).split()).replace("`", "'")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def _html(value: Any) -> str:
     return html.escape(_text(value), quote=True)
 
@@ -140,11 +163,11 @@ def render_markdown(package_dir: str | Path) -> str:
         "",
         "## Suspicious code",
         "",
-        f"**File:** `{_md(data['file'])}`; **highlighted line:** {data['line']}",
+        f"**File:** `{_inline_code(data['file'])}`; **highlighted line:** {data['line']}",
         "",
     ]
     for number, content, selected in _line_numbered(data["source"], int(data["line"] or 0)):
-        lines.append(f"{'> ' if selected else '  '}{number:4} {_md(content, None)}")
+        lines.append(f"    {'>' if selected else ' '} {number:4} | {_code(content)}")
     lines += [
         "",
         "## Hypothesis",
@@ -153,7 +176,7 @@ def render_markdown(package_dir: str | Path) -> str:
         "",
         "## Exploit test",
         "",
-        f"`{_md(data['test'])}`",
+        f"`{_inline_code(data['test'])}`",
         "",
         "## Oracle evidence",
         "",
@@ -169,7 +192,7 @@ def render_markdown(package_dir: str | Path) -> str:
         "## Patch",
         "",
     ]
-    lines.extend(f"    {_md(line, None)}" for line in data["patch"].splitlines())
+    lines.extend(f"    {_code(line)}" for line in data["patch"].splitlines())
     lines += [
         "",
         "## Bypass check",

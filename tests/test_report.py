@@ -95,3 +95,21 @@ def test_unproven_package_never_claims_safety(tmp_path: Path) -> None:
     (package / "verdict.json").write_text(json.dumps(verdict), encoding="utf-8")
     assert "nothing could be proven" in render_markdown(package).lower()
     assert "safe" not in render_markdown(package).lower()
+
+
+def test_patch_and_code_are_shown_as_written(tmp_path: Path) -> None:
+    # Indented code blocks are not parsed as Markdown, so the patch must not carry backslash
+    # escapes or lose its indentation (the demo's report showed `os.path.join\\(self.dest\\_dir`).
+    package = _package(tmp_path, "archive")
+    (package / "fix.patch").write_text(
+        "-        return os.path.join(self.dest_dir, name)\n"
+        "+        target = os.path.realpath(os.path.join(dest, name))  # [x](y) @team <b>\n",
+        encoding="utf-8",
+    )
+    markdown = render_markdown(package)
+    assert "    -        return os.path.join(self.dest_dir, name)" in markdown
+    assert "\\(" not in markdown.split("## Patch", 1)[1]
+    assert "\\_" not in markdown.split("## Patch", 1)[1]
+    patch = markdown.split("## Patch", 1)[1]
+    assert "<b>" not in patch and "@team" not in patch and "](y)" not in patch  # still inert
+    assert "`vulnerable/archive.py`" in markdown  # file names without escapes

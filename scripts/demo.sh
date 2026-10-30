@@ -121,8 +121,10 @@ for ledger in sorted(out.glob("*/ledger.jsonl")):
     run_id, counts = ledger.parent.name, {"proven": 0, "discarded_unproven": 0,
                                           "invalid_test": 0, "flaky": 0, "env_failure": 0}
     raised, tokens_in, tokens_out, cost = 0, 0, 0, 0.0
+    stamps = []
     for line in ledger.read_text().splitlines():
         event = json.loads(line)
+        stamps.append(datetime.fromisoformat(event["ts"]))
         tokens_in += int(event.get("tokens_in", 0))
         tokens_out += int(event.get("tokens_out", 0))
         cost += float(event.get("cost_usd", 0.0))
@@ -138,7 +140,9 @@ for ledger in sorted(out.glob("*/ledger.jsonl")):
                                 severity="high" if counts["proven"] else None,
                                 discarded_suspicions=max(0, raised - counts["proven"]),
                                 tokens_in=tokens_in, tokens_out=tokens_out,
-                                cost_usd=cost, duration_s=0.0,
+                                cost_usd=cost,
+                                # Replay wall time, first to last ledger event.
+                                duration_s=(max(stamps) - min(stamps)).total_seconds() if stamps else 0.0,
                                 ledger_path=f"{run_id}/ledger.jsonl"))
 EOF
     python3 -m exhibit_a.cli runs --index "$OUT/runs.jsonl"

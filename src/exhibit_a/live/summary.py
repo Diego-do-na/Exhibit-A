@@ -63,6 +63,11 @@ def summarize_event(event: Event) -> str:
             return f"PR opened ({len(diff.splitlines())} diff lines)"
         return f"PR opened: {_short(str(p.get('pr', '')) or 'unknown')}"
     if kind == "scan_done":
+        status = _text(p.get("status"))
+        if status == "no_suspicions":
+            return "Suspect: the adversary raised no usable suspicion"
+        if status == "sliced":
+            return f"Slice: {len(p.get('paths') or [])} reach path(s) from the code graph"
         lang = p.get("language", "") or "unknown language"
         return f"Scan done: {lang} / {p.get('test_cmd', '') or 'unknown test cmd'}"
     if kind == "baseline_done":
