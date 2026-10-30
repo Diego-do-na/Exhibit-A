@@ -1,4 +1,5 @@
-"""The static call graph (SLICE, M1): ``ast`` only, untrusted input, deterministic output."""
+"""The static call graph (SLICE): ``ast`` only, untrusted input, deterministic output (M1),
+and the catalog of sinks and entry points (M2)."""
 
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import pytest
 
 from exhibit_a.graph import build_graph
 from exhibit_a.graph.build import module_names
+from exhibit_a.graph.catalog import SINKS, find_entries, match_sink, sink_hits
 from exhibit_a.schemas.graph import GRAPH_SCHEMA_VERSION, CodeGraph
 
 FIXTURES = Path(__file__).parent / "fixtures" / "graph"
@@ -220,3 +222,206 @@ def test_the_archive_case_graph_has_the_extraction_chain():
     assert ("method", "archive:Extractor._target") in _edges(graph, "archive:Extractor.extract_member")
     assert ("external", "builtins.open") in _edges(graph, "archive:Extractor.extract_member")
     assert ("external", "os.path.join") in _edges(graph, "archive:Extractor._target")
+
+
+# -- catalog: sinks and entry points (M2) ------------------------------------------------------
+
+SINK_SOURCE = '''
+import os
+import pickle
+import subprocess
+import tarfile
+import zipfile
+from pathlib import Path
+
+import anyio
+import requests
+import yaml
+
+
+def read(p):
+    return open(p).read()
+
+
+def write(p):
+    with open(p, "w") as handle:
+        handle.write("x")
+
+
+def write_kw(p):
+    return open(p, mode="ab")
+
+
+def computed(p, m):
+    return open(p, m)
+
+
+def raw_write(p):
+    return os.open(p, os.O_WRONLY | os.O_CREAT)
+
+
+def path_read(p):
+    return Path(p).read_text()
+
+
+def unknown_receiver(obj):
+    return obj.extractall("/tmp")
+
+
+def zip_extract(f, d):
+    zipfile.ZipFile(f).extractall(d)
+
+
+def tar_extract(f, d):
+    archive = tarfile.open(f)
+    archive.extractall(d)
+
+
+def shell(cmd):
+    return subprocess.run(cmd, shell=True)
+
+
+def system(cmd):
+    return os.system(cmd)
+
+
+def code(text):
+    return eval(text)
+
+
+def unpickle(blob):
+    return pickle.loads(blob)
+
+
+def safe_yaml(text):
+    return yaml.load(text, Loader=yaml.SafeLoader)
+
+
+def unsafe_yaml(text):
+    return yaml.load(text)
+
+
+def fetch(url):
+    return requests.get(url)
+
+
+async def threaded(p):
+    return await anyio.to_thread.run_sync(os.stat, p)
+
+
+def joined(base, name):
+    return open(os.path.join(base, name))
+
+
+def harmless(p):
+    return os.path.basename(p)
+'''
+
+
+@pytest.fixture(scope="module")
+def sinks(tmp_path_factory):
+    root = tmp_path_factory.mktemp("sinks")
+    (root / "sinks.py").write_text(SINK_SOURCE)
+    hits = sink_hits(build_graph(root))
+    return {node.split(":", 1)[1]: found for node, found in hits.items()}
+
+
+@pytest.mark.parametrize("function, target, vuln_class, effect", [
+    ("read", "builtins.open", "path_traversal", "canary_read"),
+    ("write", "builtins.open", "path_traversal_write", "canary_write"),
+    ("write_kw", "builtins.open", "path_traversal_write", "canary_write"),
+    ("computed", "builtins.open", "path_traversal", "canary_read"),
+    ("raw_write", "os.open", "path_traversal_write", "canary_write"),
+    ("path_read", "pathlib.Path.read_text", "path_traversal", "canary_read"),
+    ("zip_extract", "zipfile.ZipFile.extractall", "archive_extraction_path_traversal", "canary_write"),
+    ("tar_extract", "tarfile.open.extractall", "archive_extraction_path_traversal", "canary_write"),
+    ("shell", "subprocess.run", "command_injection", None),
+    ("system", "os.system", "command_injection", None),
+    ("code", "builtins.eval", "code_injection", None),
+    ("unpickle", "pickle.loads", "insecure_deserialization", None),
+    ("unsafe_yaml", "yaml.load", "insecure_deserialization", None),
+    ("fetch", "requests.get", "ssrf", None),
+    ("threaded", "os.stat", "path_traversal", "canary_read"),
+])
+def test_sinks_carry_their_vulnerability_class(sinks, function, target, vuln_class, effect):
+    [hit] = [h for h in sinks[function] if h.target == target]
+    assert (hit.vuln_class, hit.effect, hit.weak) == (vuln_class, effect, False)
+
+
+def test_a_sink_on_an_unknown_receiver_is_weak(sinks):
+    [hit] = sinks["unknown_receiver"]
+    assert hit.weak and hit.target == "obj.extractall"
+    assert hit.vuln_class == "archive_extraction_path_traversal"
+
+
+def test_safe_calls_are_not_sinks(sinks):
+    assert "safe_yaml" not in sinks
+    assert "harmless" not in sinks
+
+
+def test_a_joined_path_fed_into_a_sink_is_flagged(sinks):
+    assert [h.joined_path for h in sinks["joined"]] == [True]
+    assert [h.joined_path for h in sinks["read"]] == [False]
+
+
+def test_every_catalog_rule_is_complete():
+    for rule in SINKS:
+        assert rule.names and rule.category and rule.vuln_class and rule.note
+        assert rule.effect in (None, "canary_read", "canary_write")
+    assert match_sink("requests.codes") is None
+    assert match_sink("httpx.Client.post").vuln_class == "ssrf"
+
+
+def _entries(root, declared=()):
+    found, missing = find_entries(build_graph(root), declared)
+    return {e.oracle_name: e.kind for e in found}, missing
+
+
+def test_asgi_classes_are_entry_points():
+    found, _ = _entries(FIXTURES / "unreachable")
+    assert found == {"Files.__call__": "asgi"}
+
+
+def test_route_decorators_are_entry_points_at_module_level_and_in_factories():
+    found, _ = _entries(FIXTURES / "decorated")
+    assert found == {"download": "route_decorator", "create_app.<locals>.raw": "route_decorator"}
+
+
+def test_request_handler_methods_are_entry_points():
+    found, _ = _entries(ARCHIVE / "vulnerable")
+    assert found == {"App.handle_request": "request_handler"}
+
+
+def test_other_entry_point_kinds(tmp_path):
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web" / "__init__.py").write_text("")
+    (tmp_path / "web" / "views.py").write_text(
+        "def detail(request, pk):\n    return pk\n\n"
+        "class Page:\n    def get(self, request):\n        return 1\n"
+    )
+    (tmp_path / "asgi_fn.py").write_text(
+        "async def app(scope, receive, send):\n    pass\n\n"
+        "def wsgi(environ, start_response):\n    pass\n\n"
+        "class Endpoint:\n    def get(self, request):\n        pass\n\n"
+        "def home(request):\n    pass\n\n"
+        "routes = [Route('/', home), Route('/e', Endpoint)]\n"
+    )
+    (tmp_path / "cli.py").write_text(
+        "import click\n\n@click.command()\ndef cmd():\n    pass\n\n"
+        "def run():\n    pass\n\n"
+        "def main():\n    pass\n\nif __name__ == '__main__':\n    run()\n"
+    )
+    found, _ = _entries(tmp_path)
+    assert found == {
+        "detail": "django_view", "Page.get": "django_view", "app": "asgi", "wsgi": "wsgi",
+        "home": "route_table", "Endpoint.get": "route_table", "cmd": "cli_main",
+        "run": "cli_main", "main": "cli_main",
+    }
+
+
+def test_declared_entry_points_always_win():
+    found, missing = _entries(ARCHIVE / "vulnerable", ["Extractor.extract_all", "Nope.handle"])
+    assert found == {"Extractor.extract_all": "declared"}
+    assert missing == ["Nope.handle"]
+    found, missing = _entries(FIXTURES / "unreachable", ["app:Files.__call__"])
+    assert found == {"Files.__call__": "declared"} and missing == []
