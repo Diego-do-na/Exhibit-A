@@ -10,7 +10,7 @@ JSON written by ``exhibit_a.ci.summary``. Runs come from a ``RunSource``:
 
 Everything a source returns is untrusted: ledgers are validated against the
 ``Event`` schema, sizes are capped, and the browser renders every string with
-``textContent``. See ``docs/dashboard.md`` for the threat model.
+``textContent``. See ``docs/design/dashboard.md`` for the threat model.
 """
 
 from .model import (

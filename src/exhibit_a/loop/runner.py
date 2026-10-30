@@ -13,8 +13,8 @@ the same allowed/outside layout the host oracle uses, and judges the oracle even
 inside the container with the oracle's own provenance rules, applied to the paths the
 container saw. Unit tests inject a fake runner so they need no Docker.
 
-The exploit path applies the same oracle defences as the host path (docs/oracle-a1.md,
-docs/oracle-provenance.md): the static tripwire runs before staging (a hit is an ``error``
+The exploit path applies the same oracle defences as the host path (docs/oracle/oracle-a1.md,
+docs/oracle/oracle-provenance.md): the static tripwire runs before staging (a hit is an ``error``
 judgement, i.e. ``invalid_test``); the staged app is hashed and the manifest goes to the
 plugin with the key; forged event lines and any change to the app tree reach the judgement
 (``forged_events``, ``app_tree_changes``), and frames count as application code only if the

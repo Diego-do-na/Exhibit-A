@@ -1,4 +1,4 @@
-"""Offline replay of the real Meta-model recordings (SPEC section 15, docs/meta-run.md).
+"""Offline replay of the real Meta-model recordings (SPEC section 15, docs/bench/meta-run.md).
 
 Each corpus case carries a recording of a live run with a Meta model and the verdicts that
 run obtained. Replaying the recording with no network, through the same loop and the same
@@ -100,7 +100,7 @@ def test_committed_recordings_hold_no_secret_from_this_environment(case_id):
     assert scan_files(files, scan_values()) == []
 
 
-# -- compact-profile recordings (docs/cost-controls.md) ----------------------------------------
+# -- compact-profile recordings (docs/bench/cost-controls.md) ----------------------------------------
 #
 # Recorded on 2026-10-30 with --profile compact (bounded answers, proof contract, minimal
 # reasoning). Unlike the standard run above, both vulnerable cases end proven with a verified

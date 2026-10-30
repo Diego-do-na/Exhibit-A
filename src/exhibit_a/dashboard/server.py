@@ -1,6 +1,6 @@
 """Dashboard HTTP server: static UI plus a read-only JSON/SSE API on 127.0.0.1.
 
-Security posture (threat model in docs/dashboard.md):
+Security posture (threat model in docs/design/dashboard.md):
 
 - Binds 127.0.0.1 only; there is no host option.
 - A random per-launch bootstrap token is printed in the terminal. Opening

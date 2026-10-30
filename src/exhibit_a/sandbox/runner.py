@@ -23,18 +23,18 @@ Returns:
         "app_tree_changes": list
     }
     plus, for effect="canary_write" only: "canary_written": bool and "outside_listing": list
-    (what the run left in the writable outside/ tmpfs; see docs/sandbox-write-effect.md).
+    (what the run left in the writable outside/ tmpfs; see docs/reference/sandbox-write-effect.md).
 
 Oracle events are signed by the plugin with a key generated here per run and written to the
 container's stdin (``docker run -i``), never to its environment, command line or a mount.
 Only lines that verify are returned in ``oracle_events`` (as their event bodies); the rest
-are dropped and counted in ``oracle_forged_events`` (finding A-1, docs/oracle-a1.md).
+are dropped and counted in ``oracle_forged_events`` (finding A-1, docs/oracle/oracle-a1.md).
 
 When the oracle is loaded, the workspace copy is hashed before the container starts and that
 manifest follows the key on stdin, so the plugin can admit only staged application code. The
 test's own directory is left out (``staging_exclude``). After the container exits the copy is
 hashed again; ``app_tree_changes`` lists every added, removed or modified entry, and any entry
-rules out a proof (docs/oracle-provenance.md).
+rules out a proof (docs/oracle/oracle-provenance.md).
 
 This module shells out to the `docker` CLI. It does not mount the docker socket
 or any host directory other than a temporary copy of `clone_path`.

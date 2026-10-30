@@ -1,4 +1,4 @@
-"""The naive-baseline comparison (docs/bench.md). Replay only: no test here calls the Meta API."""
+"""The naive-baseline comparison (docs/bench/bench.md). Replay only: no test here calls the Meta API."""
 
 import json
 import re

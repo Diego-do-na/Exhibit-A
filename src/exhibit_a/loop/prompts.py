@@ -209,7 +209,7 @@ def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> 
     """The proof contract an exploit test must meet, spelled out for the model.
 
     The standard profile only names the two environment variables, so a model cannot know
-    where the canary is: in the first real Meta run (docs/meta-run.md) every archive exploit
+    where the canary is: in the first real Meta run (docs/bench/meta-run.md) every archive exploit
     wrote outside the allowed directory, but to a file name it invented, and no Starlette
     exploit aimed at the canary. Saying where the canary is does not weaken the proof: the
     oracle still requires the application itself to touch it through the entry point.

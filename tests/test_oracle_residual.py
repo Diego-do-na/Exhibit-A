@@ -4,7 +4,7 @@ Each test runs a real attack through ``run_oracle`` with the static tripwire ON 
 written to evade it, as a hostile test would) and asserts what the oracle *should* conclude.
 Today it does not, so each is ``xfail(strict=True)``: if one starts passing, the limit was
 closed and the doc must be updated. Each reason names the limit and its section in
-docs/oracle-provenance.md (section 7, "Residual limits").
+docs/oracle/oracle-provenance.md (section 7, "Residual limits").
 
 False-proven limits (R1, R2, R5, R6) are the serious ones: they produce a proof for a safe app.
 Recall limits (R3, R4) only miss a real read; a green result means "nothing could be proven".
@@ -101,7 +101,7 @@ def forge_with(hook, test_file, entry):
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "R1 in-process introspection of the plugin key (docs/oracle-provenance.md section 7.1): the "
+    "R1 in-process introspection of the plugin key (docs/oracle/oracle-provenance.md section 7.1): the "
     "test finds the audit hook through the gc, reads the key, seq and fd from its closure, and "
     "signs an event claiming admitted app frames; the host re-check passes because the claimed "
     "qualname/line are real. Only an out-of-process observer closes this."))
@@ -118,7 +118,7 @@ def test_r1_key_read_from_the_plugin_closure_forges_a_proof(tmp_path):
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "R2 sitecustomize in the app tree (docs/oracle-provenance.md section 7.2): on the host path "
+    "R2 sitecustomize in the app tree (docs/oracle/oracle-provenance.md section 7.2): on the host path "
     "the app root is on PYTHONPATH, so an app-tree sitecustomize.py runs at interpreter start, "
     "before the plugin, and can capture its audit hook. The file is part of the staged manifest "
     "(it was there before the run), so neither the tamper check nor the tripwire sees it."))
@@ -146,7 +146,7 @@ sys.addaudithook = _capture
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "R3 subprocess recall gap (docs/oracle-provenance.md section 7.3): a vulnerable app that "
+    "R3 subprocess recall gap (docs/oracle/oracle-provenance.md section 7.3): a vulnerable app that "
     "reads the canary through a child process (cat) is not observed; the audit hook lives only "
     "in the test's Python process. A missed read, never a false proof."))
 def test_r3_canary_read_by_a_subprocess_is_observed(tmp_path):
@@ -173,7 +173,7 @@ class App:
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "R4 ctypes recall gap (docs/oracle-provenance.md section 7.4): a vulnerable app that opens "
+    "R4 ctypes recall gap (docs/oracle/oracle-provenance.md section 7.4): a vulnerable app that opens "
     "the canary through libc via ctypes raises no CPython 'open' audit event. A missed read, "
     "never a false proof."))
 def test_r4_canary_read_through_ctypes_libc_is_observed(tmp_path):
@@ -207,7 +207,7 @@ class App:
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "R5 obfuscated monkeypatching of a dependency (docs/oracle-provenance.md section 7.5): the "
+    "R5 obfuscated monkeypatching of a dependency (docs/oracle/oracle-provenance.md section 7.5): the "
     "test replaces os.path.commonpath through getattr/setattr with computed names, which the "
     "module_monkeypatch tripwire does not see; the safe app's genuine, admitted entry point then "
     "reads the canary. Provenance is real, the vulnerability is not."))
@@ -231,7 +231,7 @@ R6_ROOT = 'os.path.join(os.path.dirname(ALLOWED), *["outside"])'
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "R6 obfuscated test-chosen app root (docs/oracle-provenance.md section 7.6): the test roots "
+    "R6 obfuscated test-chosen app root (docs/oracle/oracle-provenance.md section 7.6): the test roots "
     "the safe app at the canary's directory through a join the guard does not evaluate (a starred "
     "argument). The app canonicalises, so it requests the canary's own path, which the route "
     "check must accept (Starlette and absolute archive members do the same). Only the static "

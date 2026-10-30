@@ -1,6 +1,6 @@
 """Demo kit: the offline demo replays the compact Meta recordings end to end.
 
-The demo's headline (docs/demo.md) is that the two compact-profile live runs
+The demo's headline (docs/reference/demo.md) is that the two compact-profile live runs
 with Muse Wonder — archive zip-slip (US$0.06) and Starlette CVE-2023-29159
 (US$0.11) — each ended with a proven finding and a verified fix. Step 1 of
 ``scripts/demo.sh --offline`` shows exactly that code (the archive

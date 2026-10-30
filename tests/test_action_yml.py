@@ -5,7 +5,7 @@ The Action must drive the real PR-diff surface (``exhibit-a run
 the surface did not run, and keep every existing security property
 (permissions, fork handling, key scoping, leak scan). These tests parse the
 YAML files instead of running the workflows, so they need no Docker, no
-network and no secrets. See docs/cli-exit-codes.md and docs/audit-integration.md
+network and no secrets. See docs/reference/cli-exit-codes.md and docs/security/audit-integration.md
 (findings F8 and F11).
 """
 
@@ -90,7 +90,7 @@ def test_engine_passes_provider_and_model_from_inputs() -> None:
     assert '--model "$IN_MODEL"' in run
 
 
-# -- exit-code mapping (docs/cli-exit-codes.md) --------------------------------
+# -- exit-code mapping (docs/reference/cli-exit-codes.md) --------------------------------
 
 
 def test_engine_maps_cli_exit_codes() -> None:

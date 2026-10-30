@@ -176,7 +176,7 @@ if [[ -n "$FIRST_VERDICT" ]]; then
     python3 -m exhibit_a.cli report "$(dirname "$FIRST_VERDICT")"
 else
     echo "demo: no proven finding this run (the model is not deterministic;"
-    echo "see docs/meta-run.md). The ledger still records every step:"
+    echo "see docs/bench/meta-run.md). The ledger still records every step:"
     python3 -m exhibit_a.cli ledger archive-extraction-pathtraversal --ledger "$OUT/ledger.jsonl" || true
 fi
 step "live view"
