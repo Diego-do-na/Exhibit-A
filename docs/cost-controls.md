@@ -21,6 +21,7 @@ exhibit-a run --case bench/corpus/<case> --provider meta --model muse-wonder-1.0
 | Reasoning effort | provider default (`max` on Meta) | `minimal` |
 | Output-token ceiling per call | none | adversary 6000, test writer 8000, fixer 6000, defender 10000 |
 | Prompt layout | instructions first | source first, instructions after |
+| Proof contract in test prompts | the two environment variables only | where the canary is for the case's effect, what to assert, what is forbidden, which packages are installed (`test_contract`) |
 
 `--reasoning-effort` and `--max-output-tokens` override the profile defaults for any profile.
 A call cut by the ceiling fails with a clear `ProviderError`, never with a half answer.

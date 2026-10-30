@@ -359,3 +359,63 @@ def test_compact_cannot_replay_the_standard_recordings(tmp_path, capsys):
     case.write_text("{}")
     assert main(["run", "--case", str(case), "--replay", "--profile", "compact"]) == 2
     assert "cannot be combined with --replay" in capsys.readouterr().err
+
+
+# -- the compact proof contract ----------------------------------------------------------------
+
+def test_the_read_contract_says_where_the_canary_is_and_what_is_forbidden():
+    text = prompts.test_contract("canary_read", ["starlette==0.26.1", "anyio>=3.4,<5"])
+    assert "'outside', 'canary.txt'" in text
+    assert "EXHIBIT_A_CANARY_TOKEN" in text and "NOT in the application's response" in text
+    for forbidden in ("monkeypatch", "ctypes", "subprocess"):
+        assert forbidden in text
+    assert "starlette==0.26.1, anyio>=3.4,<5" in text
+    assert "EXHIBIT_A_CANARY'" not in text  # the canary's own variable is not part of the contract (A-11 F2)
+
+
+def test_the_write_contract_asks_the_application_to_create_the_canary():
+    text = prompts.test_contract("canary_write")
+    assert "creates that file" in text and "assert not os.path.exists" in text
+    assert "nothing beyond the application itself" in text
+
+
+def test_an_unknown_effect_has_no_contract():
+    with pytest.raises(ValueError, match="unknown oracle effect"):
+        prompts.test_contract("canary_delete")
+
+
+class ContractSpy(CompactScripted):
+    def __init__(self):
+        super().__init__()
+        self.prompts = {}
+
+    def complete(self, role, prompt, schema):
+        self.prompts[role] = prompt
+        return super().complete(role, prompt, schema)
+
+
+def test_the_compact_loop_sends_the_contract_with_the_case_packages(tmp_path):
+    clone = tmp_path / "clone"
+    shutil.copytree(FIXTURES / "vulnerable", clone)
+    (clone / "test_baseline.py").write_text(BASELINE_TEST)
+    spy = ContractSpy()
+    roles = Roles(*(ModelRole(r, spy) for r in (Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
+    loop = VerificationLoop(clone, tmp_path / "out", Ledger(tmp_path / "ledger.jsonl"), roles,
+                            "test_baseline.py", run_id="r1", runner=HostRunner(),
+                            requirements=("example-pkg==1.0",), prompt_profile="compact")
+    loop.run("app.py")
+    for role in (Role.TEST_WRITER, Role.DEFENDER):
+        assert "PROOF CONTRACT" in spy.prompts[role]
+        assert "example-pkg==1.0" in spy.prompts[role]
+
+
+def test_the_standard_loop_never_sends_the_contract(tmp_path):
+    clone = tmp_path / "clone"
+    shutil.copytree(FIXTURES / "vulnerable", clone)
+    (clone / "test_baseline.py").write_text(BASELINE_TEST)
+    spy = ContractSpy()
+    roles = Roles(*(ModelRole(r, spy) for r in (Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
+    loop = VerificationLoop(clone, tmp_path / "out", Ledger(tmp_path / "ledger.jsonl"), roles,
+                            "test_baseline.py", run_id="r1", runner=HostRunner(), prompt_profile="standard")
+    loop.run("app.py")  # the compact answers fail the standard fixer schema; only prompts matter here
+    assert "PROOF CONTRACT" not in spy.prompts[Role.TEST_WRITER]
