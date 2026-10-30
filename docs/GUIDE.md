@@ -1,5 +1,7 @@
 # Guía de Exhibit A (para presentar el proyecto)
 
+> **Aviso (2026-10-30): esta guía es una foto del 28 de octubre y quedó desactualizada.** Desde entonces: (1) sí hubo llamadas reales a Meta: el perfil estándar no probó nada (US$4.78) y el perfil compact probó los dos casos vulnerables con fix verificado (US$0.17), ver `docs/bench/meta-run.md`; (2) `scan` ya no es un placeholder y existe SLICE (`docs/design/code-graph.md`); (3) el benchmark existe (`docs/bench/bench.md`); (4) `test_meta_provider_is_explicitly_not_built_yet` ya no falla; (5) los docs se movieron a carpetas (`docs/README.md`). Donde esta guía contradiga esos archivos, mandan los archivos y el `README.md`.
+
 Estado verificado el 2026-10-28 sobre `main` @ `89c74b7`. Todos los comandos de esta guía fueron ejecutados por mí y su salida confirmada; lo que no pude correr está marcado **NO VERIFICADO**. Los comandos usan `PY=~/Desktop/Proyects/Exhibit-A/.venv/bin/python` y se ejecutan desde la raíz del repo. Donde pongo `$OUT`, yo usé un directorio temporal equivalente (`--out` acepta cualquier ruta).
 
 ## 1. Qué es Exhibit A

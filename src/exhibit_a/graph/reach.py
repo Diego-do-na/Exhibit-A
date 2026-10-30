@@ -81,7 +81,7 @@ def changed_nodes(graph: CodeGraph, lines: Mapping[str, Iterable[int]]) -> tuple
 
     Returns ``(node ids, "file:line" of changed lines outside any function)``. A change at
     module or class level is listed but starts no search (a recall cost, see
-    docs/code-graph.md).
+    docs/design/code-graph.md).
     """
     by_file: dict[str, list[GraphNode]] = {}
     for node in graph.nodes:

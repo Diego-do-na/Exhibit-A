@@ -39,9 +39,9 @@ signature without the key; one that replays a genuine line repeats its ``seq``. 
 arrives the plugin runs *unsigned* (``sig`` is empty) and the judge trusts none of its events.
 After install the events path is removed from ``os.environ`` and the file is written through
 a descriptor opened at install time. None of this is a boundary against a test that inspects
-this process's memory: the key lives in this process. See docs/oracle-a1.md.
+this process's memory: the key lives in this process. See docs/oracle/oracle-a1.md.
 
-Frames are admitted as application code only against the staged app (docs/oracle-provenance.md).
+Frames are admitted as application code only against the staged app (docs/oracle/oracle-provenance.md).
 The orchestrator hashes the app tree before the test runs and sends that manifest on stdin
 after the key. When the canary is read, a frame whose file lies under the app root is admitted
 only if the file is in the manifest, its current content still has the manifest digest, the
@@ -266,7 +266,7 @@ class _Admission:
     The primitives it uses are bound when it is created, at install, before any test code
     runs: a test that later rebinds ``os.open``, ``hashlib.sha256`` or ``compile`` does not
     change what admission calls. That is a tripwire against casual patching, not a boundary
-    (the test shares this process; see docs/oracle-provenance.md, residual limits).
+    (the test shares this process; see docs/oracle/oracle-provenance.md, residual limits).
     """
 
     def __init__(self, root: str, files: dict[str, str]) -> None:

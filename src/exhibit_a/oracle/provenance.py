@@ -13,7 +13,7 @@ On the host, two things happen after the run:
   the test could not reach (``AppTree.check``): manifest entry, digest, and a function with
   the frame's qualname starting at the frame's first line, read with ``ast``.
 
-See docs/oracle-provenance.md for the threat model and what this does not stop.
+See docs/oracle/oracle-provenance.md for the threat model and what this does not stop.
 """
 
 from __future__ import annotations

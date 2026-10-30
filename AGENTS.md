@@ -13,7 +13,8 @@ Read `SPEC.md` first for the authoritative scope, contracts, proof standard, sec
 - `src/exhibit_a/models/`: Provides model-role interfaces and replay/provider plumbing for recorded, schema-validated model calls.
 - `src/exhibit_a/sandbox/`: Runs untrusted exploit and regression tests in an ephemeral, isolated, resource-limited container with no network or secrets.
 - `src/exhibit_a/oracle/`: Observes intended effects and provenance so execution failures count as proof only for the right reason and entry point.
-- `src/exhibit_a/loop/`: Currently implements BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY → PACKAGE; SCAN and SLICE are not built yet, and the CLI scan is a placeholder.
+- `src/exhibit_a/loop/`: Currently implements BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY → PACKAGE; SCAN and SLICE exist since T084: `exhibit-a scan` (with `--graph` and `--pr-diff`) and the opt-in `exhibit-a run --slice`.
+- `src/exhibit_a/graph/`: Builds an `ast`-only call graph and the reach paths entry point -> changed function -> sink that SCAN and SLICE use (docs/design/code-graph.md).
 - `src/exhibit_a/live/`: Serves the thin live view and replay stream backed by the ledger, not a separate dashboard product.
 - `bench/`: Holds benchmark harnesses, corpora, baselines, ablations, and evaluation data.
 - `src/exhibit_a/cli.py`: Exposes the headless engine through the command-line interface.
@@ -22,7 +23,7 @@ Supporting directories include `web/` for the plain HTML/JavaScript live view an
 
 ## Current state
 
-The oracle and the Starlette case baseline still run as host child processes, not inside the sandbox; moving them into the sandbox is in progress (tasks T026/T027). Do not assume it is already done.
+Exploit, fixed-code and bypass runs go through the sandbox (`SandboxRunner`, including the write effect). Two paths still run on the host: the project baseline of `exhibit-a run --case ... --replay` (`_local_baseline`) and the host-path oracle `run_oracle`, used by tests and research tooling (audit F8, docs/security/THREAT_MODEL.md). Do not assume they are sandboxed.
 
 ## Testing
 

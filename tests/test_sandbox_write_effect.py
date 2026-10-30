@@ -3,7 +3,7 @@
 Every case runs ``SandboxRunner.run_exploit(..., effect="canary_write")`` on a tree of
 ``bench/corpus/archive-extraction-pathtraversal``: no canary file is mounted, the app creates it
 in the writable ``outside/`` tmpfs, and the judge confirms the write from the post-run dump.
-Mount layout: docs/sandbox-write-effect.md. Argument plumbing without Docker is covered in
+Mount layout: docs/reference/sandbox-write-effect.md. Argument plumbing without Docker is covered in
 tests/test_sandbox_fake_docker.py.
 """
 

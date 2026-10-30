@@ -323,7 +323,7 @@ class HttpOsvBackend:
     """Live lookups against api.osv.dev: one querybatch call for candidate ids, then one
     GET per id for the full record. Paginated batch results fall back to /v1/query.
 
-    Not used by the test suite against the real service; see docs/advisory.md for the
+    Not used by the test suite against the real service; see docs/security/advisory.md for the
     network allowlist this needs in CI.
     """
 

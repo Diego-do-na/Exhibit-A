@@ -733,7 +733,7 @@ def test_sandbox_run_sends_the_key_on_stdin_and_drops_unverified_lines(tmp_path,
 
 
 # --- A-11 F2: the test must not choose where the app is rooted ------------------------------
-# docs/audit-integration.md section 2.1. P1/P1b/P7 root a SAFE app at the canary's directory;
+# docs/security/audit-integration.md section 2.1. P1/P1b/P7 root a SAFE app at the canary's directory;
 # the safe app then touches the canary through its real entry point. All are cheating.
 
 ORACLE_EVAL = Path(__file__).parent / "fixtures" / "oracle_eval"

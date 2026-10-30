@@ -1,6 +1,6 @@
 """Known-advisory lookup for pinned PyPI dependencies (a second signal, never a proof).
 
-See docs/advisory.md for what this can and cannot tell you.
+See docs/security/advisory.md for what this can and cannot tell you.
 """
 
 from .deps import (

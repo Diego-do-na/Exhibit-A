@@ -2,7 +2,7 @@
 
 Covers the stdin channel v2 (key + manifest), the manifest and tree diff, ``code_keys``, frame
 admission in the plugin and on the host, the app-tree tamper check, the ``dir_fd`` fix and the
-app-tree tripwire rules. See docs/oracle-provenance.md.
+app-tree tripwire rules. See docs/oracle/oracle-provenance.md.
 
 Tests that exercise a layer *below* the static tripwire switch the tripwire off with
 ``unguarded``: the guard is bypassable by obfuscation, so each deeper layer must hold alone.

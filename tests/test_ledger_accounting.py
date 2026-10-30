@@ -3,7 +3,7 @@
 The adversary answers once per source file with a list of suspicions. Its usage used to ride
 on every SUSPICION_RAISED event, so a call that raised three suspicions was charged three
 times and ledger totals (and runs.jsonl, the dashboard and the demo) overstated the spend; a
-call that raised none was not charged at all. Found by T071 (docs/bench.md).
+call that raised none was not charged at all. Found by T071 (docs/bench/bench.md).
 """
 
 from __future__ import annotations

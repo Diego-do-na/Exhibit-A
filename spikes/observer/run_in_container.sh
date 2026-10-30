@@ -2,7 +2,7 @@
 # Run the observer spike inside a container that mirrors the product sandbox
 # posture EXACTLY, to answer: what must be loosened for the ptrace observer?
 #
-# Finding (see docs/oracle-observer-spike.md): nothing. When the observer is the
+# Finding (see docs/oracle/oracle-observer-spike.md): nothing. When the observer is the
 # PARENT of the test process (PTRACE_TRACEME + same uid), tracing needs no
 # CAP_SYS_PTRACE, and modern Docker's default seccomp profile already permits
 # the ptrace syscall. So we run under the product's own flags unchanged:

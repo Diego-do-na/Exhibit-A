@@ -11,12 +11,12 @@ The subprocess is a plain child process. The sandbox (a separate component) is w
 untrusted tests safe to run; the oracle only decides what the run means.
 
 Events are trusted only if they carry a valid signature under a key generated here for this
-run and handed to the plugin on stdin (finding A-1, see docs/oracle-a1.md). Lines that do not
+run and handed to the plugin on stdin (finding A-1, see docs/oracle/oracle-a1.md). Lines that do not
 verify are dropped and counted; any such line rules out a proof. Before running, the test
 source is checked by a static tripwire (``guard.py``) for references to the oracle channel
 and for writes into, or forging from, the application tree.
 
-Provenance is authenticated against the app as staged (docs/oracle-provenance.md): the app
+Provenance is authenticated against the app as staged (docs/oracle/oracle-provenance.md): the app
 tree is hashed before the run and the manifest goes to the plugin on stdin with the key; only
 frames the plugin admitted against it, and that pass the host-side re-check, are application
 code. The tree is hashed again after the run; any change rules out a proof.
@@ -26,7 +26,7 @@ the token, and a real exploit reaches the canary from there. Each event carries 
 code requested; one that neither starts inside the allowed directory nor names the canary
 exactly is refused (``canary_not_via_allowed_dir``). Access comes from the open flags, not the
 mode string (F4), and a write effect also needs the canary to exist with the token after the
-run (F5). See docs/oracle-provenance.md, section 3.7.
+run (F5). See docs/oracle/oracle-provenance.md, section 3.7.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ TestOutcome = Literal["passed", "failed", "error", "timeout"]
 # path-traversal style effect (the app leaks a file outside the allowed directory);
 # "canary_write" is the archive-extraction / zip-slip style effect (the app creates a file
 # outside the allowed directory). Both are observed through the same signed events; only the
-# access the event carries differs. See docs/second-class.md.
+# access the event carries differs. See docs/oracle/second-class.md.
 Effect = Literal["canary_read", "canary_write"]
 # Which accesses count for each effect: "r+" or O_RDWR is both a read and a write.
 _ACCEPTED_ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}

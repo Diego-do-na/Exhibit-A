@@ -4,7 +4,7 @@ Before an exploit runs, its source (and a ``conftest.py`` shipped next to it) is
 ``ast``, never imported or executed, and checked against ``CHANNEL_RULES``. A hit makes the
 judgement ``invalid_test`` with the reason "test touches the oracle channel".
 
-It is then checked against the application-tree rules (docs/oracle-provenance.md, layer 4):
+It is then checked against the application-tree rules (docs/oracle/oracle-provenance.md, layer 4):
 ``APP_TREE_RULES`` (plain patterns: code-object rewrites, interpreter start-up files) and
 ``FLOW_RULES``, which follow names derived from app paths (``module.__file__``, ``sys.path``,
 the cwd, ``/workspace``) to writes, to reads of app source that is then compiled or executed,
@@ -22,7 +22,7 @@ This is a tripwire, not a security boundary. It catches the naive and model-gene
 of tampering with the events file or the plugin, and forces any remaining attempt to be
 deliberately obfuscated (``getattr`` with computed names, ``exec`` of decoded strings,
 ``importlib`` of a joined name). It does not stop a test that is written to evade it; the
-signed events (see ``plugin.py``) are what make plain forgery fail, and docs/oracle-a1.md
+signed events (see ``plugin.py``) are what make plain forgery fail, and docs/oracle/oracle-a1.md
 lists what neither layer stops.
 """
 
