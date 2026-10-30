@@ -7,6 +7,11 @@
 # Opt-in: both jobs stay skipped until the repository variable
 # EXHIBIT_A_ENABLED is "true", so this file is inert until the protected
 # environment and its secret exist (setup steps in docs/ci/github-action.md).
+#
+# On this repository it runs only for pull requests that touch
+# examples/action-demo and analyses only that directory's diff (runbook:
+# docs/ci/live-pr-demo.md). Copying the template elsewhere: drop `paths` and the
+# "Scope the diff" step, and point `working-directory` at your code.
 
 name: Exhibit A
 
@@ -15,6 +20,8 @@ on:
   # context and is the classic way to leak them to untrusted PR code.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - examples/action-demo/**
 
 # Nothing by default; each job asks for exactly what it needs.
 permissions: {}
@@ -47,6 +54,36 @@ jobs:
           persist-credentials: false
           fetch-depth: 0  # the base commit is needed for the PR diff
 
+      - name: Scope the diff to examples/action-demo
+        id: scope
+        # The engine stages the whole working directory and runs its baseline on it,
+        # so analysing the repository root would run this repository's own tests as
+        # the "baseline". Instead, build a throwaway repository whose root is
+        # examples/action-demo: two commits made from the base and head subtrees.
+        # Only git objects are copied (commit-tree), nothing is extracted or run.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          sha='^[0-9a-f]{40}$'
+          [[ "$BASE_SHA" =~ $sha && "$HEAD_SHA" =~ $sha ]] || { echo "::error::unexpected commit ids"; exit 1; }
+          empty=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+          tree() { git rev-parse --verify --quiet "$1:examples/action-demo" || echo "$empty"; }
+          export GIT_AUTHOR_NAME=exhibit-a GIT_AUTHOR_EMAIL=exhibit-a@localhost
+          export GIT_COMMITTER_NAME=exhibit-a GIT_COMMITTER_EMAIL=exhibit-a@localhost
+          base_commit="$(git commit-tree "$(tree "$BASE_SHA")" -m "scope: base")"
+          head_commit="$(git commit-tree "$(tree "$HEAD_SHA")" -p "$base_commit" -m "scope: head")"
+          scope="$GITHUB_WORKSPACE/.exhibit-a-scope"
+          rm -rf "$scope"
+          git init -q "$scope"
+          git update-ref refs/exhibit-a-scope/base "$base_commit"
+          git update-ref refs/exhibit-a-scope/head "$head_commit"
+          git -C "$scope" fetch -q --no-tags "$GITHUB_WORKSPACE" "+refs/exhibit-a-scope/*:refs/exhibit-a-scope/*"
+          git -C "$scope" checkout -q --detach "$head_commit"
+          echo "base=$base_commit" >> "$GITHUB_OUTPUT"
+          echo "head=$head_commit" >> "$GITHUB_OUTPUT"
+
       - name: Exhibit A
         id: exhibit
         # TODO(A-9): pin to the full 40-character commit SHA of a reviewed
@@ -56,13 +93,16 @@ jobs:
         uses: diego-do-na/Exhibit-A@TODO-pin-full-commit-sha
         with:
           provider: meta
-          model: ""            # set the model id your provider serves
+          model: muse-wonder-1.0
           api-key: ${{ secrets.EXHIBIT_A_API_KEY }}  # environment secret
           api-key-env: META_API_KEY
           fail-on: proven
-          working-directory: .
-          max-runtime-minutes: "30"
-          budget-usd: "2"
+          working-directory: .exhibit-a-scope
+          base-sha: ${{ steps.scope.outputs.base }}
+          head-sha: ${{ steps.scope.outputs.head }}
+          profile: compact
+          max-runtime-minutes: "20"
+          budget-usd: "1"
           comment: "true"
 
       - name: Report outputs
