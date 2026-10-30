@@ -1120,3 +1120,64 @@ def test_p4_r_plus_read_of_the_canary_is_proven(tmp_path):
     result = _read_variant(tmp_path, "p4_r_plus_read", exploit)
     assert _proven(result), result.reason
     assert result.events[0].access == "read_write"
+
+
+# Links to the canary created during the run (2026-10-30, compact Meta run of the fixed
+# Starlette case): a test thread swapped a file in the served directory for a symlink to the
+# canary and back, in a loop. The fresh-symlink walk runs a moment after the hook resolved
+# the path to the canary, so it could find a regular file again and vouch for the read. A
+# hard link to the canary is never a symlink at all. Both are now caught at creation time:
+# once the test process creates a symlink whose target is the canary or a directory above
+# it, or a hard link to the canary, every later canary access is flagged (fail closed).
+
+LINK_TAINT = {
+    # Linked, then removed before the app reads: the app's own traversal bug is real, but a
+    # test that planted a link to the canary forfeits the proof (no timing can be trusted).
+    "symlink_removed_before_read": (
+        'link = os.path.join(ALLOWED, "x"); os.symlink(CANARY, link); os.unlink(link)',
+        'handle_unchecked("../outside/canary.txt")',
+    ),
+    "symlink_to_an_ancestor": (
+        'link = os.path.join(ALLOWED, "up"); os.symlink(os.path.dirname(os.path.dirname(CANARY)), link); os.unlink(link)',
+        'handle_unchecked("../outside/canary.txt")',
+    ),
+    "relative_symlink_removed": (
+        'link = os.path.join(ALLOWED, "x"); os.symlink("../outside/canary.txt", link); os.unlink(link)',
+        'handle_unchecked("../outside/canary.txt")',
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(LINK_TAINT))
+def test_a_link_to_the_canary_created_by_the_test_forfeits_the_proof(tmp_path, case):
+    setup, call = LINK_TAINT[case]
+    app_root, test = symlink_case(tmp_path, setup, call)
+    result = run_oracle(app_root, test, SYMLINK_ENTRY_POINTS)
+    assert result.test_outcome == "failed"
+    assert result.observed_effect
+    assert not result.provenance_ok, result.reason
+    assert "link to the canary created during the run" in result.reason or "symlink created during the run" in result.reason
+    assert result.events[0].via_symlink is True
+
+
+def test_a_hard_link_to_the_canary_is_never_a_proof(tmp_path):
+    # A hard link is a second name for the canary's inode, so the opened path is a regular
+    # file. The read is not recognised as the canary at all (the test fails for the wrong
+    # reason); creating the link also taints the run, as defence in depth.
+    app_root, test = symlink_case(
+        tmp_path, 'os.link(CANARY, os.path.join(ALLOWED, "innocent.txt"))', 'handle_request("innocent.txt")'
+    )
+    result = run_oracle(app_root, test, SYMLINK_ENTRY_POINTS)
+    assert not (result.observed_effect and result.provenance_ok), result.reason
+
+
+def test_an_unrelated_symlink_does_not_taint_a_real_traversal(tmp_path):
+    app_root, test = symlink_case(
+        tmp_path,
+        'os.symlink("public.txt", os.path.join(ALLOWED, "alias"))',
+        'handle_unchecked("../outside/canary.txt")',
+    )
+    result = run_oracle(app_root, test, SYMLINK_ENTRY_POINTS)
+    assert result.test_outcome == "failed"
+    assert result.provenance_ok, result.reason
+    assert result.events[0].via_symlink is False

@@ -317,6 +317,31 @@ Audit results with this layer (`tests/test_oracle.py`, `tests/test_oracle_eval_a
 | P5 `os.replace` onto the canary | vulnerable | write | missed | proven |
 | P6 failed `"r+"` on the absent canary | no write | write | proven | not proven: nothing written |
 
+### 3.8 Layer 7: links to the canary created during the run (2026-10-30)
+
+Found by the first compact Meta run of the negative control (`starlette-cve-2023-29159-fixed`,
+`docs/meta-run.md`): the model's test ran a thread that replaced a served file with a symlink to
+the canary and back, in a loop, while it requested that file through `StaticFiles`. The A-2
+walk (`_fresh_symlink`) runs a moment after the hook has resolved the opened path to the canary,
+so it could find the regular file again and vouch for the read. The fixed Starlette tree ended
+`proven`: a false proof on code that is not vulnerable to the attack the test claimed.
+
+The plugin now also watches the `os.symlink` and `os.link` audit events (any thread). Once the
+process creates a symlink whose target, taken lexically against the link's directory or
+resolved through existing links, is the canary or any directory above it, or a hard link whose
+source is the canary, every later canary access is flagged `via_symlink` with
+`<link to the canary created during the run: ...>`, whatever the opened path looks like when it
+is checked. The flag is set when the audit event is raised, before the link exists, so no
+timing can beat it. It fails closed: an unresolvable `dir_fd` or an error counts as a link.
+
+Cost in recall: a test that creates such a link forfeits the proof even when the application's
+own traversal is real, and so does an application whose own code creates a link to the canary
+(for example an archive extractor honouring symlink members). Both only turn proofs into
+non-proofs. A hard link alone was not a false proof before either: the read is not recognised as
+the canary (section 3.5). Tests: `test_a_link_to_the_canary_created_by_the_test_forfeits_the_proof`,
+`test_a_hard_link_to_the_canary_is_never_a_proof`, `test_an_unrelated_symlink_does_not_taint_a_real_traversal`,
+and the replay of the recorded run, `test_replaying_the_negative_control_proves_nothing`.
+
 ## 4. What each layer defends
 
 | attack | L1 manifest | L2 admission | L3 tree check | L4 tripwire | L5 dir_fd |
@@ -329,6 +354,7 @@ Audit results with this layer (`tests/test_oracle.py`, `tests/test_oracle_eval_a
 | passing run that tampered | — | — | `error`, cannot satisfy the fixed-code re-run | — | — |
 | real read via `os.open(dir_fd=)` | — | — | — | — | now observed |
 | planted dir symlink used as `dir_fd` | — | — | — | — | flagged `via_symlink` |
+| symlink swapped in and out by a test thread (race) | — | — | — | — | flagged by L7 (link created) |
 
 ## 5. Red-team results, before and after
 
