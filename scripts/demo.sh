@@ -83,7 +83,7 @@ print("demo: both cases proven with a verified fix")
 EOF
 
     # -- Steps 3-5: verdict, report, runs ------------------------------------
-    step "3/6 the verdicts (ledger)"
+    step "3/6 the verdicts and the steps behind them (ledger)"
     python3 - "$OUT" <<'EOF'
 import json, sys
 from pathlib import Path
@@ -96,6 +96,15 @@ for ledger in sorted(out.glob("*/ledger.jsonl")):
             print(f"{event['run_id']} {p.get('suspicion_id')}: {p.get('verdict')} "
                   f"(fix_verified={p.get('fix_verified')}, fix_incomplete={p.get('fix_incomplete')})")
 EOF
+    # The steps behind each verdict, straight from the ledger (the run id of a
+    # replayed case is its directory name). A for loop over a glob: no mapfile.
+    for LEDGER in "$OUT"/*/ledger.jsonl; do
+        [[ -f "$LEDGER" ]] || continue
+        CASE_ID="$(basename "$(dirname "$LEDGER")")"
+        echo
+        echo "--- trace: $CASE_ID ---"
+        python3 -m exhibit_a.cli trace --ledger "$LEDGER" "$CASE_ID"
+    done
 
     step "4/6 the report"
     # No mapfile: macOS ships bash 3.2.
