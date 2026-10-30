@@ -19,4 +19,4 @@ could be proven; it is not a statement that the change is safe.
 
 ## Cost controls
 
-`exhibit-a run` accepts `--profile {standard,compact}`, `--reasoning-effort {minimal,low,medium,high,max}` and `--max-output-tokens N`. `--profile compact` bounds every model answer and has the fixer return search/replace edits; see `docs/cost-controls.md`. It cannot be combined with `--replay`.
+`exhibit-a run` accepts `--profile {standard,compact}`, `--reasoning-effort {minimal,low,medium,high,max}` and `--max-output-tokens N`. `--profile compact` bounds every model answer and has the fixer return search/replace edits; see `docs/bench/cost-controls.md`. It cannot be combined with `--replay`.

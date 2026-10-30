@@ -127,7 +127,7 @@ could derive it from `EXHIBIT_A_ALLOWED_DIR` anyway, but a test that knows the c
 can root a safe app at the canary's directory (audit F2). Shipped exploits now reach the
 canary from `EXHIBIT_A_ALLOWED_DIR` (`../outside/canary.txt`), and the guard treats any
 mention of `EXHIBIT_A_CANARY` as a hit of `exhibit_a_env`. What remains is residual limit R6,
-an obfuscated test-chosen app root (`docs/oracle-provenance.md` §7.6).
+an obfuscated test-chosen app root (`docs/oracle/oracle-provenance.md` §7.6).
 
 ### Layer 4: static guard (`oracle/guard.py`)
 
@@ -200,11 +200,11 @@ because they are easy:
 
 ## Pending
 
-- Done in A-1p (`docs/oracle-provenance.md` §3.6): `loop/runner.py` now runs
+- Done in A-1p (`docs/oracle/oracle-provenance.md` §3.6): `loop/runner.py` now runs
   `guard.channel_problem(test_path)` before staging and passes `oracle_forged_events` (with
   the first drop reason) to `_judge`, so forged lines count on the sandbox path too.
 - The in-process introspection bypass above is now demonstrated end to end and pinned by a
   strict xfail (`tests/test_oracle_residual.py`, R1).
 - T079 added residual limit R6 (obfuscated test-chosen app root,
-  `docs/oracle-provenance.md` §7.6), also pinned by a strict xfail.
+  `docs/oracle/oracle-provenance.md` §7.6), also pinned by a strict xfail.
 - An out-of-process observer (separate task) is the only real fix for the residual list.

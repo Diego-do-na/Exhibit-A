@@ -36,7 +36,7 @@ Security design and its reasons: [github-action-security.md](github-action-secur
    unless `risk-gate: "false"`.
 3. **Run**: `exhibit-a run --repo <dir> --pr-diff <base>..<head> --out <tmp>
    --provider <provider> [--model <model>]` under `timeout
-   <max-runtime-minutes>m` (exit codes in `docs/cli-exit-codes.md`: 0 ran with
+   <max-runtime-minutes>m` (exit codes in `docs/reference/cli-exit-codes.md`: 0 ran with
    nothing proven, 10 proven, 20 incomplete, 2 usage error). Exit 20, 2 or any
    unexpected code fails the check immediately; only 0, 10 and the timeout
    codes continue to the summary. This is the only step that sees the API key
@@ -157,7 +157,7 @@ create `triage/`.
   `--model "$model"`. The engine verifies the changed regular Python files of the
   diff through the sandbox-backed loop (bounded file count and size) and writes
   `ledger.jsonl` and `result.json` to `--out`.
-- **Exit codes** (`docs/cli-exit-codes.md`): `0` the diff ran and nothing was
+- **Exit codes** (`docs/reference/cli-exit-codes.md`): `0` the diff ran and nothing was
   proven (this includes a diff with no runnable Python files), `10` at least one
   finding was proven, `20` the run was incomplete (timeout, environment failure or
   model error), `2` usage or input error (for example an unsupported provider or a
@@ -215,4 +215,4 @@ required checks pass. Treat the variable as part of the protected setup.
 - Fork PRs are not analysed (see the security doc).
 - Each same-repository PR run waits for a reviewer's approval.
 - Docker must be available on the runner (it is on `ubuntu-latest`).
-- The engine's own limits apply: path traversal (read) and archive extraction (write) are the realised classes, and the oracle has declared residual limits R1-R6 (see `SPEC.md` and `docs/oracle-provenance.md` section 7). A green check means nothing could be proven, not that the change is safe.
+- The engine's own limits apply: path traversal (read) and archive extraction (write) are the realised classes, and the oracle has declared residual limits R1-R6 (see `SPEC.md` and `docs/oracle/oracle-provenance.md` section 7). A green check means nothing could be proven, not that the change is safe.

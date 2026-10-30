@@ -6,7 +6,7 @@ flaky) is a negative that must NOT be proven. Each case is run ``RUNS`` times an
 proven only if every run is a stable proof, so a flaky exploit is correctly a negative.
 
 The confusion matrix and the real precision/recall are written to a scratch directory and
-compared with the tracked ``docs/oracle-eval.md``; the tracked file is rewritten only when
+compared with the tracked ``docs/oracle/oracle-eval.md``; the tracked file is rewritten only when
 ``EXHIBIT_A_WRITE_EVAL_DOC=1`` (so parallel runs never touch it). Flaky-fixture counters live
 in a per-run scratch copy of the exploit, never in the repository. The
 thresholds below are a floor, not a tuning knob: the numbers reported are whatever the oracle
@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parent.parent
 READ_ROOT = Path(__file__).parent / "fixtures" / "oracle_eval"
 WRITE_CASE = ROOT / "bench" / "corpus" / "archive-extraction-pathtraversal"
 ENTRY_POINTS = {"App.handle_request"}
-DOC = ROOT / "docs" / "oracle-eval.md"
+DOC = ROOT / "docs" / "oracle" / "oracle-eval.md"
 AUDIT_F2 = READ_ROOT / "audit_f2"
 
 
@@ -220,7 +220,7 @@ def test_oracle_eval_precision_recall(tmp_path):
     assert recall >= 0.95, f"recall {recall:.3f} below floor; missed positives: {missed}"
     # The tracked doc is only compared: rerun with EXHIBIT_A_WRITE_EVAL_DOC=1 to refresh it.
     assert _numbers(report) == _numbers(DOC.read_text(encoding="utf-8")), (
-        "docs/oracle-eval.md is stale; rerun with EXHIBIT_A_WRITE_EVAL_DOC=1")
+        "docs/oracle/oracle-eval.md is stale; rerun with EXHIBIT_A_WRITE_EVAL_DOC=1")
 
 
 def test_both_classes_are_represented():

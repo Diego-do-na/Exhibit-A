@@ -498,7 +498,7 @@ The security and integrity of Exhibit A rest on clean, uncrossable boundaries be
   4. If the test reads the canary directly, or invokes private sinks without routing through the entry point, the test is rejected as `invalid_test`.
 
 ### Boundary 4: Current Implementation State vs. Roadmap
-- **Present State**: In the current codebase, `VerificationLoop` can invoke the Docker sandbox runner (`exhibit_a.sandbox.runner`) or host child processes (`_local_baseline` in `cli.py` and `run_oracle` in `exhibit_a.oracle.oracle`). As noted in `AGENTS.md` and `docs/first-cve.md`, the oracle and the Starlette benchmark baseline currently execute in scrubbed host child processes while containerization tasks (T026/T027) are in flight.
+- **Present State**: In the current codebase, `VerificationLoop` can invoke the Docker sandbox runner (`exhibit_a.sandbox.runner`) or host child processes (`_local_baseline` in `cli.py` and `run_oracle` in `exhibit_a.oracle.oracle`). As noted in `AGENTS.md` and `docs/design/first-cve.md`, the oracle and the Starlette benchmark baseline currently execute in scrubbed host child processes while containerization tasks (T026/T027) are in flight.
 - **Target State**: Both baseline testing and oracle-observed exploit execution will run unified inside the hardened Docker container image with pre-baked language and dependency environments.
 
 ---
