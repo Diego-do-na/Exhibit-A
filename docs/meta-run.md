@@ -139,6 +139,42 @@ and which packages the sandbox installs (`loop/prompts.py::test_contract`,
 `docs/cost-controls.md`). `httpx` was deliberately not added to the Starlette cases: the replay of
 these recordings must keep reproducing what the live run saw.
 
+## Compact-profile run: both vulnerable cases proven and fixed
+
+Recorded on 2026-10-30 with `--profile compact` (same model, `muse-wonder-1.0`, reasoning effort
+`minimal`, bounded answers, the proof contract above), US$1 per case, US$2 total:
+
+```bash
+PYTHONPATH=src:. python -m bench.record_meta --profile compact --overwrite \
+  --case archive-extraction-pathtraversal --case starlette-cve-2023-29159 \
+  --budget-usd 1 --total-usd 2
+```
+
+| Case | Calls | Tokens in + out | Cost (US$) | Verdict |
+|---|---|---|---|---|
+| archive-extraction-pathtraversal | 4 | 5086 + 1967 | 0.0597 | S1 `proven`, fix verified, 3 bypass variants tried, 0 succeeded |
+| starlette-cve-2023-29159 | 4 | 9488 + 3632 | 0.1106 | S1 `proven`, fix verified, 3 bypass variants tried, 0 succeeded |
+
+Every role was answered by the Meta model: the adversary raised the suspicion, the test
+writer wrote the exploit, the fixer proposed the fix as one search/replace edit, and the
+defender tried three bypasses against the fixed code. The Starlette fix the model proposed
+replaces `os.path.commonprefix` with `os.path.commonpath` in `StaticFiles.lookup_path`; the
+archive fix confines the member path with `os.path.commonpath` before writing.
+
+Compared with the standard run of the same two cases (US$1.91 and US$0.74, nothing proven),
+the compact run cost about one tenth and proved both. Earlier compact attempts that day, kept
+out of the repository because `--overwrite` replaced them, showed why each contract line is
+there: without the dotted entry-point name the oracle matched no frame (US$0.12, nothing
+proven), and without "the test must pass on fixed code" the Starlette exploit raised the
+404 `HTTPException` on the fixed tree, so the fix could not be verified (US$0.22, archive
+proven, Starlette not).
+
+Recordings: `bench/corpus/<case>/recordings/meta-muse-wonder-1.0-compact.{jsonl,json}`.
+`tests/test_meta_replay.py` replays them offline (no key, no network) and must reproduce both
+verdicts. The model is not deterministic: a new live run can differ.
+
+Not yet run with the compact profile: the negative control `starlette-cve-2023-29159-fixed`.
+
 ## Re-running
 
 `--case` limits the run to some cases. `--overwrite` replaces a recording. `--spent-usd` counts
