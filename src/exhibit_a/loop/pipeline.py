@@ -212,6 +212,9 @@ class VerificationLoop:
         # Which prompt builders and output schemas the roles get ("standard" or "compact").
         # The standard profile is the one every recorded replay key was made with.
         self.prompts = prompts.profile(prompt_profile)
+        # Packages the sandbox installs for this case; the compact contract lists them so a
+        # model does not write tests that die on an import the sandbox never provides.
+        self.requirements = tuple(requirements)
 
     def _classify(self, judgement: Judgement) -> VerdictValue:
         return classify(judgement, oracle=self.flags.oracle)
@@ -325,7 +328,8 @@ class VerificationLoop:
         try:
             source = (self.clone / suspicion.location.file).read_text(encoding="utf-8")
             written = self.roles.test_writer.run(
-                self.prompts.writer_prompt(suspicion, source), self.prompts.exploit_schema
+                self.prompts.writer_prompt(suspicion, source, **self._contract()),
+                self.prompts.exploit_schema,
             )
         except (SchemaValidationError, OSError, UnicodeDecodeError) as exc:
             return done(VerdictValue.INVALID_TEST, f"no usable exploit test: {exc}",
@@ -504,6 +508,12 @@ class VerificationLoop:
             return patch_text, fix_verified, tried, succeeded, detail
         return "", False, 0, 0, "the fixer proposed an empty patch"
 
+    def _contract(self) -> dict[str, str]:
+        """``contract=`` for profiles whose test prompts spell out the proof contract."""
+        if not self.prompts.takes_contract:
+            return {}
+        return {"contract": prompts.test_contract(self.effect, self.requirements)}
+
     def _edits_to_files(self, edits: list[dict[str, str]]) -> list[dict[str, str]]:
         """Turn compact search/replace edits into whole files for ``_apply_fix``.
 
@@ -616,7 +626,8 @@ class VerificationLoop:
         patched = (fixed / suspicion.location.file).read_text(encoding="utf-8")
         try:
             proposal = self.roles.defender.run(
-                self.prompts.defender_prompt(suspicion, patched, exploit_src), self.prompts.variants_schema
+                self.prompts.defender_prompt(suspicion, patched, exploit_src, **self._contract()),
+                self.prompts.variants_schema,
             )
         except SchemaValidationError:
             return 0, 0

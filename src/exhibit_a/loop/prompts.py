@@ -7,7 +7,7 @@ below are enforced by ModelRole, and the loop re-checks paths before touching th
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from exhibit_a.schemas import Suspicion
 
@@ -204,6 +204,45 @@ COMPACT_VARIANTS_SCHEMA: dict[str, Any] = {
 }
 
 
+def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> str:
+    """The proof contract an exploit test must meet, spelled out for the model.
+
+    The standard profile only names the two environment variables, so a model cannot know
+    where the canary is: in the first real Meta run (docs/meta-run.md) every archive exploit
+    wrote outside the allowed directory, but to a file name it invented, and no Starlette
+    exploit aimed at the canary. Saying where the canary is does not weaken the proof: the
+    oracle still requires the application itself to touch it through the entry point.
+    """
+    canary = "os.path.join(os.path.dirname(os.environ['EXHIBIT_A_ALLOWED_DIR']), 'outside', 'canary.txt')"
+    token = "os.environ['EXHIBIT_A_CANARY_TOKEN']"
+    if effect == "canary_write":
+        goal = (
+            f"The canary path is {canary}; it does not exist before the test. The flaw is "
+            f"proven only if the APPLICATION, handling input the test sends through its entry "
+            f"point, creates that file with the token {token} as its content. End with "
+            "assert not os.path.exists(<canary path>) so the test FAILS on vulnerable code."
+        )
+    elif effect == "canary_read":
+        goal = (
+            f"The canary file is {canary} (a directory named 'outside' beside the allowed "
+            f"directory); it contains the token {token}. The flaw is proven only if the "
+            "APPLICATION, handling a request the test sends through its entry point, reads that "
+            "file. Assert the token is NOT in the application's response so the test FAILS on "
+            "vulnerable code."
+        )
+    else:
+        raise ValueError(f"unknown oracle effect {effect!r}")
+    allowed = ", ".join(packages) if packages else "nothing beyond the application itself"
+    return (
+        f"PROOF CONTRACT: {goal} Root the application at EXHIBIT_A_ALLOWED_DIR or at a "
+        "directory the test creates beside it, never at 'outside' or inside it. Never open, "
+        "create or write the canary from the test itself; never monkeypatch, replace or edit "
+        "application code or modules; never use ctypes, subprocess, eval, exec or importlib "
+        "tricks. Imports: the Python standard library, pytest, the application, and the "
+        f"installed packages: {allowed}."
+    )
+
+
 def compact_adversary_prompt(diff_or_source: str, file: str) -> str:
     return (
         f"SOURCE ({file}):\n{diff_or_source}\n"
@@ -214,11 +253,11 @@ def compact_adversary_prompt(diff_or_source: str, file: str) -> str:
     )
 
 
-def compact_writer_prompt(suspicion: Suspicion, source: str) -> str:
+def compact_writer_prompt(suspicion: Suspicion, source: str, contract: str = _ENV_NOTE) -> str:
     return (
         f"SOURCE ({suspicion.location.file}):\n{source}\n"
         "ROLE: test_writer. Write one short pytest exploit test for this suspicion that FAILS "
-        f"on the vulnerable code. {_ENV_NOTE}\nSUSPICION {suspicion.id}: {suspicion.to_json()}\n"
+        f"on the vulnerable code. {contract}\nSUSPICION {suspicion.id}: {suspicion.to_json()}\n"
         f'Reply with JSON {{"test_source": "..."}}. {_BRIEF}'
     )
 
@@ -234,11 +273,13 @@ def compact_fixer_prompt(suspicion: Suspicion, source: str, exploit: str, reason
     )
 
 
-def compact_defender_prompt(suspicion: Suspicion, patched_source: str, exploit: str) -> str:
+def compact_defender_prompt(
+    suspicion: Suspicion, patched_source: str, exploit: str, contract: str = _ENV_NOTE
+) -> str:
     return (
         f"PATCHED SOURCE ({suspicion.location.file}):\n{patched_source}\n"
         "ROLE: defender. Try to bypass the fix with at most 3 short variants of the exploit. "
-        f"{_ENV_NOTE}\nSUSPICION {suspicion.id}: {suspicion.to_json()}\nORIGINAL EXPLOIT:\n{exploit}\n"
+        f"{contract}\nSUSPICION {suspicion.id}: {suspicion.to_json()}\nORIGINAL EXPLOIT:\n{exploit}\n"
         f'Reply with JSON {{"variants": [{{"name": "...", "test_source": "..."}}]}}. {_BRIEF}'
     )
 
@@ -261,6 +302,8 @@ class PromptProfile:
     variants_schema: dict[str, Any]
     #: The fixer answers with whole files ("files") or with search/replace edits ("edits").
     fix_format: str
+    #: Whether the test writer and defender take a ``contract=`` text (see test_contract).
+    takes_contract: bool = False
 
 
 def profile(name: str) -> PromptProfile:
@@ -274,6 +317,6 @@ def profile(name: str) -> PromptProfile:
         return PromptProfile(
             "compact", compact_adversary_prompt, compact_writer_prompt, compact_fixer_prompt,
             compact_defender_prompt, COMPACT_SUSPICIONS_SCHEMA, COMPACT_EXPLOIT_SCHEMA,
-            COMPACT_FIX_SCHEMA, COMPACT_VARIANTS_SCHEMA, "edits",
+            COMPACT_FIX_SCHEMA, COMPACT_VARIANTS_SCHEMA, "edits", takes_contract=True,
         )
     raise ValueError(f"unknown prompt profile {name!r}; known profiles: {list(PROFILES)}")

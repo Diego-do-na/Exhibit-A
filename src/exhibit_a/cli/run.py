@@ -451,6 +451,7 @@ def _run_case(args: argparse.Namespace) -> int:
             runner=SandboxRunner(
                 requirements=tuple(settings.get("requirements", ()))
             ),
+            requirements=tuple(settings.get("requirements", ())),
             effect=settings.get("effect", "canary_read"),
             prompt_profile=_profile(args),
         )

@@ -116,6 +116,29 @@ PYTHONPATH=src:. ~/Desktop/Proyects/Exhibit-A/.venv/bin/python -m bench.record_m
 The output was `hits: 0` (see the T070 entry in `docs/common.md`). `tests/test_meta_replay.py`
 repeats the scan over the committed recordings in whatever environment runs it.
 
+## Follow-up: why nothing was proven, and what changed
+
+Reading the recorded answers (2026-10-30) gives one root cause shared by every case: the
+standard test-writer prompt names `EXHIBIT_A_ALLOWED_DIR` and `EXHIBIT_A_CANARY_TOKEN` but never
+says where the canary is, so the model could not aim at it.
+
+- Archive extraction: the exploits did make the application write outside the allowed
+  directory, but to file names the model invented (`pwned_*`), so the oracle correctly saw no
+  write of the canary.
+- Starlette: the hand-authored exploit works because it knows the canary sits in
+  `<parent of the allowed dir>/outside/canary.txt`. Of the five recorded exploits, two were
+  rejected by the monkeypatch tripwire, one passed, one failed for the wrong reason, and one never
+  ran because it used `starlette.testclient`, which needs `httpx`, a package the case does not
+  install.
+
+The standard prompts are frozen (their text is part of every replay key, so changing them would
+stop these recordings from replaying). The fix is in the opt-in compact profile: its test-writer
+and defender prompts carry a proof contract that says where the canary is for the case's effect,
+what the test must assert, what is forbidden (monkeypatch, ctypes, subprocess, opening the canary)
+and which packages the sandbox installs (`loop/prompts.py::test_contract`,
+`docs/cost-controls.md`). `httpx` was deliberately not added to the Starlette cases: the replay of
+these recordings must keep reproducing what the live run saw.
+
 ## Re-running
 
 `--case` limits the run to some cases. `--overwrite` replaces a recording. `--spent-usd` counts

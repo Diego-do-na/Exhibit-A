@@ -299,8 +299,11 @@ Still open / UNVERIFIED:
   history shows it.
 - Public repository.
 - The demo shows only what was built during the event.
-- Results and demo come from Meta models: **pending, not yet true.** The only recordings in
-  the repository are hand-authored (`"model": "hand-authored"` in both Starlette `replay.jsonl`
-  files), no Meta-model recording or `docs/meta-run.md` exists, and the Meta endpoint is
-  UNVERIFIED (section 14). Do not claim it until a live Meta run is recorded.
+- Results and demo come from Meta models: **partly true.** A live run of the full loop with
+  `muse-wonder-1.0` on all three corpus cases is recorded and replays offline
+  (`bench/corpus/*/recordings/meta-muse-wonder-1.0.*`, `docs/meta-run.md`; endpoint verified
+  2026-10-29). It proved nothing: the standard prompts never told the model where the canary is.
+  The opt-in `--profile compact` now states the proof contract (`docs/cost-controls.md`); until a
+  live run with it proves a case, do not claim a Meta-proven finding. The `replay.jsonl` files in
+  the Starlette cases remain hand-authored.
 - Never commit keys or tokens.
