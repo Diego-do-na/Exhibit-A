@@ -284,6 +284,9 @@ class VerificationLoop:
             return result
 
         seen: set[str] = set()
+        # One adversary call, one charge: its usage rides on the first suspicion only (it was
+        # charged once per suspicion, which inflated ledger totals by the number raised).
+        charge: RoleResult | None = raised
         for raw in raised.output["suspicions"]:
             try:
                 suspicion = Suspicion.model_validate(raw)
@@ -301,10 +304,14 @@ class VerificationLoop:
                          "path": render(path)}
                 suspicion = suspicion.model_copy(update={"entry_point": path.oracle_entry_point})
             extra = {"graph": graph} if graph else {}
-            self._emit(EventType.SUSPICION_RAISED, raised, suspicion=json.loads(suspicion.to_json()), **extra)
+            self._emit(EventType.SUSPICION_RAISED, charge, suspicion=json.loads(suspicion.to_json()), **extra)
+            charge = None
             result.suspicions.append(suspicion)
             if not self.flags.naive:  # naive reports what was raised: no exploit, no verdict
                 result.results.append(self._process(suspicion))
+        if charge is not None:
+            # No usable suspicion: the adversary call still cost money and must be on the record.
+            self._emit(EventType.SCAN_DONE, charge, status="no_suspicions", source_file=source_file)
         return result
 
     def _process(self, suspicion: Suspicion) -> SuspicionResult:
