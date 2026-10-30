@@ -235,7 +235,9 @@ def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> 
         raise ValueError(f"unknown oracle effect {effect!r}")
     allowed = ", ".join(packages) if packages else "nothing beyond the application itself"
     return (
-        f"PROOF CONTRACT: {goal} Root the application at EXHIBIT_A_ALLOWED_DIR or at a "
+        f"PROOF CONTRACT: {goal} The test must PASS once the flaw is fixed: if the "
+        "application refuses the input by raising an exception or answering with an error, "
+        "catch that and treat it as safe, so that only the canary assertion can fail. Root the application at EXHIBIT_A_ALLOWED_DIR or at a "
         "directory the test creates beside it, never at 'outside' or inside it. Never open, "
         "create or write the canary from the test itself; never monkeypatch, replace or edit "
         "application code or modules; never use ctypes, subprocess, eval, exec or importlib "
