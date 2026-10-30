@@ -7,3 +7,6 @@ never imported or executed by the tests that use them.
 - `unreachable/`: an ASGI app whose changed helpers either reach no entry point or reach no sink.
 - `cycles/`: mutual and self recursion on the way to a sink.
 - `decorated/`: route handlers registered by decorators, at module level and inside a factory.
+- `asgi_static/`: a static-file ASGI app whose lookup runs through a worker-thread helper
+  (a method handed to another call), the shape of the Starlette case.
+- `weak/`: a request handler that reaches its sink only through a receiver of unknown type.
