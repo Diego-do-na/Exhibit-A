@@ -1,14 +1,16 @@
 # Demo storyboard: red to green in 2-3 minutes
 
-The demo tells one story: a pull request introduces a vulnerability, Exhibit A
-proves it, proposes a fix, goes green, and leaves a report plus a browsable
-history. It runs two ways:
+The demo tells one story: real vulnerable code that Exhibit A proves, a fix
+the model proposed, a green re-run, plus a report and a browsable history.
+Everything shown is the code that is actually proven — no stand-in fixture.
+It runs two ways:
 
 - `scripts/demo.sh --offline` — replays the committed compact-profile Meta
-  recordings (`examples/demo-app/recordings/`, byte-identical copies of the
-  live runs in `bench/corpus/<case>/recordings/`). No key, no Meta network.
-  The sandbox still executes every baseline and exploit test, so Docker must
-  be running. This is the reliable, video-safe path.
+  recordings in `bench/corpus/<case>/recordings/`
+  (`meta-muse-wonder-1.0-compact.*`, single source of truth, never copied).
+  No key, no Meta network. The sandbox still executes every baseline and
+  exploit test, so Docker must be running. This is the reliable, video-safe
+  path.
 - `scripts/demo.sh --live` — runs the same story live against Muse Wonder
   (`muse-wonder-1.0`, `--profile compact --budget-usd 1`, archive case only).
   Needs `META_API_KEY` in the environment. The model is not deterministic: a
@@ -25,7 +27,7 @@ and resource-limited", never "100% safe".
 
 | Time | Screen | Command / action |
 |------|--------|------------------|
-| 0:00 | The PR | `scripts/demo.sh --offline` starts; step 1 prints `pr.patch`: the "simplification" that replaces path confinement with a bare `os.path.join`. Say: "this PR drops the zip-slip check." |
+| 0:00 | The code | `scripts/demo.sh --offline` starts; step 1 prints the archive `fixed/` vs `vulnerable/` diff (the removed confinement check) and the Starlette `commonprefix` line the model turned into `commonpath`. Say: "this, and nothing else, is what gets proven." |
 | 0:20 | Red (proven) | Step 2 replays both compact Meta recordings through the real loop and sandbox. Say: "Muse Wonder's exploit runs in an isolated sandbox; the oracle watches the canary." Archive first (~1 min, dependency-free), then Starlette (~1-2 min, installs pinned `starlette`/`anyio` in the sandbox). |
 | ~2:00 | The verdict | Step 3 prints both ledger verdicts: `S1=proven fix_verified=True`. Say: "proven, and the fix the model proposed held — the exploit passes on fixed code, the baseline still passes, three bypass variants failed." |
 | ~2:10 | The report | Step 4 renders the finding package with `exhibit-a report`: verdict, evidence, fix. Say: "this is what a reviewer gets — the exploit test, the patch, the evidence." |
@@ -55,5 +57,5 @@ on a cold machine (see troubleshooting).
 - Port 8765 busy: `python -m exhibit_a.cli dashboard --source local:runs/demo-offline --port 8771`.
 - Re-recording: never edit a recording by hand. A new live run overwrites
   only with `bench/record_meta.py --profile compact --overwrite`, and the
-  demo copies under `examples/demo-app/recordings/` must be re-copied
-  byte-identical afterwards (enforced by `tests/test_demo_kit.py`).
+  demo replays whatever is committed there — there are no copies to keep in
+  sync.

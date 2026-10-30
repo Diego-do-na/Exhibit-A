@@ -27,14 +27,27 @@ SERVE="${2:-}"
 export PYTHONPATH="$ROOT/src:$ROOT/bench${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONDONTWRITEBYTECODE=1
 
-DEMO_APP="$ROOT/examples/demo-app"
-RECORDINGS="$DEMO_APP/recordings"
-
 step() { printf '\n=== %s ===\n' "$1"; }
 
-# -- Step 1: the PR ------------------------------------------------------------
-step "1/6 the PR: a 'simplification' that drops path confinement"
-cat "$DEMO_APP/pr.patch"
+# -- Step 1: the code under proof ----------------------------------------------
+step "1/6 the code under proof (this, and nothing else, is what gets proven)"
+echo "--- archive: the confinement check whose removal is the vulnerability ---"
+diff -u bench/corpus/archive-extraction-pathtraversal/fixed/archive.py \
+       bench/corpus/archive-extraction-pathtraversal/vulnerable/archive.py || true
+echo
+echo "--- starlette: the line Starlette 0.26.1 shipped (CVE-2023-29159) ---"
+python3 - <<'EOF'
+import json
+recording = "bench/corpus/starlette-cve-2023-29159/recordings/meta-muse-wonder-1.0-compact.jsonl"
+for line in open(recording, encoding="utf-8"):
+    row = json.loads(line)
+    if row["role"] == "fixer":
+        edit = json.loads(row["text"])["edits"][0]
+        print(f"{edit['path']}:")
+        print(f"-{edit['find']}")
+        print(f"+{edit['replace']}")
+EOF
+echo "This is the code Starlette 0.26.1 shipped (CVE-2023-29159)."
 
 if [[ "$MODE" == "--offline" ]]; then
     OUT="${DEMO_OUT:-$ROOT/runs/demo-offline}"
@@ -49,25 +62,15 @@ from pathlib import Path
 # Prove the replay is offline: without the key no live call could be built.
 os.environ.pop("META_API_KEY", None)
 
-from bench.corpus import load_corpus
-from bench.record_meta import SplitMeter, run_case
-from exhibit_a.models import CostMeter, ReplayProvider
+from bench.record_meta import replay_case
 
 root = Path(".")
 out_root = Path(sys.argv[1])
-demo_rec = root / "examples/demo-app/recordings"
-pairs = [
-    ("archive-extraction-pathtraversal", "archive"),
-    ("starlette-cve-2023-29159", "starlette"),
-]
-total = CostMeter(2.0)
-for case_id, stem in pairs:
-    meta = json.loads((demo_rec / f"{stem}-meta-muse-wonder-1.0-compact.json").read_text())
-    meter = SplitMeter(CostMeter(meta["budget_usd"]["case"]), total)
-    recording = demo_rec / f"{stem}-meta-muse-wonder-1.0-compact.jsonl"
+for case_id in ("archive-extraction-pathtraversal", "starlette-cve-2023-29159"):
+    meta = json.loads((root / "bench" / "corpus" / case_id / "recordings"
+                       / "meta-muse-wonder-1.0-compact.json").read_text())
     started = time.monotonic()
-    outcome = run_case(load_corpus(root / "bench" / "corpus" / case_id)[0],
-                       ReplayProvider(recording), out_root / case_id, meter, "compact")
+    outcome = replay_case(case_id, "muse-wonder-1.0", out_root / case_id, "compact")
     elapsed = time.monotonic() - started
     verdicts = ", ".join(
         f"{v['suspicion_id']}={v['verdict']} fix_verified={v['fix_verified']}" for v in outcome.verdicts)
@@ -126,7 +129,7 @@ for ledger in sorted(out.glob("*/ledger.jsonl")):
             raised += 1
         elif kind == "verdict" and payload.get("verdict") in counts:
             counts[payload["verdict"]] += 1
-    append_run(index, RunRecord(run_id=run_id, repo="examples/demo-app (offline replay)",
+    append_run(index, RunRecord(run_id=run_id, repo="bench/corpus (compact Meta replay)",
                                 commit=commit or "unknown", ts=datetime.now(timezone.utc),
                                 status="completed",
                                 verdict_counts=VerdictCounts(**counts),
