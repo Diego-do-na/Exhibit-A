@@ -290,7 +290,10 @@ class VerificationLoop:
         # label every app frame as test code and no bypass could ever be proven.
         tests_dir = work / "tests"
         tests_dir.mkdir(parents=True, exist_ok=True)
-        entry_points = {suspicion.entry_point}
+        entry_points = {
+            prompts.canonical_entry_point(suspicion.entry_point)
+            if self.prompts.canonical_entry_points else suspicion.entry_point
+        }
 
         def done(
             value: VerdictValue,
