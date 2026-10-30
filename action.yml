@@ -34,6 +34,12 @@ inputs:
     description: Name of the environment variable the provider reads the key from.
     required: false
     default: META_API_KEY
+  profile:
+    description: >-
+      Prompt profile passed to --profile. compact bounds every model answer to cut
+      cost; standard matches the recorded replays. compact cannot be used with replay.
+    required: false
+    default: standard
   fail-on:
     description: "proven: fail the check when a proven finding exists. never: report only."
     required: false
@@ -141,6 +147,7 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
         IN_FAIL_ON: ${{ inputs.fail-on }}
+        IN_PROFILE: ${{ inputs.profile }}
         IN_WORKDIR: ${{ inputs.working-directory }}
         IN_MAX_MINUTES: ${{ inputs.max-runtime-minutes }}
         IN_BUDGET: ${{ inputs.budget-usd }}
@@ -156,6 +163,8 @@ runs:
         case "$IN_FAIL_ON" in proven|never) ;; *) fail "fail-on must be 'proven' or 'never'";; esac
         [[ "$IN_MAX_MINUTES" =~ ^[0-9]+$ ]] && (( IN_MAX_MINUTES >= 1 && IN_MAX_MINUTES <= 360 )) \
           || fail "max-runtime-minutes must be an integer from 1 to 360"
+        case "$IN_PROFILE" in standard|compact) ;; *) fail "profile must be 'standard' or 'compact'";; esac
+        [[ "$IN_PROFILE" == "compact" && "$IN_REPLAY" == "true" ]] && fail "profile compact cannot be combined with replay"
         [[ -z "$IN_BUDGET" || "$IN_BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || fail "budget-usd must be a number"
         [[ "$IN_KEY_ENV" =~ ^[A-Z_][A-Z0-9_]*$ ]] || fail "api-key-env must be an upper-case variable name"
         case "$IN_KEY_ENV" in PATH|HOME|PYTHONPATH|LD_*|GITHUB_*|RUNNER_*|EXHIBIT_A_*) fail "api-key-env may not shadow $IN_KEY_ENV";; esac
@@ -234,6 +243,7 @@ runs:
         IN_KEY_ENV: ${{ inputs.api-key-env }}
         IN_PROVIDER: ${{ inputs.provider }}
         IN_MODEL: ${{ inputs.model }}
+        IN_PROFILE: ${{ inputs.profile }}
         WORKDIR: ${{ steps.setup.outputs.workdir }}
         OUT: ${{ steps.setup.outputs.out }}
         IN_MAX_MINUTES: ${{ inputs.max-runtime-minutes }}
@@ -270,7 +280,7 @@ runs:
           [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Exhibit A::head-sha must be a full commit SHA"; exit 1; }
           # Both SHAs are validated above and stay quoted: never interpolated
           # into shell unquoted, so a crafted value cannot inject commands.
-          args+=(--pr-diff "$base..$head" --provider "$IN_PROVIDER")
+          args+=(--pr-diff "$base..$head" --provider "$IN_PROVIDER" --profile "$IN_PROFILE")
           [[ -n "$IN_MODEL" ]] && args+=(--model "$IN_MODEL")
         fi
         [[ "$IN_REPLAY" == "true" ]] && args+=(--replay)

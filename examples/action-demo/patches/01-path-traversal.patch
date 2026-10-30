@@ -1,0 +1,19 @@
+diff --git a/examples/action-demo/pamphlets.py b/examples/action-demo/pamphlets.py
+index 917f42c..ce2a6ad 100644
+--- a/examples/action-demo/pamphlets.py
++++ b/examples/action-demo/pamphlets.py
+@@ -28,12 +28,8 @@ class App:
+         self.shelf_dir = shelf_dir
+ 
+     def _resolve(self, name):
+-        """Map a pamphlet name to a file inside the shelf, or None when it points outside."""
+-        root = os.path.realpath(self.shelf_dir)
+-        target = os.path.realpath(os.path.join(root, name))
+-        if os.path.commonpath([root, target]) != root:
+-            return None
+-        return target
++        """Map a pamphlet name to a file in the shelf (nested folders are allowed)."""
++        return os.path.join(self.shelf_dir, name)
+ 
+     def handle_request(self, method, path, query=None):
+         """Entry point: dispatch one request."""
