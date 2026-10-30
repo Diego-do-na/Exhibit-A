@@ -112,8 +112,19 @@ def case_dir(case_id: str) -> Path:
     return CORPUS / case_id
 
 
-def recording_paths(case_id: str, model: str) -> tuple[Path, Path]:
-    stem = f"meta-{model}"
+#: Prompt profiles a recording can be made with (loop/prompts.py::profile). The standard
+#: recordings keep their original file names; other profiles get a suffix.
+PROFILES = ("standard", "compact")
+#: Cost controls sent with every call of a compact recording (one provider serves all roles,
+#: so the ceiling is the largest per-role cap of cli/run.py::COMPACT_MAX_OUTPUT_TOKENS).
+COMPACT_REASONING_EFFORT = "minimal"
+COMPACT_MAX_OUTPUT_TOKENS = 10000
+
+
+def recording_paths(case_id: str, model: str, profile: str = "standard") -> tuple[Path, Path]:
+    if profile not in PROFILES:
+        raise ValueError(f"unknown profile {profile!r}")
+    stem = f"meta-{model}" if profile == "standard" else f"meta-{model}-{profile}"
     base = case_dir(case_id) / "recordings"
     return base / f"{stem}.jsonl", base / f"{stem}.json"
 
@@ -122,7 +133,9 @@ def load_case(case_id: str) -> Case:
     return load_corpus(case_dir(case_id))[0]
 
 
-def run_case(case: Case, provider: Any, out_dir: Path, meter: Any = None) -> CaseOutcome:
+def run_case(
+    case: Case, provider: Any, out_dir: Path, meter: Any = None, profile: str = "standard"
+) -> CaseOutcome:
     """Run the full loop on one case with every role answered by ``provider``.
 
     The same staging, runner and loop settings serve recording and replay, so every
@@ -137,7 +150,9 @@ def run_case(case: Case, provider: Any, out_dir: Path, meter: Any = None) -> Cas
         clone, out_dir, ledger, roles, STAGED_BASELINE,
         run_id=case.id,
         runner=SandboxRunner(requirements=tuple(case.requirements)),
+        requirements=tuple(case.requirements),
         effect=case.effect,
+        prompt_profile=profile,
     )
     outcome = CaseOutcome(case.id)
     try:
@@ -169,19 +184,19 @@ def comparable(verdicts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{key: row.get(key) for key in VERDICT_KEYS} for row in verdicts]
 
 
-def replay_meter(case_id: str, model: str) -> SplitMeter:
+def replay_meter(case_id: str, model: str, profile: str = "standard") -> SplitMeter:
     """The caps the recorded run had, so a replay stops exactly where the live run did.
 
     Every recorded completion carries its real cost, which the replayed roles charge again.
     The run-wide meter starts with what the cases before this one (in ``CASES`` order, the
     order one invocation records them in) spent.
     """
-    _, metadata_path = recording_paths(case_id, model)
+    _, metadata_path = recording_paths(case_id, model, profile)
     meta = json.loads(metadata_path.read_text(encoding="utf-8"))
     total = CostMeter(meta["budget_usd"]["run_total"])
     spent_before = 0.0
     for earlier in CASES[: CASES.index(case_id)]:
-        path = recording_paths(earlier, model)[1]
+        path = recording_paths(earlier, model, profile)[1]
         if path.exists():
             spent_before += json.loads(path.read_text(encoding="utf-8"))["cost_usd"]
     if spent_before:
@@ -189,10 +204,11 @@ def replay_meter(case_id: str, model: str) -> SplitMeter:
     return SplitMeter(CostMeter(meta["budget_usd"]["case"]), total)
 
 
-def replay_case(case_id: str, model: str, out_dir: Path) -> CaseOutcome:
+def replay_case(case_id: str, model: str, out_dir: Path, profile: str = "standard") -> CaseOutcome:
     """Replay a recorded Meta run offline (no network); the sandbox still runs every test."""
-    recording, _ = recording_paths(case_id, model)
-    return run_case(load_case(case_id), ReplayProvider(recording), out_dir, replay_meter(case_id, model))
+    recording, _ = recording_paths(case_id, model, profile)
+    return run_case(load_case(case_id), ReplayProvider(recording), out_dir,
+                    replay_meter(case_id, model, profile), profile)
 
 
 def _usage(recording: Path) -> dict[str, Any]:
@@ -222,21 +238,27 @@ def _git_commit() -> dict[str, Any]:
 
 
 def record_case(
-    case_id: str, model: str, total: CostMeter, budget_usd: float, out_dir: Path, overwrite: bool
+    case_id: str, model: str, total: CostMeter, budget_usd: float, out_dir: Path, overwrite: bool,
+    profile: str = "standard",
 ) -> dict[str, Any]:
-    recording, metadata_path = recording_paths(case_id, model)
+    recording, metadata_path = recording_paths(case_id, model, profile)
     if recording.exists():
         if not overwrite:
             raise FileExistsError(f"{recording} exists; pass --overwrite to record again")
         recording.unlink()
     meta = MetaProvider(model, timeout=PROVIDER_TIMEOUT_S)
+    if profile == "compact":
+        meta.configure_generation(COMPACT_REASONING_EFFORT, COMPACT_MAX_OUTPUT_TOKENS)
     provider = RecordingProvider(recording, meta)
     meter = SplitMeter(CostMeter(budget_usd), total)
     started = datetime.now(timezone.utc)
     commit = _git_commit()
-    outcome = run_case(load_case(case_id), provider, out_dir, meter)
+    outcome = run_case(load_case(case_id), provider, out_dir, meter, profile)
     metadata = {
         "case": case_id,
+        "profile": profile,
+        "reasoning_effort": meta.reasoning_effort or "provider default",
+        "max_output_tokens": meta.max_output_tokens or None,
         "provider": "meta",
         "model": model,
         "base_url": meta.base_url,
@@ -318,6 +340,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="", help="work directory (default: a new temporary one)")
     parser.add_argument("--overwrite", action="store_true", help="replace an existing recording")
     parser.add_argument("--scan", nargs="+", metavar="FILE", help="only scan files for secrets")
+    parser.add_argument("--profile", choices=PROFILES, default="standard",
+                        help="prompt profile (compact: bounded answers, proof contract, minimal reasoning)")
     args = parser.parse_args(argv)
 
     if args.scan:
@@ -333,7 +357,8 @@ def main(argv: list[str] | None = None) -> int:
         total.charge(args.spent_usd)
     out_root = Path(args.out) if args.out else Path(tempfile.mkdtemp(prefix="exhibit_a_meta_"))
     print(f"record_meta: model {args.model} at {os.environ.get('META_BASE_URL') or DEFAULT_BASE_URL}; "
-          f"cap ${args.budget_usd:.2f}/case, ${args.total_usd:.2f} total; work dir {out_root}")
+          f"profile {args.profile}; cap ${args.budget_usd:.2f}/case, ${args.total_usd:.2f} total; "
+          f"work dir {out_root}")
     code = 0
     for case_id in args.case or CASES:
         try:
@@ -342,7 +367,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"record_meta: stopping before {case_id}: {exc}")
             return 3
         try:
-            meta = record_case(case_id, args.model, total, args.budget_usd, out_root / case_id, args.overwrite)
+            meta = record_case(case_id, args.model, total, args.budget_usd, out_root / case_id, args.overwrite,
+                               args.profile)
         except (FileExistsError, FileNotFoundError, RuntimeError) as exc:
             print(f"record_meta: {case_id}: {exc}", file=sys.stderr)
             code = 1
