@@ -98,8 +98,10 @@ for ledger in sorted(out.glob("*/ledger.jsonl")):
 EOF
 
     step "4/6 the report"
-    mapfile -t PACKAGES < <(find "$OUT" -name verdict.json -path "*packages*" | sort)
-    python3 -m exhibit_a.cli report "$(dirname "${PACKAGES[0]}")"
+    # No mapfile: macOS ships bash 3.2.
+    FIRST_VERDICT="$(find "$OUT" -name verdict.json -path "*packages*" | sort | head -n 1)"
+    [[ -n "$FIRST_VERDICT" ]] || { echo "demo: no finding package was written" >&2; exit 1; }
+    python3 -m exhibit_a.cli report "$(dirname "$FIRST_VERDICT")"
 
     step "5/6 past runs"
     python3 - "$OUT" <<'EOF'
@@ -165,9 +167,9 @@ python3 -m exhibit_a.cli run \
     --provider meta --model muse-wonder-1.0 \
     --out "$OUT"
 step "report"
-mapfile -t PACKAGES < <(find "$OUT" -name verdict.json -path "*packages*" | sort)
-if [[ "${#PACKAGES[@]}" -gt 0 ]]; then
-    python3 -m exhibit_a.cli report "$(dirname "${PACKAGES[0]}")"
+FIRST_VERDICT="$(find "$OUT" -name verdict.json -path "*packages*" | sort | head -n 1)"
+if [[ -n "$FIRST_VERDICT" ]]; then
+    python3 -m exhibit_a.cli report "$(dirname "$FIRST_VERDICT")"
 else
     echo "demo: no proven finding this run (the model is not deterministic;"
     echo "see docs/meta-run.md). The ledger still records every step:"
