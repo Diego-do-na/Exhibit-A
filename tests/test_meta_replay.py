@@ -98,3 +98,50 @@ def test_committed_recordings_hold_no_secret_from_this_environment(case_id):
     recording, _ = recording_paths(case_id, DEFAULT_MODEL)
     files = [recording, recording.with_suffix(".json")]
     assert scan_files(files, scan_values()) == []
+
+
+# -- compact-profile recordings (docs/cost-controls.md) ----------------------------------------
+#
+# Recorded on 2026-10-30 with --profile compact (bounded answers, proof contract, minimal
+# reasoning). Unlike the standard run above, both vulnerable cases end proven with a verified
+# fix. The replay must reproduce that offline, with no key and no network.
+
+COMPACT_CASES = ("archive-extraction-pathtraversal", "starlette-cve-2023-29159")
+
+
+def _compact_metadata(case_id):
+    recording, metadata = recording_paths(case_id, DEFAULT_MODEL, "compact")
+    assert recording.is_file(), f"no compact Meta recording for {case_id}"
+    return recording, json.loads(metadata.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("case_id", COMPACT_CASES)
+def test_compact_recording_is_a_real_meta_run_that_proved_and_fixed(case_id):
+    recording, meta = _compact_metadata(case_id)
+    assert (meta["provider"], meta["model"], meta["profile"]) == ("meta", DEFAULT_MODEL, "compact")
+    assert meta["hand_authored"] is False
+    assert meta["reasoning_effort"] == "minimal"
+    rows = [json.loads(line) for line in recording.read_text(encoding="utf-8").splitlines() if line]
+    assert len(rows) == meta["calls"] >= 1
+    assert meta["cost_usd"] == pytest.approx(sum(row["cost_usd"] for row in rows))
+    assert meta["cost_usd"] <= meta["budget_usd"]["case"]
+    proven = [v for v in meta["verdicts"] if v["verdict"] == "proven"]
+    assert proven and all(v["fix_verified"] and not v["fix_incomplete"] for v in proven)
+
+
+@pytest.mark.docker
+@pytest.mark.parametrize("case_id", COMPACT_CASES)
+def test_offline_replay_reproduces_the_compact_verdicts(case_id, tmp_path, monkeypatch):
+    _, meta = _compact_metadata(case_id)
+    monkeypatch.delenv("META_API_KEY", raising=False)
+    outcome = replay_case(case_id, DEFAULT_MODEL, tmp_path / "replay", "compact")
+    assert outcome.baseline_ok == meta["baseline_ok"]
+    assert outcome.aborted == meta["aborted"]
+    assert outcome.suspicions_raised == meta["suspicions_raised"]
+    assert comparable(outcome.verdicts) == comparable(meta["verdicts"])
+
+
+@pytest.mark.parametrize("case_id", COMPACT_CASES)
+def test_compact_recordings_hold_no_secret_from_this_environment(case_id):
+    recording, _ = recording_paths(case_id, DEFAULT_MODEL, "compact")
+    assert scan_files([recording, recording.with_suffix(".json")], scan_values()) == []

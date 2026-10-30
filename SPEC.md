@@ -299,11 +299,10 @@ Still open / UNVERIFIED:
   history shows it.
 - Public repository.
 - The demo shows only what was built during the event.
-- Results and demo come from Meta models: **partly true.** A live run of the full loop with
-  `muse-wonder-1.0` on all three corpus cases is recorded and replays offline
-  (`bench/corpus/*/recordings/meta-muse-wonder-1.0.*`, `docs/meta-run.md`; endpoint verified
-  2026-10-29). It proved nothing: the standard prompts never told the model where the canary is.
-  The opt-in `--profile compact` now states the proof contract (`docs/cost-controls.md`); until a
-  live run with it proves a case, do not claim a Meta-proven finding. The `replay.jsonl` files in
-  the Starlette cases remain hand-authored.
+- Results and demo come from Meta models: **true for the two vulnerable corpus cases.** With
+  `--profile compact`, `muse-wonder-1.0` answered every role and both the Starlette CVE and the
+  archive-extraction case ended `proven` with a verified fix, for US$0.17 in total
+  (`bench/corpus/*/recordings/meta-muse-wonder-1.0-compact.*`, `docs/meta-run.md`); the
+  recordings replay offline. The earlier standard-profile run of all three cases proved nothing
+  and is kept as recorded. The `replay.jsonl` files in the Starlette cases remain hand-authored.
 - Never commit keys or tokens.

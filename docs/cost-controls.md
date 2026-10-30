@@ -37,6 +37,16 @@ The standard prompts and schemas are frozen (`tests/test_compact_profile.py` pin
 hash): every replay key hashes role, prompt and schema, so the recorded runs, including the
 Meta recordings, keep replaying. For the same reason `--profile compact --replay` is refused.
 
+## Measured on the corpus (2026-10-30)
+
+| Case | Standard profile (2026-10-29) | Compact profile (2026-10-30) |
+|---|---|---|
+| starlette-cve-2023-29159 | US$1.91, nothing proven | US$0.11, proven, fix verified |
+| archive-extraction-pathtraversal | US$0.74, nothing proven | US$0.06, proven, fix verified |
+
+One live run each, same model (`muse-wonder-1.0`); see `docs/meta-run.md`. The model is not
+deterministic, so these are single measurements, not averages.
+
 ## What is measured and what is not
 
 Measured on 2026-10-29 against the live API (`/v1/responses`, muse-wonder-1.0, one short
