@@ -113,3 +113,16 @@ def test_patch_and_code_are_shown_as_written(tmp_path: Path) -> None:
     patch = markdown.split("## Patch", 1)[1]
     assert "<b>" not in patch and "@team" not in patch and "](y)" not in patch  # still inert
     assert "`vulnerable/archive.py`" in markdown  # file names without escapes
+
+
+def test_suspicious_code_shows_a_window_around_the_highlighted_line(tmp_path: Path) -> None:
+    package = _package(tmp_path, "archive")
+    evidence = json.loads((package / "evidence.json").read_text(encoding="utf-8"))
+    evidence["suspicious_code"]["content"] = "".join(f"line_{n} = {n}\n" for n in range(1, 101))
+    evidence["suspicious_code"]["line"] = 50
+    evidence["suspicion"]["location"]["line"] = 50
+    (package / "evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
+    code = render_markdown(package).split("## Suspicious code", 1)[1].split("## Hypothesis", 1)[0]
+    assert ">   50 | line_50 = 50" in code
+    assert "line_42 = 42" in code and "line_58 = 58" in code
+    assert "line_41 = 41" not in code and "line_59 = 59" not in code

@@ -88,8 +88,18 @@ def _source(evidence: dict[str, Any], directory: Path, file_name: str) -> str:
     return "(source not included in this package)"
 
 
+#: Lines shown on each side of the highlighted line (the whole file is in the package).
+_CONTEXT_LINES = 8
+#: Lines shown from the top when no line is highlighted.
+_HEAD_LINES = 40
+
+
 def _line_numbered(source: str, selected: int) -> list[tuple[int, str, bool]]:
-    return [(number, line, number == selected) for number, line in enumerate(source.splitlines(), 1)]
+    """Numbered lines around ``selected`` (or the first lines when nothing is selected)."""
+    numbered = [(number, line, number == selected) for number, line in enumerate(source.splitlines(), 1)]
+    if 1 <= selected <= len(numbered):
+        return numbered[max(0, selected - 1 - _CONTEXT_LINES): selected + _CONTEXT_LINES]
+    return numbered[:_HEAD_LINES]
 
 
 def _severity(verdict: dict[str, Any], evidence: dict[str, Any]) -> str:
