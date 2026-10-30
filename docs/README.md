@@ -19,6 +19,7 @@ One line per document. Paths are relative to the repository root.
 
 - [ci/github-action.md](ci/github-action.md) — GitHub Action usage: PR-diff runs, exit codes, result comments, ledger artifacts.
 - [ci/github-action-security.md](ci/github-action-security.md) — Action security model: key handling, fork guard, leak scan, residual risks.
+- [ci/live-pr-demo.md](ci/live-pr-demo.md) — Runbook for the live pull-request demo: setup, the two demo PRs, expected checks, disabling, cost.
 
 ## bench/ — benchmark and costs
 
