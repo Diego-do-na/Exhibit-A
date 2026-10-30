@@ -121,6 +121,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     run.add_argument(
+        "--slice",
+        action="store_true",
+        default=False,
+        help=(
+            "Off by default. Build the static call graph first: when no changed function is on "
+            "a path from an entry point to a sink, record that and make no model call; "
+            "otherwise send the adversary only the functions on those paths and judge with the "
+            "graph's entry point, never the model's."
+        ),
+    )
+    run.add_argument(
         "--reasoning-effort",
         choices=("minimal", "low", "medium", "high", "max"),
         default=None,
