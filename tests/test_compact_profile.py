@@ -419,3 +419,25 @@ def test_the_standard_loop_never_sends_the_contract(tmp_path):
                             "test_baseline.py", run_id="r1", runner=HostRunner(), prompt_profile="standard")
     loop.run("app.py")  # the compact answers fail the standard fixer schema; only prompts matter here
     assert "PROOF CONTRACT" not in spy.prompts[Role.TEST_WRITER]
+
+
+# -- recording compact runs (bench/record_meta.py) ---------------------------------------------
+
+def test_compact_recordings_never_overwrite_the_standard_ones():
+    from bench.record_meta import DEFAULT_MODEL, recording_paths
+
+    standard = recording_paths("starlette-cve-2023-29159", DEFAULT_MODEL)
+    compact = recording_paths("starlette-cve-2023-29159", DEFAULT_MODEL, "compact")
+    assert standard[0].name == f"meta-{DEFAULT_MODEL}.jsonl"  # the T070 file names are unchanged
+    assert compact[0].name == f"meta-{DEFAULT_MODEL}-compact.jsonl"
+    assert compact[1].name == f"meta-{DEFAULT_MODEL}-compact.json"
+    with pytest.raises(ValueError, match="unknown profile"):
+        recording_paths("starlette-cve-2023-29159", DEFAULT_MODEL, "cheap")
+
+
+def test_record_meta_accepts_the_profile_flag_and_still_needs_the_key(monkeypatch, capsys):
+    from bench.record_meta import main as record_main
+
+    monkeypatch.delenv("META_API_KEY", raising=False)
+    assert record_main(["--profile", "compact", "--case", "archive-extraction-pathtraversal"]) == 2
+    assert "META_API_KEY is not set" in capsys.readouterr().err
