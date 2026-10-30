@@ -145,3 +145,35 @@ def test_offline_replay_reproduces_the_compact_verdicts(case_id, tmp_path, monke
 def test_compact_recordings_hold_no_secret_from_this_environment(case_id):
     recording, _ = recording_paths(case_id, DEFAULT_MODEL, "compact")
     assert scan_files([recording, recording.with_suffix(".json")], scan_values()) == []
+
+
+# -- negative control: the fixed Starlette tree must never end proven ----------------------------
+#
+# The first compact live run of starlette-cve-2023-29159-fixed (2026-10-30) ended with S3
+# "proven": a test thread swapped a served file for a symlink to the canary and back, and the
+# oracle's fresh-symlink walk raced it. The recording is kept unedited as evidence; its
+# metadata still says what the live run concluded. Replayed against the current oracle, which
+# flags any link to the canary created during the run, it must prove nothing.
+
+NEGATIVE_CONTROL = "starlette-cve-2023-29159-fixed"
+
+
+def test_the_negative_control_recording_documents_the_raced_false_proof():
+    _, meta = _compact_metadata(NEGATIVE_CONTROL)
+    assert [v["suspicion_id"] for v in meta["verdicts"] if v["verdict"] == "proven"] == ["S3"]
+
+
+@pytest.mark.docker
+def test_replaying_the_negative_control_proves_nothing(tmp_path, monkeypatch):
+    monkeypatch.delenv("META_API_KEY", raising=False)
+    outcome = replay_case(NEGATIVE_CONTROL, DEFAULT_MODEL, tmp_path / "replay", "compact")
+    assert outcome.baseline_ok
+    assert [v for v in outcome.verdicts if v["verdict"] == "proven"] == []
+    s3 = next(v for v in outcome.verdicts if v["suspicion_id"] == "S3")
+    # The race may or may not hit the canary on replay; either way it is never a proof.
+    assert s3["verdict"] in {"invalid_test", "discarded_unproven"}
+
+
+def test_the_negative_control_recording_holds_no_secret():
+    recording, _ = recording_paths(NEGATIVE_CONTROL, DEFAULT_MODEL, "compact")
+    assert scan_files([recording, recording.with_suffix(".json")], scan_values()) == []

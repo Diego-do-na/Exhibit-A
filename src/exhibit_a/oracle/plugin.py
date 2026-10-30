@@ -431,6 +431,42 @@ def _fresh_symlink(path: str, since: float) -> tuple[str, str] | None:
     return None
 
 
+def _link_to_canary(event: str, args: tuple, canary: str, canary_id: tuple[int, int]) -> tuple[str, str] | None:
+    """``(link, target)`` if this ``os.symlink`` / ``os.link`` audit event links to the canary.
+
+    A symlink counts when its target, taken lexically against the link's directory or
+    resolved through the links that already exist, is the canary or any directory above it
+    (a link to ``outside/`` or to the work directory reaches the canary just as well). A hard
+    link counts when its source is the canary. Anything that cannot be worked out counts too
+    (fail closed): the flag can only turn a proof into a non-proof.
+    """
+    try:
+        if event == "os.symlink":
+            src, dst, dir_fd = args[0], args[1], args[2] if len(args) > 2 else None
+            target = os.fsdecode(src)
+            link = _absolute(os.fsdecode(dst), dir_fd if isinstance(dir_fd, int) and dir_fd >= 0 else None)
+            if link is None:
+                return "<symlink with a dir_fd of unknown origin>", target
+            absolute_target = target if os.path.isabs(target) else os.path.join(os.path.dirname(link), target)
+            for candidate in {os.path.normpath(absolute_target), os.path.realpath(absolute_target)}:
+                if candidate == canary or canary.startswith(candidate.rstrip("/") + "/") or candidate == "/":
+                    return link, target
+            return None
+        src = os.fsdecode(args[0])
+        src_dir_fd = args[2] if len(args) > 2 and isinstance(args[2], int) and args[2] >= 0 else None
+        source = _absolute(src, src_dir_fd)
+        if source is None:
+            return "<hard link with a dir_fd of unknown origin>", src
+        st = os.stat(source)
+        if (st.st_dev, st.st_ino) == canary_id or os.path.realpath(source) == canary:
+            return os.fsdecode(args[1]), src
+        return None
+    except FileNotFoundError:
+        return None  # a hard link from a name that does not exist creates nothing
+    except (OSError, ValueError, TypeError, IndexError) as exc:
+        return f"<unverified link: {type(exc).__name__}>", ""
+
+
 def _symlink_fields(absolute: str | None, since: float) -> dict[str, object]:
     """``via_symlink`` and, if set, the offending link and its target as short strings.
 
@@ -742,9 +778,24 @@ def _install(canary: str, events_path: str, key: bytes | None, app: dict | None 
     seq = [0]
     lock = threading.Lock()
 
+    # Set once the process creates a link to the canary (see _link_to_canary). Every canary
+    # access after that is flagged via_symlink, whatever the opened path looks like when it
+    # is checked: a link that is swapped in and out cannot win a race against this flag.
+    tainted: list[tuple[str, str]] = []
+
     def hook(event: str, args: tuple) -> None:
-        if event not in _OBSERVED or getattr(_local, "busy", False):
+        if getattr(_local, "busy", False):
             return  # busy: admission reading an app file from inside this hook
+        if event in ("os.symlink", "os.link") and not tainted:
+            _local.busy = True
+            try:
+                found = _link_to_canary(event, args, canary, canary_id)
+            finally:
+                _local.busy = False
+            if found is not None:
+                tainted.append(found)
+        if event not in _OBSERVED:
+            return
         if event == "open":
             target = args[0]
             dir_fd = getattr(_local, "dir_fd", None)
@@ -772,6 +823,13 @@ def _install(canary: str, events_path: str, key: bytes | None, app: dict | None 
             record = {"path": canary, **fields, "stack": _stack(sys._getframe(1), admission)}
             record["requested"] = absolute if absolute is not None and len(absolute) <= _MAX_REQUESTED else None
             record.update(_symlink_fields(absolute, since))
+            if tainted and not record["via_symlink"]:
+                link, target = tainted[0]
+                record.update({
+                    "via_symlink": True,
+                    "symlink": f"<link to the canary created during the run: {link}>"[:_MAX_FIELD],
+                    "symlink_target": target[:_MAX_FIELD],
+                })
         finally:
             _local.busy = False
         with lock:

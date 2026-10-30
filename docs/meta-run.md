@@ -173,7 +173,21 @@ Recordings: `bench/corpus/<case>/recordings/meta-muse-wonder-1.0-compact.{jsonl,
 `tests/test_meta_replay.py` replays them offline (no key, no network) and must reproduce both
 verdicts. The model is not deterministic: a new live run can differ.
 
-Not yet run with the compact profile: the negative control `starlette-cve-2023-29159-fixed`.
+### Negative control: a false proof found and closed
+
+The compact run of the negative control `starlette-cve-2023-29159-fixed` (US$0.28, 6 calls)
+ended with S3 `proven`. That was wrong: S3's test raced a thread that swapped a served file for
+a symlink to the canary and back, and the oracle's symlink check raced it in turn (the check ran
+just after the path had been resolved and could see the regular file again). The model's
+"TOCTOU" suspicion is a local attack that needs write access to the served directory, which the
+proof standard does not accept, and the oracle already rejects the same symlink when it is not
+raced (S2 in the same run: `invalid_test`).
+
+The oracle now flags any link to the canary created during the run at creation time
+(`docs/oracle-provenance.md` section 3.8). The recording is kept unedited, and its metadata
+still says what the live run concluded; `tests/test_meta_replay.py` replays it against the
+current oracle and requires that nothing is proven. A new live run of the negative control has
+not been made since the fix.
 
 ## Re-running
 
