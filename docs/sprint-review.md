@@ -73,7 +73,7 @@ Fuente: auditoría de solo lectura (`git log --grep`, diff neto de cada merge, l
 | T033 | Muse | sí | sí | 4 tests solo "no lanza" |
 | T034 | assistant | sí | sí | |
 | T035 | Copilot | sí | débil | `skip` sin Ollama; asserta `isinstance(dict)` |
-| T036 | Muse | fuera: `docs/sandbox.md` (commit mal etiquetado) | sí | |
+| T036 | Muse | fuera: `docs/reference/sandbox.md` (commit mal etiquetado) | sí | |
 | T037 | Muse | fuera: `tests/test_e2e_cve.py` | débil | **Confirmado**: `--provider/--model` no existen en el parser; tests usan `Namespace` y `FakeRunner` en host |
 | T038 | Muse | sí | sí | proveedor con precio real, ledger en disco |
 | T039 | Copilot | sí | débil | commit sin ID; `>= 0` en parte, pero cruza con `Ledger.totals` |
@@ -122,7 +122,7 @@ Parche: reemplazar el test por uno que construya `RoleConfig(provider="meta", ..
 
 **A-6 · `--provider/--model` no existen (T037).** Solo `--budget-usd` en `cli/parser.py`. El modo live solo usa Ollama por default; no se puede elegir Meta desde el CLI. Parche: `run.add_argument("--provider")`, `("--model")` y un test que llame `main([...])`. Esfuerzo: S.
 
-**A-7 · Bitácora corrupta.** `docs/common.md`: T014 es placeholder; la línea "T054 added bench/loop_pipeline" es de T040; la línea "T036 added docs/sandbox.md" es de T050; faltan T040 y T050; 6 líneas con espacio inicial (T049, T052, T053, T045, T054-bench, T042); una línea en blanco intermedia. T001–T010 sin línea. Regla del repo: no reescribir historia → añadir líneas nuevas `- T040 …`, `- T050 …`, `- T014 …` y corregir los espacios en un commit humano. Esfuerzo: S.
+**A-7 · Bitácora corrupta.** `docs/common.md`: T014 es placeholder; la línea "T054 added bench/loop_pipeline" es de T040; la línea "T036 added docs/reference/sandbox.md" es de T050; faltan T040 y T050; 6 líneas con espacio inicial (T049, T052, T053, T045, T054-bench, T042); una línea en blanco intermedia. T001–T010 sin línea. Regla del repo: no reescribir historia → añadir líneas nuevas `- T040 …`, `- T050 …`, `- T014 …` y corregir los espacios en un commit humano. Esfuerzo: S.
 
 ### Medios
 
@@ -140,7 +140,7 @@ Parche: reemplazar el test por uno que construya `RoleConfig(provider="meta", ..
 - El resumen de la vista en vivo muestra "0 passed, 0 failed" en el baseline.
 - La imagen base trae `GPG_KEY` (clave pública de Python) en el entorno del contenedor; no es secreto, pero un chequeo de "sin secretos" por nombre lo marcará.
 - T033: 4 tests sin assert; T049 ensucia `os.environ`; `test_sandbox_limits.py` importa `src.exhibit_a...`.
-- Documentos obsoletos: `docs/benchmark.md` L115/L130 (adaptador "no conectado"); `tests/…` del tablero listan `cli.py` inexistente.
+- Documentos obsoletos: `docs/bench/benchmark.md` L115/L130 (adaptador "no conectado"); `tests/…` del tablero listan `cli.py` inexistente.
 - El primer commit del repo (`Initial commit`, 2026-10-26, autor distinto) es anterior al período de construcción (27 oct); hay que poder explicarlo (README vacío/plantilla).
 - Límites declarados del oráculo (ver A-1/A-2 y GUIDE §6): el archivo de eventos es escribible desde el proceso del test; solo se observa `open()` del canary (lecturas por otros medios no se ven → falso negativo, no falso positivo); loops que sobreescriben `create_task` (uvloop) y `call_soon` no se enlazan.
 
@@ -149,7 +149,7 @@ Parche: reemplazar el test por uno que construya `RoleConfig(provider="meta", ..
 - SPEC §12 dice "CLI: `run` wired to replay cases; live providers not yet fully wired" → coherente.
 - AGENTS.md "Current state: oracle and Starlette baseline still run as host child processes … T026/T027 in progress" → **desactualizado**: tras T026/T027/T044 el baseline y el exploit del caso Starlette corren en el sandbox (verificado), aunque `pip install` sigue en el host.
 - AGENTS.md dice que SCAN y SLICE no existen y el `scan` del CLI es placeholder → coherente.
-- `docs/benchmark.md` obsoleto (ver bajos). `docs/sprint2-acceptance.md` ver M-4.
+- `docs/bench/benchmark.md` obsoleto (ver bajos). `docs/reference/sprint2-acceptance.md` ver M-4.
 - Siguen **UNVERIFIED**: endpoint y `response_format` de la API de Meta, precios, tres clases de vulnerabilidad finales (solo path traversal está realizada: 1 de 3), ingestión multimodal (no construida), modelo concreto por rol, términos de datos del proveedor.
 - SPEC §4 punto 5 / §8: superficie PR-diff = placeholder; CVE reachability, attack-surface map, GitHub Action, SCAN y SLICE: no construidos.
 

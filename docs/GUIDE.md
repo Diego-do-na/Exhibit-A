@@ -51,7 +51,7 @@ Cómo verlo: en `$OUT/ledger.jsonl` están los eventos `suspicion_raised` (adver
 
 ### Sandbox
 Ejecuta tests no confiables en un contenedor Docker efímero. Comprobado dentro del contenedor con un test-sonda: usuario 501 (no root), sin red, sistema de archivos de solo lectura salvo `/tmp` (tmpfs) y `/workspace`, capacidades vacías (CapEff=0), `no-new-privs`, memoria 512 MB, 64 procesos, 0.5 CPU, sin `docker.sock`.
-Archivos: `src/exhibit_a/sandbox/runner.py`, `image.py`. Documentación: `docs/sandbox.md`.
+Archivos: `src/exhibit_a/sandbox/runner.py`, `image.py`. Documentación: `docs/reference/sandbox.md`.
 Cómo verlo: `$PY -m pytest -q tests/test_sandbox_limits.py tests/test_sandbox_security.py` (**NO ejecutado por separado**; se ejecutaron dentro de la suite completa, 371 pasados). Requiere Docker/Colima en marcha.
 
 ### Baseline
@@ -95,7 +95,7 @@ Directorio con `test_exploit.py`, `fix.patch`, `verdict.json`, `evidence.json`, 
 Cada llamada a un modelo se guarda con una llave (hash SHA-256 de rol+prompt+esquema); en `--replay` el motor lee esas respuestas y falla (`ReplayMiss`) si el prompt cambió. Archivos: `src/exhibit_a/models/replay.py`, `models/record.py`, `bench/corpus/*/replay.jsonl` y `record.py` (instala `starlette==0.26.1` con `pip --target`). Las llaves actuales coinciden con lo que el loop genera hoy: ambos casos corren en replay sin grabador.
 
 ### Proveedores y Meta
-Proveedores implementados: `replay`, `ollama` (local), `openai_compatible` y `meta` (reutiliza el cliente OpenAI-compatible). **El endpoint, el soporte de `response_format` y los precios de Meta están UNVERIFIED** y nunca se ha hecho una llamada real. Archivos: `models/config.py`, `models/meta.py`, `docs/models.md`. Ollama local sí responde en esta máquina (`llama3.1:8b`); los 4 tests de integración Ollama pasaron en la suite.
+Proveedores implementados: `replay`, `ollama` (local), `openai_compatible` y `meta` (reutiliza el cliente OpenAI-compatible). **El endpoint, el soporte de `response_format` y los precios de Meta están UNVERIFIED** y nunca se ha hecho una llamada real. Archivos: `models/config.py`, `models/meta.py`, `docs/reference/models.md`. Ollama local sí responde en esta máquina (`llama3.1:8b`); los 4 tests de integración Ollama pasaron en la suite.
 
 ### Presupuesto y costos
 Un medidor de costo corta la corrida con `BudgetExceeded` al llegar al límite; el ledger ya está escrito en disco. Al terminar imprime totales (tokens, costo). El default en modo live es Ollama local (costo 0).
@@ -124,7 +124,7 @@ $PY -m bench --synthetic --corpus bench/corpus/synthetic.json --out $OUT_BENCH
 ```
 Salida: tabla de 5 filas (p. ej. `baseline | reported 8 | proven 0 | FP 6`, `full | reported 2 | proven 2 | FP 0`). **Son datos guionizados** de un stand-in, no mediciones del motor.
 **Con el corpus real el benchmark hoy NO funciona:** `$PY -m bench --corpus bench/corpus/starlette-cve-2023-29159/case.json --out X` termina con `FileNotFoundError: .../https:/github.com/encode/starlette` (el campo `repo` es una URL y el adaptador lo trata como ruta). No lo uses en la demo.
-Archivos: `bench/`, `docs/benchmark.md`.
+Archivos: `bench/`, `docs/bench/benchmark.md`.
 
 ### Corpus Starlette
 Caso vulnerable (CVE-2023-29159, `StaticFiles` con `commonprefix`, Starlette 0.26.1) y caso corregido (0.27.0). No hay código de Starlette en el repo: se instala desde PyPI con versión fija; solo se versiona la licencia, el `case.json`, la prueba de baseline, `record.py` y `replay.jsonl`. Archivos: `bench/corpus/starlette-cve-2023-29159*/`.

@@ -1,8 +1,8 @@
 # Oracle provenance (A-1p): admitting only staged application code
 
 **Status:** implemented on branch `a1-provenance`. **Author:** claude-cloud. **Date:** 2026-10-29.
-**Builds on:** `docs/oracle-a1.md` (signed events, key on stdin), `docs/oracle-redteam.md`
-(the attacks), `docs/oracle-observer-spike.md` (out-of-process observers).
+**Builds on:** `docs/oracle/oracle-a1.md` (signed events, key on stdin), `docs/security/oracle-redteam.md`
+(the attacks), `docs/oracle/oracle-observer-spike.md` (out-of-process observers).
 
 Exhibit A reports a vulnerability only when it can prove it (SPEC §4). For a path traversal
 the oracle's proof is "the canary was read, and the read came from application code reached
@@ -15,7 +15,7 @@ result still means "nothing could be proven", never "safe".
 Before this change, provenance was lexical and unauthenticated. A stack frame counted as
 application code if `realpath(co_filename)` lay under the app root and outside the test's
 directory, and the entry point was a string match on `co_qualname`/`co_name`. The exploit
-test controls both. The red team (`docs/oracle-redteam.md` §3.1–3.3) turned that into
+test controls both. The red team (`docs/security/oracle-redteam.md` §3.1–3.3) turned that into
 `proven` verdicts for a safe app in two ways:
 
 - **(a) write a module into the app root.** In the sandbox `/workspace` is mounted
@@ -240,7 +240,7 @@ to `_judge`, so the route check of §3.7 applies on both paths. It does not yet 
 
 ### 3.7 Layer 6: the canary's route and access (A-11 F2, F4, F5)
 
-The integration audit (`docs/audit-integration.md` §2.1) found that a test could choose where
+The integration audit (`docs/security/audit-integration.md` §2.1) found that a test could choose where
 the app is rooted. Rooting a correctly confined app at the canary's directory makes it read
 (P1b) or write (P1) the canary through its real entry point. Gating that on the source hash
 (P7) also passes on any fix. Separately, every `os.open` was recorded with mode `"None"` and
@@ -320,7 +320,7 @@ Audit results with this layer (`tests/test_oracle.py`, `tests/test_oracle_eval_a
 ### 3.8 Layer 7: links to the canary created during the run (2026-10-30)
 
 Found by the first compact Meta run of the negative control (`starlette-cve-2023-29159-fixed`,
-`docs/meta-run.md`): the model's test ran a thread that replaced a served file with a symlink to
+`docs/bench/meta-run.md`): the model's test ran a thread that replaced a served file with a symlink to
 the canary and back, in a loop, while it requested that file through `StaticFiles`. The A-2
 walk (`_fresh_symlink`) runs a moment after the hook has resolved the opened path to the canary,
 so it could find the regular file again and vouch for the read. The fixed Starlette tree ended
@@ -379,7 +379,7 @@ PoCs added in this change were run against that tree's `src/` in a temporary wor
 
 ¹ On `main` the forged body was dropped only because it carried the new `line`/`admitted`
 fields, which the old schema rejects. With the old frame shape the same key theft forges a
-proof. `docs/oracle-a1.md` declared this limit; R1 now pins it with a test.
+proof. `docs/oracle/oracle-a1.md` declared this limit; R1 now pins it with a test.
 
 The sandbox twin of `attack_write_app_module`
 (`spikes/redteam/sandbox_write_app_module_driver.py`) needs Docker and was **not run** here.
@@ -429,7 +429,7 @@ the test's own process. A test can:
 
 The host re-check passes because those are real. The same access allows patching the
 admission object or reading `/proc/self/mem`. `test_r1_*` demonstrates it end to end; it was
-only declared in `docs/oracle-a1.md`. Nothing in-process can close this.
+only declared in `docs/oracle/oracle-a1.md`. Nothing in-process can close this.
 
 ### 7.2 R2: `sitecustomize` in the app tree (FALSE_PROVEN, host path)
 
@@ -464,7 +464,7 @@ The test replaces something the app calls, for example
 admitted entry point then reads the canary (`test_r5_*`). Provenance is genuine; the
 vulnerability is not. `module_monkeypatch` catches the plain spellings only. The differential
 re-run on fixed code helps only if the fix does not use the patched function, and a gated
-test can defeat it as in `docs/oracle-redteam.md` §3.3. An out-of-process observer would not
+test can defeat it as in `docs/security/oracle-redteam.md` §3.3. An out-of-process observer would not
 close this either: the read really happens in app code.
 
 ### 7.6 R6: obfuscated test-chosen app root (FALSE_PROVEN)
@@ -495,7 +495,7 @@ the test, to construct the app, for example a harness-owned app factory in the c
 
 ## 8. Why the ptrace/fanotify observer stays a deferred second signal
 
-`docs/oracle-observer-spike.md` §1 separates *fact* (was the canary opened) from *provenance*
+`docs/oracle/oracle-observer-spike.md` §1 separates *fact* (was the canary opened) from *provenance*
 (by which code). A syscall observer outside the test process, such as host-side fanotify or a
 ptrace parent, can make the fact unforgeable. Per spike §4 step 1 it would also close R3 and
 R4 and catch suppression: if the hook claims a proof but fanotify saw no open, downgrade.

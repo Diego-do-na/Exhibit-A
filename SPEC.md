@@ -84,7 +84,7 @@ Decisions (A-22):
 - The `verdict` event payload carries `reason_code` and `effect` alongside the
   reason, without changing the signed oracle-event channel.
 
-Declared residual limits of the oracle (`docs/oracle-provenance.md` section 7; each is
+Declared residual limits of the oracle (`docs/oracle/oracle-provenance.md` section 7; each is
 pinned by a strict xfail in `tests/test_oracle_residual.py`):
 
 - R1: in-process introspection of the plugin (FALSE_PROVEN)
@@ -176,7 +176,7 @@ Three classes, chosen by what can be proven by execution with a clear oracle:
 2. Path traversal (read effect: a canary file outside the allowed directory is read) and
    archive extraction / zip-slip (write effect: a canary file outside the extraction
    directory is written). SSRF is not a v1 class: a faithful effect needs a network, which
-   the sandbox forbids (see `docs/second-class.md`).
+   the sandbox forbids (see `docs/oracle/second-class.md`).
 3. A simple warm-up class: reflected XSS or SQL injection.
 
 Final choice is an open decision (section 14).
@@ -237,7 +237,7 @@ Every module sits behind a flag so it can be ablated.
 - oracle with provenance: implemented (canary + stack-provenance checks).
 - differential gating & repeated runs: implemented in the loop (N runs; since A-22/T078 the exploit passing on the fixed code and the fixed baseline passing gate every `proven`, section 4).
 - vulnerability classes: path traversal (read) and archive extraction (write, synthetic case) realised; broken authorization and the warm-up class are not, and SSRF is not a v1 class.
-- PR-diff surface: implemented (T075): `exhibit-a run --pr-diff BASE..HEAD` verifies the changed Python files, exit codes 0/10/20/2 (`docs/cli-exit-codes.md`); the GitHub Action calls it (T082).
+- PR-diff surface: implemented (T075): `exhibit-a run --pr-diff BASE..HEAD` verifies the changed Python files, exit codes 0/10/20/2 (`docs/reference/cli-exit-codes.md`); the GitHub Action calls it (T082).
 - ledger: implemented (append-only JSONL).
 - benchmark with ablations: bench corpus and probe tooling present; replay-driven cases work.
 - minimal live view: minimal replay-backed live pieces implemented.
@@ -276,7 +276,7 @@ adapter is what allows a second language later.
 Resolved / updated:
 
 - First target project and CVE: resolved — the first real-case exercised end-to-end is
-  Starlette `StaticFiles` path traversal (CVE-2023-29159), see `docs/first-cve.md` and the
+  Starlette `StaticFiles` path traversal (CVE-2023-29159), see `docs/design/first-cve.md` and the
   `bench/corpus/starlette-cve-2023-29159` case. The test package produced by the run is
   validated by `tests/test_e2e_cve.py`.
 
@@ -302,7 +302,7 @@ Still open / UNVERIFIED:
 - Results and demo come from Meta models: **true for the two vulnerable corpus cases.** With
   `--profile compact`, `muse-wonder-1.0` answered every role and both the Starlette CVE and the
   archive-extraction case ended `proven` with a verified fix, for US$0.17 in total
-  (`bench/corpus/*/recordings/meta-muse-wonder-1.0-compact.*`, `docs/meta-run.md`); the
+  (`bench/corpus/*/recordings/meta-muse-wonder-1.0-compact.*`, `docs/bench/meta-run.md`); the
   recordings replay offline. The earlier standard-profile run of all three cases proved nothing
   and is kept as recorded. The `replay.jsonl` files in the Starlette cases remain hand-authored.
 - Never commit keys or tokens.

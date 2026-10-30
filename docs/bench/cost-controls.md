@@ -44,7 +44,7 @@ Meta recordings, keep replaying. For the same reason `--profile compact --replay
 | starlette-cve-2023-29159 | US$1.91, nothing proven | US$0.11, proven, fix verified |
 | archive-extraction-pathtraversal | US$0.74, nothing proven | US$0.06, proven, fix verified |
 
-One live run each, same model (`muse-wonder-1.0`); see `docs/meta-run.md`. The model is not
+One live run each, same model (`muse-wonder-1.0`); see `docs/bench/meta-run.md`. The model is not
 deterministic, so these are single measurements, not averages.
 
 ## What is measured and what is not
@@ -59,5 +59,5 @@ Not yet measured:
   `reasoning_effort` field; the Meta playground documents the effort on `/v1/responses`;
 - the cost per case with `--profile compact` on the corpus;
 - whether the compact profile proves the same cases. A cheaper run that stops proving things
-  is not cheaper. Compare verdicts and cost per case against `docs/meta-run.md` before
+  is not cheaper. Compare verdicts and cost per case against `docs/bench/meta-run.md` before
   making any claim.

@@ -302,11 +302,11 @@ layout avoids this (`loop/runner.py:120-127`). **[read]**
 | "runs ... in an isolated and resource-limited sandbox" | `README.md:3` | the replay baseline and every `canary_write` proof run on the host | run/read |
 | "path-traversal/SSRF class implemented (1 of 3)" | `SPEC.md:147,199,251` | SSRF was never built (rejected in `second-class.md` (b)); archive extraction exists but only on the host path | read |
 | "differential verification ... implemented in the loop" | `SPEC.md:198` | implemented, not gating (F1) | run |
-| "proven by the same loop (BASELINE → … → VERIFY)"; "reusing ... machinery unchanged" | `docs/second-class.md:5,66` | not wired: no `effect` in `TestRunner`/`SandboxRunner`; the CLI crashes on the case (`KeyError: 'tree'`); `plugin.py` *was* changed (`_fresh_symlink`) | run |
-| "precision 1.000, recall 1.000 ... real numbers" | `docs/oracle-eval.md:37` | holds for the 15 self-authored cases; P1/P1b/P3/P6/P7 are negatives the oracle proves. Under a parallel run the suite itself recorded `read/flaky` as a false positive (§4) | run |
-| "required status check that turns red only when a finding is proven" | `docs/github-action.md:3` | every PR run is `not_run` (green) until the diff surface exists; the doc admits this in "Requires", but the header and the setup step 8 advertise an always-green required check | read |
+| "proven by the same loop (BASELINE → … → VERIFY)"; "reusing ... machinery unchanged" | `docs/oracle/second-class.md:5,66` | not wired: no `effect` in `TestRunner`/`SandboxRunner`; the CLI crashes on the case (`KeyError: 'tree'`); `plugin.py` *was* changed (`_fresh_symlink`) | run |
+| "precision 1.000, recall 1.000 ... real numbers" | `docs/oracle/oracle-eval.md:37` | holds for the 15 self-authored cases; P1/P1b/P3/P6/P7 are negatives the oracle proves. Under a parallel run the suite itself recorded `read/flaky` as a false positive (§4) | run |
+| "required status check that turns red only when a finding is proven" | `docs/ci/github-action.md:3` | every PR run is `not_run` (green) until the diff surface exists; the doc admits this in "Requires", but the header and the setup step 8 advertise an always-green required check | read |
 | `provider`/`model` inputs | `action.yml` | exported as `EXHIBIT_A_PROVIDER`/`MODEL` (`action.yml:222`), read by nothing; live runs fall back to `ollama`/`llama3.1:8b` | read |
-| "second signal" | `docs/advisory.md:4`, observer spike | neither the advisory feed nor the observer is wired into SUSPECT/VERDICT; both docs say so | read |
+| "second signal" | `docs/security/advisory.md:4`, observer spike | neither the advisory feed nor the observer is wired into SUSPECT/VERDICT; both docs say so | read |
 | green = "safe" | all docs | no instance found; `SPEC.md`, `ci/summary.py:186-211`, `action.yml` final echo and every doc say "nothing could be proven" | run (grep) |
 | "isolated and resource-limited" wording | all docs | used consistently; no "100% safe" claim except where it is negated | run (grep) |
 
@@ -336,10 +336,10 @@ No new non-Docker failures.
 The first full run used 3.11 and 3.13 **in parallel** on the same checkout. It failed
 `test_oracle_eval_precision_recall` with
 `false positives (proved a non-vulnerability): ['read/flaky']` and rewrote the tracked
-`docs/oracle-eval.md` (`read/flaky ... 2/3` → `1/3`). **[run]** Cause: the flaky fixtures keep
+`docs/oracle/oracle-eval.md` (`read/flaky ... 2/3` → `1/3`). **[run]** Cause: the flaky fixtures keep
 their counter in the repository tree (`tests/fixtures/oracle_eval/exploits/.flaky_run_count`,
 `.../exploits/.flaky_escape_count`; `tests/test_oracle_eval_archive.py:72,81`), and the test
-writes `docs/oracle-eval.md` on every run (`:182`). Every run of the suite dirties the tree,
+writes `docs/oracle/oracle-eval.md` on every run (`:182`). Every run of the suite dirties the tree,
 and concurrent runs (xdist, two worktrees on one checkout) make it non-deterministic.
 
 **Vacuous or weak tests:**
@@ -464,7 +464,7 @@ regression. **[read]**
 | F7 | medium | `oracle.py:96`, `pipeline.py:273`, `loop/runner.py:171-179` | [run]/[read] | add `type: Literal["canary_read","canary_write"]` or `access`; persist `reason_code`, `effect`, `forged_events`, `app_tree_changes` in the verdict payload and `evidence.json`; count malformed signed events on the sandbox path | S |
 | F8 | medium | `cli/run.py:86-87,134`, `action.yml:236,243` | `/proc/<ppid>/environ` [run] | in the Action, never export the key before `--case` runs (refuse `case` without `replay`, or install requirements from the action checkout only, with `env` scrubbed and `--only-binary :all: --no-deps` from a hash-pinned list); move the replay baseline into `SandboxRunner` | S-M |
 | F9 | medium | `tests/test_oracle_eval_archive.py:72,81,182` | parallel-run FP + doc rewrite [run] | counters in `tmp_path`; write the report only under an env flag (`EXHIBIT_A_WRITE_EVAL_DOC=1`) or to `tmp_path` and diff | S |
-| F10 | medium | `README.md:3,24,31,53`, `SPEC.md:147,198,199,251,262`, `docs/second-class.md:5,66`, `docs/oracle-eval.md:37`, `docs/github-action.md:3` | §3 [run/read] | correct the claims (see task T-A11-6) | S |
+| F10 | medium | `README.md:3,24,31,53`, `SPEC.md:147,198,199,251,262`, `docs/oracle/second-class.md:5,66`, `docs/oracle/oracle-eval.md:37`, `docs/ci/github-action.md:3` | §3 [run/read] | correct the claims (see task T-A11-6) | S |
 | F11 | medium | `action.yml:222`, `cli/parser.py` | [read] | add `--provider/--model` (or fail the Action when `provider` is set and unsupported); until the diff surface exists, set `status=not_run` as a *failing* default or remove "required check" from the docs | S |
 | F12 | low | `src/exhibit_a/advisory/version.py:68`, `osv.py:189,333`, `report.py:51,86` | [run] | cap component length (e.g. ≤ 20 digits) → `InvalidVersion`; catch `RecursionError` → `AdvisoryDataError`; per-record error isolation; cap ids per package; refuse non-https redirects | S |
 | F13 | low | `ci/summary.py:33`, `schemas/events.py` | [read] | pydantic model + JSON Schema for `result.json`; add `schema_version` to `evidence.json`/`verdict.json` | S |
@@ -535,14 +535,14 @@ the 3.14 admission gap.
      `canary_not_via_allowed_dir`.
   4. Mirror this in the sandbox path (`loop/runner.py`).
 - **Acceptance:**
-  - P1, P1b and P7 from `docs/audit-integration.md` §2.1 become tests in
+  - P1, P1b and P7 from `docs/security/audit-integration.md` §2.1 become tests in
     `tests/test_oracle.py`/`tests/test_oracle_eval_archive.py` (labelled `cheating`) and
     are not proven.
   - Every shipped true exploit is still proven.
   - The eval doc is regenerated.
 - **Files:** `src/exhibit_a/oracle/{plugin,oracle,guard}.py`, `src/exhibit_a/loop/{prompts,runner}.py`,
   `tests/test_oracle*.py`, `tests/fixtures/oracle_eval/exploits/`, `bench/corpus/archive-extraction-pathtraversal/exploits/`,
-  `docs/oracle-provenance.md`.
+  `docs/oracle/oracle-provenance.md`.
 
 ### T-A11-3: Classify canary access by open flags and verify writes after the run (F4, F5)
 
@@ -578,7 +578,7 @@ the 3.14 admission gap.
   - The sandbox always mounts an existing read-only canary (`sandbox/runner.py:211`).
   - `exhibit-a run --case bench/corpus/archive-extraction-pathtraversal` crashes with
     `KeyError: 'tree'` (`cli/run.py:115`).
-  - `docs/second-class.md` claims "proven by the same loop".
+  - `docs/oracle/second-class.md` claims "proven by the same loop".
 - **Steps:**
   1. Add `effect: Effect = "canary_read"` to `TestRunner.run_exploit`, `SandboxRunner.run_exploit`,
      `VerificationLoop.__init__` and `_judge`.
@@ -621,15 +621,15 @@ the 3.14 admission gap.
      archive extraction (write) at oracle level only", and "differential not gating"
      until T-A11-1.
   4. `SPEC.md:262`: mark it as pending.
-  5. `docs/second-class.md:5,66`: "at the oracle layer"; the plugin was changed.
-  6. `docs/oracle-eval.md`: add "on this 15-case, self-authored set; see
+  5. `docs/oracle/second-class.md:5,66`: "at the oracle layer"; the plugin was changed.
+  6. `docs/oracle/oracle-eval.md`: add "on this 15-case, self-authored set; see
      audit-integration.md §2 for negatives it misses".
-  7. `docs/github-action.md:3`: the required check is meaningful only after the PR-diff
+  7. `docs/ci/github-action.md:3`: the required check is meaningful only after the PR-diff
      surface exists, and `provider`/`model` are ignored.
 - **Acceptance:** `grep` for each quoted claim in §3 returns the corrected text, with no new
   "safe" or "100% safe" wording.
-- **Files:** `README.md`, `SPEC.md`, `docs/second-class.md`, `docs/oracle-eval.md`,
-  `docs/github-action.md`.
+- **Files:** `README.md`, `SPEC.md`, `docs/oracle/second-class.md`, `docs/oracle/oracle-eval.md`,
+  `docs/ci/github-action.md`.
 
 ---
 

@@ -2,11 +2,11 @@
 #
 # Red only when a finding is PROVEN by execution in an isolated,
 # resource-limited sandbox. Green means "nothing could be proven", never
-# "safe". See docs/github-action.md and docs/github-action-security.md.
+# "safe". See docs/ci/github-action.md and docs/ci/github-action-security.md.
 #
 # Opt-in: both jobs stay skipped until the repository variable
 # EXHIBIT_A_ENABLED is "true", so this file is inert until the protected
-# environment and its secret exist (setup steps in docs/github-action.md).
+# environment and its secret exist (setup steps in docs/ci/github-action.md).
 
 name: Exhibit A
 

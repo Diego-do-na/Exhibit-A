@@ -1,6 +1,6 @@
 # Case: archive-extraction path traversal (zip-slip)
 
-Second vulnerability class for Exhibit A, chosen in `docs/second-class.md`. It is proven by the
+Second vulnerability class for Exhibit A, chosen in `docs/oracle/second-class.md`. It is proven by the
 same loop as the Starlette case (BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY),
 but through a **write** effect instead of a read: the vulnerable app creates a file *outside*
 its destination directory when it extracts a crafted archive.
@@ -61,4 +61,4 @@ The sandbox that runs untrusted tests is **isolated and resource-limited**, neve
 
 ## Recordings
 
-This case has no `replay.jsonl`: its offline `--replay` answers come from its own **hand-authored** materials (`suspicion.json`, `exploits/`, `fixed/`) through `CaseMaterialsProvider`, not from any model. The real Meta-model recording is `recordings/meta-muse-wonder-1.0.jsonl` with its metadata in `recordings/meta-muse-wonder-1.0.json` (see `docs/meta-run.md`).
+This case has no `replay.jsonl`: its offline `--replay` answers come from its own **hand-authored** materials (`suspicion.json`, `exploits/`, `fixed/`) through `CaseMaterialsProvider`, not from any model. The real Meta-model recording is `recordings/meta-muse-wonder-1.0.jsonl` with its metadata in `recordings/meta-muse-wonder-1.0.json` (see `docs/bench/meta-run.md`).
