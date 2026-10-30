@@ -240,6 +240,6 @@ point. The same run inside the sandbox is the docker-marked
 - Live model cost with `--slice`. No key was used and no live model was called. The slice is
   48% of `archive.py` and 61% of `staticfiles.py` in characters, but the token and cost effect
   on a real run, and whether a model proves as often from a slice, are open. Compare verdicts
-  and cost per case against `docs/meta-run.md` before claiming a saving.
+  and cost per case against `docs/bench/meta-run.md` before claiming a saving.
 - Larger repositories. The caps are set, but build time beyond a few thousand nodes was not
   profiled.

@@ -7,8 +7,8 @@ numbers, not tuned: a false positive fails the test.
 
 Scope: these numbers are on this self-authored 20-case set (the original 15 cases plus the 5
 audit-F2 cheating cases added by T079). They say nothing about attacks the set does not contain;
-see `docs/audit-integration.md` section 2 for the negatives the original set missed (P1, P1b, P3,
-P6, P7) and `docs/oracle-provenance.md` section 7 for the declared residual limits R1-R6. The set
+see `docs/security/audit-integration.md` section 2 for the negatives the original set missed (P1, P1b, P3,
+P6, P7) and `docs/oracle/oracle-provenance.md` section 7 for the declared residual limits R1-R6. The set
 was regenerated after T079 (A-23): precision 1.000, recall 1.000, FP = 0.
 
 ## Cases

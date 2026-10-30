@@ -7,7 +7,7 @@ class that is *different in kind* and meant to be proven by the same loop
 
 When A-8 landed, that class ran only at the oracle layer (`run_oracle(effect=...)`). The
 sandbox-backed loop and the CLI were wired later by T076 (A-21; see
-`docs/sandbox-write-effect.md`): `TestRunner`, `SandboxRunner` and `VerificationLoop` take an
+`docs/reference/sandbox-write-effect.md`): `TestRunner`, `SandboxRunner` and `VerificationLoop` take an
 `effect`, and `exhibit-a run --case bench/corpus/archive-extraction-pathtraversal --replay`
 answers from the case materials. The `--case` baseline still runs as a host child process.
 
@@ -52,7 +52,7 @@ An app fetches a user-controlled URL; the effect is a request to a forbidden tar
 - Viable and interesting (a process-spawn / write marker), but the effect is produced by a
   **child process** that has no audit hook, so the oracle's current provenance model (a Python
   call stack within one process) does not see it — this is exactly the `subprocess_sink` recall
-  gap documented in `docs/oracle-redteam.md`. Proving it would need a cross-process observer,
+  gap documented in `docs/security/oracle-redteam.md`. Proving it would need a cross-process observer,
   which is a larger oracle change than "extend minimally." Deferred.
 
 ### (d) Unsafe deserialization with a canary side effect
@@ -96,4 +96,4 @@ effect (a write outside the allowed directory) while reusing the existing proven
 - Tests: `tests/test_case_archive_extraction.py` (baseline before/after the fix, fix
   verification, the incomplete-fix **bypass check**, schema validation) and
   `tests/test_oracle_eval_archive.py` (the labelled evaluation set across both classes, with the
-  confusion matrix and real precision/recall written to `docs/oracle-eval.md`).
+  confusion matrix and real precision/recall written to `docs/oracle/oracle-eval.md`).

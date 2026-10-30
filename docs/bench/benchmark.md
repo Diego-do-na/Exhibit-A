@@ -22,7 +22,7 @@ A corpus is one JSON file: `{"cases": [...]}`. Each case is loaded by
 | `ground_truth` | List of `{"class", "file"}` pairs. Only `vulnerable` cases may carry ground truth; any other kind with ground truth is rejected. |
 | `synthetic` | Scripted suspicion/outcome list. Only for the smoke-test stand-in; real corpora leave this empty. |
 
-Example: [synthetic.json](../bench/corpus/synthetic.json) (four cases: two
+Example: [synthetic.json](../../bench/corpus/synthetic.json) (four cases: two
 vulnerable, one fixed, one clean). A real case directory carries more than the
 JSON: `case.json` plus the vendored `vulnerable/` tree, a `baseline_test.py`, a
 recording (`replay.jsonl`), and a `record.py` script. Example:

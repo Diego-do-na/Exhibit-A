@@ -1,7 +1,7 @@
 # Observer spike (A-1)
 
 **Research spike, not product code.** Prototypes an out-of-process observer for the oracle.
-Full analysis and the recommendation: [`docs/oracle-observer-spike.md`](../../docs/oracle-observer-spike.md).
+Full analysis and the recommendation: [`docs/oracle/oracle-observer-spike.md`](../../docs/oracle/oracle-observer-spike.md).
 
 These prototypes deliberately use a relaxed capability in one case (a separate-container
 ptrace sidecar would need `CAP_SYS_PTRACE`); the parent-model demo below needs **no** policy
