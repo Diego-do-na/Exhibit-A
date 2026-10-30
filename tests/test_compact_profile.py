@@ -441,3 +441,49 @@ def test_record_meta_accepts_the_profile_flag_and_still_needs_the_key(monkeypatc
     monkeypatch.delenv("META_API_KEY", raising=False)
     assert record_main(["--profile", "compact", "--case", "archive-extraction-pathtraversal"]) == 2
     assert "META_API_KEY is not set" in capsys.readouterr().err
+
+
+# -- entry points --------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw, name", [
+    ("App.handle_request", "App.handle_request"),
+    ("App.handle_request(POST, blob)", "App.handle_request"),  # seen in the 2026-10-30 compact run
+    ("StaticFiles.__call__ -> get_path -> lookup_path", "StaticFiles.__call__"),  # same run
+    ("  download_file  ", "download_file"),
+    ("-> nothing", "-> nothing"),  # no leading name: unchanged, matches no frame
+])
+def test_canonical_entry_point_keeps_only_the_leading_dotted_name(raw, name):
+    assert prompts.canonical_entry_point(raw) == name
+
+
+def test_the_compact_loop_judges_with_the_canonical_entry_point(tmp_path):
+    clone = tmp_path / "clone"
+    shutil.copytree(FIXTURES / "vulnerable", clone)
+    (clone / "test_baseline.py").write_text(BASELINE_TEST)
+
+    class Decorated(CompactScripted):
+        def complete(self, role, prompt, schema):
+            if role == Role.ADVERSARY:
+                s = SUSPICION | {"id": "S-PROVEN", "location": {"file": "app.py", "line": 45},
+                                 "entry_point": "App.handle_request(GET, /download, name)"}
+                return Completion(json.dumps({"suspicions": [s]}), 10, 10, 1, model="scripted")
+            return super().complete(role, prompt, schema)
+
+    seen = []
+
+    class Recording(HostRunner):
+        def run_exploit(self, app_root, test_path, entry_points, *, timeout, effect="canary_read"):
+            seen.append(set(entry_points))
+            return super().run_exploit(app_root, test_path, entry_points, timeout=timeout, effect=effect)
+
+    provider = Decorated()
+    roles = Roles(*(ModelRole(r, provider) for r in (Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
+    loop = VerificationLoop(clone, tmp_path / "out", Ledger(tmp_path / "ledger.jsonl"), roles,
+                            "test_baseline.py", run_id="r1", runner=Recording(), prompt_profile="compact")
+    result = loop.run("app.py")
+    assert seen and all(s == {ENTRY} for s in seen)
+    assert result.results[0].verdict.verdict == "proven"
+
+
+def test_the_standard_profile_keeps_the_entry_point_as_written():
+    assert not prompts.profile("standard").canonical_entry_points

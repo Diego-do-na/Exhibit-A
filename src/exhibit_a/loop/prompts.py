@@ -6,6 +6,7 @@ below are enforced by ModelRole, and the loop re-checks paths before touching th
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
@@ -247,8 +248,10 @@ def compact_adversary_prompt(diff_or_source: str, file: str) -> str:
     return (
         f"SOURCE ({file}):\n{diff_or_source}\n"
         "ROLE: adversary. List at most 3 suspected vulnerabilities that an attacker can reach "
-        "through an entry point, most likely first; none if nothing is reachable. hypothesis: "
-        "one sentence. source: the tainted expression only. Reply with JSON "
+        "through an entry point, most likely first; none if nothing is reachable. entry_point: "
+        "only the exact dotted name of the function or method the attacker's input reaches "
+        "first, such as App.handle_request or StaticFiles.__call__, with no arguments and no "
+        "call chain. hypothesis: one sentence. source: the tainted expression only. Reply with JSON "
         f'{{"suspicions": [...]}}. {_BRIEF}'
     )
 
@@ -284,6 +287,22 @@ def compact_defender_prompt(
     )
 
 
+_DOTTED = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+
+
+def canonical_entry_point(text: str) -> str:
+    """The dotted name at the start of a model's entry_point, without decoration.
+
+    Models write "App.handle_request(POST, blob)" or "StaticFiles.__call__ -> get_path";
+    the oracle matches frames by exact name, so only the leading dotted name is kept. It is
+    the name the model itself declared, so nothing new is allowed: a test must still reach
+    the application first through that function. Text that does not start with a dotted
+    name is returned unchanged and simply matches no frame.
+    """
+    match = _DOTTED.match(text.strip())
+    return match.group(0) if match else text
+
+
 PROFILES = ("standard", "compact")
 
 
@@ -304,6 +323,8 @@ class PromptProfile:
     fix_format: str
     #: Whether the test writer and defender take a ``contract=`` text (see test_contract).
     takes_contract: bool = False
+    #: Whether the suspicion's entry_point is reduced to its leading dotted name.
+    canonical_entry_points: bool = False
 
 
 def profile(name: str) -> PromptProfile:
@@ -318,5 +339,6 @@ def profile(name: str) -> PromptProfile:
             "compact", compact_adversary_prompt, compact_writer_prompt, compact_fixer_prompt,
             compact_defender_prompt, COMPACT_SUSPICIONS_SCHEMA, COMPACT_EXPLOIT_SCHEMA,
             COMPACT_FIX_SCHEMA, COMPACT_VARIANTS_SCHEMA, "edits", takes_contract=True,
+            canonical_entry_points=True,
         )
     raise ValueError(f"unknown prompt profile {name!r}; known profiles: {list(PROFILES)}")
