@@ -206,3 +206,58 @@ def test_action_third_party_steps_are_pinned_to_full_shas() -> None:
         if uses.startswith("actions/"):
             ref = uses.split("@", 1)[1]
             assert SHA40.match(ref), f"{step.get('name')}: {uses} is not SHA-pinned"
+
+
+# -- live PR demo wiring (T089) -------------------------------------------------
+
+
+def test_profile_input_is_validated_and_passed_to_the_engine() -> None:
+    action = _load_action()
+    profile = action["inputs"]["profile"]
+    assert profile["default"] == "standard"
+    setup = _step(action, "Validate inputs and install Exhibit A")
+    assert setup["env"]["IN_PROFILE"] == "${{ inputs.profile }}"
+    assert "standard|compact" in setup["run"]
+    assert "compact cannot be combined with replay" in setup["run"]
+    engine = _step(action, "Run Exhibit A")
+    assert engine["env"]["IN_PROFILE"] == "${{ inputs.profile }}"
+    assert '--profile "$IN_PROFILE"' in engine["run"]
+
+
+def _verify_steps() -> dict[str, dict]:
+    steps = _load_workflow()["jobs"]["verify"]["steps"]
+    return {step.get("id", step.get("name")): step for step in steps}
+
+
+def test_workflow_runs_only_for_the_demo_directory() -> None:
+    workflow = _load_workflow()
+    triggers = workflow.get("on", workflow.get(True, {}))
+    assert triggers["pull_request"]["paths"] == ["examples/action-demo/**"]
+
+
+def test_workflow_uses_compact_profile_and_a_small_budget() -> None:
+    with_ = _verify_steps()["exhibit"]["with"]
+    assert with_["profile"] == "compact"
+    assert 0 < float(with_["budget-usd"]) <= 2
+    assert with_["fail-on"] == "proven"
+
+
+def test_workflow_analyses_the_scoped_repository_not_the_whole_checkout() -> None:
+    steps = _verify_steps()
+    with_ = steps["exhibit"]["with"]
+    assert with_["working-directory"] == ".exhibit-a-scope"
+    assert with_["base-sha"] == "${{ steps.scope.outputs.base }}"
+    assert with_["head-sha"] == "${{ steps.scope.outputs.head }}"
+    scope = steps["scope"]
+    assert "examples/action-demo" in scope["run"]
+    # PR-controlled values reach the script only through env, never through ${{ }} in it.
+    assert "${{" not in scope["run"]
+    assert scope["env"]["BASE_SHA"] == "${{ github.event.pull_request.base.sha }}"
+    names = list(steps)
+    assert names.index("scope") < names.index("exhibit")
+
+
+def test_workflow_secret_is_referenced_by_name_only() -> None:
+    text = WORKFLOW_YML.read_text(encoding="utf-8")
+    assert "${{ secrets.EXHIBIT_A_API_KEY }}" in text
+    assert _load_workflow()["jobs"]["verify"]["environment"] == "exhibit-a"
