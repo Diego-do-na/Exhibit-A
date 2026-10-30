@@ -11,6 +11,7 @@ from .advisories import cmd_advisories
 from .dashboard import cmd_dashboard
 from .report import cmd_report
 from .runs import cmd_runs
+from .trace import cmd_trace
 from ..models.config import PROVIDER_REGISTRY
 
 NOT_WIRED_YET = "not wired yet"
@@ -162,6 +163,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the append-only JSONL ledger (default: ledger.jsonl).",
     )
     ledger.set_defaults(func=cmd_ledger)
+
+    trace = sub.add_parser(
+        "trace", help="Print the ordered steps one run took, from its ledger."
+    )
+    trace.add_argument("run_id", help="Run id whose steps to print.")
+    trace.add_argument(
+        "--ledger",
+        default="ledger.jsonl",
+        help="Path to the append-only JSONL ledger (default: ledger.jsonl).",
+    )
+    trace.add_argument("--json", action="store_true", help="Print JSON instead of text.")
+    trace.set_defaults(func=cmd_trace)
 
     report = sub.add_parser("report", help="Render a finding package as Markdown or HTML.")
     report.add_argument("package_dir")
