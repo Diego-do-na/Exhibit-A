@@ -1,0 +1,60 @@
+--- a/importer.py
++++ b/importer.py
+@@ -1,13 +1,12 @@
+-"""Skin-pack importer for a tiny static-site server (DEMO FIXTURE, safe base version).
++"""Skin-pack importer for a tiny static-site server (DEMO FIXTURE, vulnerable PR version).
+ 
+ This directory is a demonstration fixture for Exhibit A's demo kit
+-(see ``examples/demo-app/README.md``). It is original code written for the
+-demo: a realistic archive-import endpoint where an uploaded skin pack (a JSON
+-manifest of ``{"path": ..., "content": ...}`` entries) is installed under the
+-site's ``skins/`` directory.
++(see ``examples/demo-app/README.md``). It shows the same archive-import
++endpoint as ``../base/importer.py`` after a well-meaning "simplification" PR
++removed the path-confinement check.
+ 
+-This base version confines every member path to the destination directory, so
+-``..`` segments and absolute paths are rejected before anything is written.
++The engine runs this inside an isolated and resource-limited sandbox; it is
++never "100% safe".
+ """
+ 
+ from __future__ import annotations
+@@ -17,7 +16,7 @@
+ 
+ 
+ class SkinPackError(ValueError):
+-    """Raised when an uploaded skin pack is malformed or escapes its directory."""
++    """Raised when an uploaded skin pack is malformed."""
+ 
+ 
+ def parse_pack(blob: bytes) -> list[dict[str, str]]:
+@@ -51,16 +50,13 @@
+         self.skins_dir = skins_dir
+ 
+     def _target(self, name: str) -> str:
+-        # Safe base: resolve the member path and require it to stay inside the
+-        # skins directory. Both ".." traversal and absolute paths are rejected.
+-        root = os.path.realpath(self.skins_dir)
+-        target = os.path.realpath(os.path.join(root, name))
+-        if target != root and not target.startswith(root + os.sep):
+-            raise SkinPackError(f"skin entry escapes skins directory: {name!r}")
+-        return target
++        # PR BUG: the entry path is joined onto the skins directory without
++        # confining it. A path like "../outside/pwned.txt" or an absolute path
++        # escapes skins_dir entirely (archive zip-slip class).
++        return os.path.join(self.skins_dir, name)
+ 
+     def install_entry(self, entry: dict[str, str]) -> str:
+-        """Sink: write one skin file to its confined path."""
++        """Sink: write one skin file to the path derived from its name."""
+         target = self._target(entry["path"])
+         parent = os.path.dirname(target)
+         if parent:
+@@ -96,5 +92,5 @@
+ 
+ 
+ def create_app(skins_dir: str) -> SiteApp:
+-    """Build an app that installs skin packs confined to ``skins_dir``."""
++    """Build an app that installs skin packs under ``skins_dir``."""
+     return SiteApp(skins_dir)
