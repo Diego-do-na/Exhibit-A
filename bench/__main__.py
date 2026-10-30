@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ablation", action="append", help="repeatable; default all")
     parser.add_argument("--compare", choices=["baseline"],
                         help="replay the naive baseline and Exhibit A offline, write bench/results "
-                             "(or --out) and regenerate docs/bench.md (or --doc)")
+                             "(or --out) and regenerate docs/bench/bench.md (or --doc)")
     parser.add_argument("--doc", type=Path, help="document to regenerate with --compare")
     args = parser.parse_args(argv)
 
