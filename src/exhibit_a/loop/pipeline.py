@@ -16,6 +16,12 @@ each:
 * ``baseline_runner`` runs the project's own tests;
 * ``judge`` runs an exploit test and decides what its failure means.
 
+With a ``slice_plan`` (``exhibit-a run --slice``, off by default) the adversary sees only the
+source of the functions on the static graph's reach paths instead of the whole file, and every
+suspicion is judged with the entry point of the graph path it sits on, never with the
+model's own ``entry_point`` text: the graph can narrow what the oracle accepts, the model
+cannot widen it. The prompt builders are unchanged; the slice is a different input to them.
+
 Every verification module sits behind a flag so the loop can be ablated (SPEC section 11),
 with the same switches as ``bench/flags.py``: ``naive`` reports every suspicion without any
 exploit or verdict, ``oracle`` off accepts a plain failing test, ``differential`` off skips
@@ -37,6 +43,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
+from exhibit_a.graph.reach import render
+from exhibit_a.graph.slicer import SlicePlan
 from exhibit_a.ledger import Ledger
 from exhibit_a.loop import prompts
 from exhibit_a.models import ModelRole, RoleResult, SchemaValidationError
@@ -187,6 +195,7 @@ class VerificationLoop:
         flags: LoopFlags | None = None,
         effect: str = "canary_read",
         prompt_profile: str = "standard",
+        slice_plan: SlicePlan | None = None,
     ) -> None:
         if runs < 1:
             raise ValueError("runs must be at least 1")
@@ -215,6 +224,8 @@ class VerificationLoop:
         # Packages the sandbox installs for this case; the compact contract lists them so a
         # model does not write tests that die on an import the sandbox never provides.
         self.requirements = tuple(requirements)
+        # SLICE (opt-in): the graph's paths for the source file, or None for the whole file.
+        self.slice_plan = slice_plan
 
     def _classify(self, judgement: Judgement) -> VerdictValue:
         return classify(judgement, oracle=self.flags.oracle)
@@ -259,6 +270,11 @@ class VerificationLoop:
             return result
 
         source = (self.clone / source_file).read_text(encoding="utf-8")
+        if self.slice_plan is not None:
+            # SLICE: only the functions on the graph's paths, not the whole file.
+            self._emit(EventType.SCAN_DONE, status="sliced", source_file=source_file,
+                       **self.slice_plan.summary())
+            source = self.slice_plan.slice.text
         try:
             raised = self.roles.adversary.run(
                 self.prompts.adversary_prompt(source, source_file), self.prompts.suspicions_schema
@@ -276,7 +292,16 @@ class VerificationLoop:
             if suspicion.id in seen:
                 continue
             seen.add(suspicion.id)
-            self._emit(EventType.SUSPICION_RAISED, raised, suspicion=json.loads(suspicion.to_json()))
+            graph: dict[str, str] = {}
+            if self.slice_plan is not None:
+                # The entry point the oracle judges with comes from the graph path the
+                # suspicion sits on; the model's text is kept for the record only.
+                path = self.slice_plan.path_for(suspicion.location.file, suspicion.location.line)
+                graph = {"entry_point": path.oracle_entry_point, "model_entry_point": suspicion.entry_point,
+                         "path": render(path)}
+                suspicion = suspicion.model_copy(update={"entry_point": path.oracle_entry_point})
+            extra = {"graph": graph} if graph else {}
+            self._emit(EventType.SUSPICION_RAISED, raised, suspicion=json.loads(suspicion.to_json()), **extra)
             result.suspicions.append(suspicion)
             if not self.flags.naive:  # naive reports what was raised: no exploit, no verdict
                 result.results.append(self._process(suspicion))
@@ -290,10 +315,13 @@ class VerificationLoop:
         # label every app frame as test code and no bypass could ever be proven.
         tests_dir = work / "tests"
         tests_dir.mkdir(parents=True, exist_ok=True)
-        entry_points = {
-            prompts.canonical_entry_point(suspicion.entry_point)
-            if self.prompts.canonical_entry_points else suspicion.entry_point
-        }
+        if self.slice_plan is not None:
+            entry_points = {suspicion.entry_point}  # already the graph's (see run)
+        else:
+            entry_points = {
+                prompts.canonical_entry_point(suspicion.entry_point)
+                if self.prompts.canonical_entry_points else suspicion.entry_point
+            }
 
         def done(
             value: VerdictValue,

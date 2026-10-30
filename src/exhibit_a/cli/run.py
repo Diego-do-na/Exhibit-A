@@ -17,11 +17,14 @@ from pathlib import Path
 from typing import Any
 
 from ..ci.summary import build_result
+from ..graph import build_graph, find_paths, functions_in, reach_from_diff
+from ..graph.slicer import SlicePlan, make_plan
 from ..ledger import Ledger, append_run
 from ..loop import Roles, SandboxRunner, VerificationLoop
 from ..models import BudgetExceeded, CostMeter, ModelError, ModelRole, ReplayProvider, Role
 from ..models.config import RoleConfig, build_roles
 from ..schemas import Event, EventType, RunRecord, VerdictCounts
+from ..schemas.graph import CodeGraph, ReachReport
 
 #: Provider and model used for live runs when the caller names none. They are
 #: dev defaults (a local Ollama model); pass explicit values once the argument
@@ -183,6 +186,62 @@ def _append_run_index(out: Path, result: dict[str, Any], repo: Path, head: str, 
     append_run(out / "runs.jsonl", record)
 
 
+# -- SLICE (opt-in with --slice) ----------------------------------------------------------
+
+NOTHING_REACHABLE = "nothing_reachable"
+
+
+def _slice_plans(
+    clone: Path, sources: list[str], effect: str, *, diff: str | None = None,
+    declared: list[str] | tuple[str, ...] = (),
+) -> tuple[CodeGraph, ReachReport, dict[str, SlicePlan], float]:
+    """Build the graph of the staged clone and one slice plan per source file with a path.
+
+    The changed functions are those the diff touches, or every function of the source
+    files when there is no diff (a benchmark case names a file, not a change). Only paths
+    to a sink the oracle can prove with ``effect`` count: a path to any other sink could
+    never end in a proof, so it is not worth a model call.
+    """
+    started = time.perf_counter()
+    graph = build_graph(clone)
+    seconds = round(time.perf_counter() - started, 3)
+    if diff is None:
+        changed = [node for source in sources for node in functions_in(graph, source)]
+        report = find_paths(graph, changed, declared_entries=declared)
+    else:
+        report = reach_from_diff(graph, diff, declared_entries=declared)
+    files = {node.id: node.file for node in graph.nodes}
+    plans: dict[str, SlicePlan] = {}
+    for source in sources:
+        paths = [p for p in report.paths if p.sink.effect == effect and files.get(p.changed) == source]
+        plan = make_plan(graph, clone, paths)
+        if plan is not None:
+            plans[source] = plan
+    return graph, report, plans, seconds
+
+
+def _emit_nothing_reachable(
+    ledger: Ledger, run_id: str, graph: CodeGraph, report: ReachReport, seconds: float, effect: str
+) -> None:
+    """Record that the graph found no path, so no model was called."""
+    ledger.append(Event(
+        ts=datetime.now(timezone.utc).isoformat(), run_id=run_id, type=EventType.SCAN_DONE,
+        payload={
+            "status": NOTHING_REACHABLE,
+            "reason": "no changed function is on a path from an entry point to a sink the "
+                      f"oracle can prove with {effect}; no model call was made",
+            "effect": effect,
+            "changed": report.changed,
+            "changed_outside_functions": report.changed_outside_functions,
+            "unreached": [u.model_dump() for u in report.unreached],
+            "entries": [e.oracle_name for e in report.entries],
+            "paths_to_other_sinks": len(report.paths),
+            "graph": graph.stats.model_dump(),
+            "build_seconds": seconds,
+        },
+    ))
+
+
 def _run_pr_diff(args: argparse.Namespace) -> int:
     repo = Path(args.repo).resolve()
     out = Path(args.out).resolve()
@@ -239,6 +298,22 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
             result = _write_result(out, ledger, run_id, 0)
             _append_run_index(out, result, repo, head, started)
             return 0
+        plans: dict[str, SlicePlan] = {}
+        if getattr(args, "slice", False):
+            from .scan import git_unified_diff
+
+            # The loop judges PR-diff runs with its default effect, so the slice does too.
+            effect = "canary_read"
+            graph, report, plans, seconds = _slice_plans(
+                clone, changed, effect, diff=git_unified_diff(repo, spec))
+            if not plans:
+                _emit_nothing_reachable(ledger, run_id, graph, report, seconds, effect)
+                result = _write_result(out, ledger, run_id, 0)
+                _append_run_index(out, result, repo, head, started)
+                print(json.dumps({"status": result["status"], "proven": result["proven"],
+                                  "slice": NOTHING_REACHABLE}, sort_keys=True))
+                return 0
+            changed = [source for source in changed if source in plans]
         roles = _pr_roles(args) if args.replay else _live_roles(args, _cost_meter(args))
         runner = SandboxRunner()
         baseline = "."
@@ -248,6 +323,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
             loop = VerificationLoop(
                 clone, out, ledger, roles, baseline, run_id=run_id,
                 runner=runner, prompt_profile=_profile(args),
+                **({"slice_plan": plans[source]} if source in plans else {}),
             )
             try:
                 result_loop = loop.run(source)
@@ -410,6 +486,22 @@ def _run_case(args: argparse.Namespace) -> int:
     shutil.copyfile(root / settings["baseline_test"], clone / "test_baseline.py")
 
     ledger = Ledger(out / "ledger.jsonl")
+    slice_plan: SlicePlan | None = None
+    if getattr(args, "slice", False):
+        effect = settings.get("effect", "canary_read")
+        source_file = settings["source_file"]
+        graph, report, plans, seconds = _slice_plans(
+            clone, [source_file], effect, declared=list(settings.get("entry_points") or []))
+        slice_plan = plans.get(source_file)
+        if slice_plan is None:
+            _emit_nothing_reachable(ledger, case_id, graph, report, seconds, effect)
+            print(f"run {case_id}: nothing reachable: no function of {source_file} is on a path "
+                  f"from an entry point to a {effect} sink; no model call was made")
+            print(f"ledger {out / 'ledger.jsonl'}")
+            return 0
+        best = slice_plan.paths[0]
+        print(f"run {case_id}: slice: {len(slice_plan.paths)} path(s), best [{best.vuln_class}] "
+              f"from {best.oracle_entry_point}; {len(slice_plan.slice.text)} chars instead of {source_file}")
     if args.replay:
         if "recording" in settings:
             provider = ReplayProvider(root / settings["recording"])
@@ -454,6 +546,7 @@ def _run_case(args: argparse.Namespace) -> int:
             requirements=tuple(settings.get("requirements", ())),
             effect=settings.get("effect", "canary_read"),
             prompt_profile=_profile(args),
+            slice_plan=slice_plan,
         )
     try:
         result = loop.run(settings["source_file"])
@@ -486,6 +579,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         # made with the standard profile, so compact prompts can never hit them.
         print("run: --profile compact cannot be combined with --replay "
               "(the recordings were made with the standard profile)", file=sys.stderr)
+        return 2
+    if getattr(args, "slice", False) and getattr(args, "replay", False):
+        # Same reason: the adversary prompt carries the slice, so no recorded key matches.
+        print("run: --slice cannot be combined with --replay "
+              "(the recordings were made without slicing)", file=sys.stderr)
         return 2
     if args.case:
         return _run_case(args)

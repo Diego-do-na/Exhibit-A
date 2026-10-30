@@ -490,3 +490,29 @@ def test_the_compact_loop_judges_with_the_canonical_entry_point(tmp_path):
 
 def test_the_standard_profile_keeps_the_entry_point_as_written():
     assert not prompts.profile("standard").canonical_entry_points
+
+
+# -- the compact profile must not move either (T084) ---------------------------------------
+
+def _compact_snapshot() -> str:
+    s = Suspicion.model_validate(SUSPICION)
+    parts = [
+        prompts.compact_adversary_prompt("SRC", "app.py"),
+        prompts.compact_writer_prompt(s, "SRC"),
+        prompts.compact_writer_prompt(s, "SRC", contract=prompts.test_contract("canary_read", ["pkg==1"])),
+        prompts.compact_writer_prompt(s, "SRC", contract=prompts.test_contract("canary_write")),
+        prompts.compact_fixer_prompt(s, "SRC", "EXP", "R"),
+        prompts.compact_defender_prompt(s, "PATCHED", "EXP"),
+        prompts.compact_defender_prompt(s, "PATCHED", "EXP", contract=prompts.test_contract("canary_write")),
+        json.dumps([prompts.COMPACT_SUSPICIONS_SCHEMA, prompts.COMPACT_EXPLOIT_SCHEMA,
+                    prompts.COMPACT_FIX_SCHEMA, prompts.COMPACT_VARIANTS_SCHEMA], sort_keys=True),
+    ]
+    return "\n".join(parts) + "\n"
+
+
+def test_compact_prompts_and_schemas_are_frozen():
+    # The compact Meta recordings (bench/corpus/*/recordings/*-compact.*) are keyed by these
+    # prompts and schemas. If this fails, they stop replaying: put the change in a new
+    # profile or behind a new flag instead.
+    digest = hashlib.sha256(_compact_snapshot().encode()).hexdigest()
+    assert digest == "ca3e18ab5484438b494ea3f92491f82087e135c921a6883a6b1d14cc9e3012c4"
