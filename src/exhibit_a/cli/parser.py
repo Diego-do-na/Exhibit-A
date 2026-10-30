@@ -34,7 +34,29 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     scan = sub.add_parser(
-        "scan", help="Print a RepoProfile placeholder and exit."
+        "scan",
+        help="Print the RepoProfile of a repository (a placeholder without one), "
+        "optionally with its call graph and reach paths.",
+    )
+    scan.add_argument(
+        "repo", nargs="?", default=None,
+        help="Repository to scan. Without it, a RepoProfile placeholder is printed.",
+    )
+    scan.add_argument(
+        "--graph", action="store_true",
+        help="Add a summary of the static call graph (entry points, sinks, sizes).",
+    )
+    scan.add_argument(
+        "--graph-out", default=None, metavar="FILE",
+        help="With --graph, also write the whole graph as JSON to FILE.",
+    )
+    scan.add_argument(
+        "--pr-diff", default=None, metavar="BASE..HEAD",
+        help="Add the reach paths (entry -> changed function -> sink) of the commits' changes.",
+    )
+    scan.add_argument(
+        "--entry-point", action="append", default=None, metavar="NAME",
+        help="Declared entry point (Class.method); repeatable. Declared names replace detection.",
     )
     scan.set_defaults(func=cmd_scan)
 
