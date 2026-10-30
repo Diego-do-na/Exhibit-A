@@ -55,7 +55,7 @@ from .record_meta import (
 
 REPO = Path(__file__).resolve().parent.parent
 RESULTS_DIR = REPO / "bench" / "results"
-DOC_PATH = REPO / "docs" / "bench.md"
+DOC_PATH = REPO / "docs" / "bench" / "bench.md"
 BEGIN_MARKER = "<!-- BEGIN GENERATED: python -m bench --compare baseline -->"
 END_MARKER = "<!-- END GENERATED -->"
 #: Same hard cap as T070's rule for this task.
@@ -434,7 +434,7 @@ def _cells(score: dict[str, Any]) -> str:
 
 
 def render_section(result: Comparison) -> str:
-    """The generated part of docs/bench.md. A pure function of the replayed recordings."""
+    """The generated part of docs/bench/bench.md. A pure function of the replayed recordings."""
     header = " | ".join(_COLUMNS)
     lines = [
         "Same three targets for every row: the two vulnerable cases and the fixed Starlette tree.",
