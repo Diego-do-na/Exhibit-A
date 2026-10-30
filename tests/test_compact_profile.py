@@ -370,6 +370,9 @@ def test_the_read_contract_says_where_the_canary_is_and_what_is_forbidden():
     for forbidden in ("monkeypatch", "ctypes", "subprocess"):
         assert forbidden in text
     assert "starlette==0.26.1, anyio>=3.4,<5" in text
+    # On fixed code StaticFiles refuses with an HTTPException; an exploit that does not catch
+    # it errors instead of passing, and the fix can never be verified (2026-10-30 compact run).
+    assert "PASS once the flaw is fixed" in text and "catch that and treat it as safe" in text
     assert "EXHIBIT_A_CANARY'" not in text  # the canary's own variable is not part of the contract (A-11 F2)
 
 
