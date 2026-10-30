@@ -136,7 +136,7 @@ stop these recordings from replaying). The fix is in the opt-in compact profile:
 and defender prompts carry a proof contract that says where the canary is for the case's effect,
 what the test must assert, what is forbidden (monkeypatch, ctypes, subprocess, opening the canary)
 and which packages the sandbox installs (`loop/prompts.py::test_contract`,
-`docs/cost-controls.md`). `httpx` was deliberately not added to the Starlette cases: the replay of
+`docs/bench/cost-controls.md`). `httpx` was deliberately not added to the Starlette cases: the replay of
 these recordings must keep reproducing what the live run saw.
 
 ## Compact-profile run: both vulnerable cases proven and fixed
@@ -184,7 +184,7 @@ proof standard does not accept, and the oracle already rejects the same symlink 
 raced (S2 in the same run: `invalid_test`).
 
 The oracle now flags any link to the canary created during the run at creation time
-(`docs/oracle-provenance.md` section 3.8). The recording is kept unedited, and its metadata
+(`docs/oracle/oracle-provenance.md` section 3.8). The recording is kept unedited, and its metadata
 still says what the live run concluded; `tests/test_meta_replay.py` replays it against the
 current oracle and requires that nothing is proven. A new live run of the negative control has
 not been made since the fix.

@@ -14,12 +14,12 @@ It runs two ways:
 - `scripts/demo.sh --live` — runs the same story live against Muse Wonder
   (`muse-wonder-1.0`, `--profile compact --budget-usd 1`, archive case only).
   Needs `META_API_KEY` in the environment. The model is not deterministic: a
-  live run can differ from the recording (see `docs/meta-run.md`).
+  live run can differ from the recording (see `docs/bench/meta-run.md`).
 
 The headline, and the only claim the demo makes: a real Meta model produced a
 real proof with a verified fix, and the offline replay reproduces it for free —
 archive zip-slip US$0.06, Starlette CVE-2023-29159 US$0.11 (live cost; replay
-costs nothing). Never claim more than `docs/meta-run.md` says: a green result
+costs nothing). Never claim more than `docs/bench/meta-run.md` says: a green result
 means "nothing could be proven", never "safe", and the sandbox is "isolated
 and resource-limited", never "100% safe".
 
@@ -52,7 +52,7 @@ on a cold machine (see troubleshooting).
   same secret scan as the recording pipeline before committing anything new:
   `PYTHONPATH=src:. python -m bench.record_meta --scan <files>`.
 - `--live` ends with no proven finding: expected variance — the model is not
-  deterministic, and the recording is one sample. Quote `docs/meta-run.md`,
+  deterministic, and the recording is one sample. Quote `docs/bench/meta-run.md`,
   show the ledger, and fall back to `--offline` for the guaranteed ending.
 - Port 8765 busy: `python -m exhibit_a.cli dashboard --source local:runs/demo-offline --port 8771`.
 - Re-recording: never edit a recording by hand. A new live run overwrites

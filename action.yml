@@ -8,7 +8,7 @@ branding:
   icon: shield
   color: gray-dark
 
-# Security notes (details in docs/github-action-security.md):
+# Security notes (details in docs/ci/github-action-security.md):
 # - Every input reaches shell code through env vars, never through ${{ }}
 #   inside a script, so a crafted input cannot inject commands.
 # - The model API key is materialised only in the "Run Exhibit A" step and is
@@ -276,7 +276,7 @@ runs:
         [[ "$IN_REPLAY" == "true" ]] && args+=(--replay)
         [[ -n "$IN_BUDGET" ]] && args+=(--budget-usd "$IN_BUDGET")
 
-        # CLI exit codes (docs/cli-exit-codes.md): 0 ran, nothing proven;
+        # CLI exit codes (docs/reference/cli-exit-codes.md): 0 ran, nothing proven;
         # 10 ran, at least one finding proven; 20 incomplete (timeout,
         # environment or model failure); 2 usage or input error, for example
         # an unsupported provider. Only 0 and 10 continue to the summary;

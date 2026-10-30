@@ -88,13 +88,13 @@ Columns:
   times counting the live spend (US$0.4537), and about 4.7 times the model time.
 - **Exhibit A can miss.** The standard-profile row has recall 0.00 at US$4.78: the same model and
   loop proved nothing, including on both cases that are known to be vulnerable. The cause is in
-  `docs/meta-run.md`.
+  `docs/bench/meta-run.md`.
 
 ## The negative control had a false proof
 
 The live compact run of `starlette-cve-2023-29159-fixed` ended with S3 `proven`. **That was a false
 proof**: the test raced a symlink to the canary, and the oracle's check raced it in turn. The
-oracle was fixed afterwards (`docs/oracle-provenance.md` section 3.8, `docs/meta-run.md`), and the
+oracle was fixed afterwards (`docs/oracle/oracle-provenance.md` section 3.8, `docs/bench/meta-run.md`), and the
 fixed oracle rejects it. The recording's metadata still says `proven`.
 
 The zero false accusations in the table therefore come from replaying through today's oracle, not
@@ -113,7 +113,7 @@ No live run of the negative control has been made since the oracle fix.
 - **Exhibit A was tuned on these cases; the naive prompt was not.** The compact proof contract was
   written while looking at failures on these same cases. Two earlier compact attempts were
   overwritten: one proved nothing (US$0.12), one proved only the archive case (US$0.22)
-  (`docs/meta-run.md`). The oracle fix came from this same negative control. So recall 1.00 and
+  (`docs/bench/meta-run.md`). The oracle fix came from this same negative control. So recall 1.00 and
   zero false accusations are after tuning, with no held-out case. The naive prompt was recorded
   once, untuned.
 - **Both systems are handed the right file.** Recall does not measure finding the vulnerable file
@@ -139,7 +139,7 @@ No live run of the negative control has been made since the oracle fix.
   modelled. The two systems also produce different things: Exhibit A's cost buys an exploit, a fix
   and bypass checks, and the naive cost buys a list.
 - **The proof standard has declared limits.** The oracle is isolated and resource-limited and still
-  has open false-proof limits (`docs/oracle-provenance.md`, `docs/THREAT_MODEL.md`).
+  has open false-proof limits (`docs/oracle/oracle-provenance.md`, `docs/security/THREAT_MODEL.md`).
 - **Costs are not taken from ledger totals.** The loop stamps the adversary's one call on every
   `suspicion_raised` event, so ledger totals charge it once per suspicion. The comparison counts
   actual model calls instead, and these match the recordings.

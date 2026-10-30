@@ -28,7 +28,7 @@ This copies the case tree to `runs/case/clone`, runs the verification loop with 
 
 `--replay` is optional. Without it the roles call the provider chosen with `--provider` and `--model` (default `ollama`), so a key or a local model is needed. Under GitHub Actions the engine refuses `--case` without `--replay`. The recordings in `bench/corpus/` are hand-authored (`"model": "hand-authored"`); no Meta-model recording exists yet.
 
-A pull request can be verified with `python -m exhibit_a.cli run --repo <dir> --pr-diff BASE..HEAD`. Exit codes (`docs/cli-exit-codes.md`): 0 nothing proven, 10 a finding proven, 20 run incomplete, 2 usage or input error.
+A pull request can be verified with `python -m exhibit_a.cli run --repo <dir> --pr-diff BASE..HEAD`. Exit codes (`docs/reference/cli-exit-codes.md`): 0 nothing proven, 10 a finding proven, 20 run incomplete, 2 usage or input error.
 
 Architecture overview
 - `src/exhibit_a/cli/` — CLI package (`run`, `ledger`, `report`, `runs`, `advisories`, `dashboard`; `scan` is still a placeholder).
@@ -56,7 +56,7 @@ Getting help
 # Exhibit-A
 Proof before accusation. An adversarial agent must write an exploit test that actually fails against an isolated clone before any vulnerability is reported. Failing test, then fix, then green, then a permanent regression guard: since A-22 (T078) a finding is `proven` only after the exploit also passes on the fixed code and the baseline still passes, and the package ships the exploit as a regression test. A surviving bypass is reported with `fix_incomplete`. Suspicions that can't be proven are dropped silently and counted.
 
-Declared residual limits of the oracle (`docs/oracle-provenance.md` section 7). Each is pinned by a strict xfail in `tests/test_oracle_residual.py`:
+Declared residual limits of the oracle (`docs/oracle/oracle-provenance.md` section 7). Each is pinned by a strict xfail in `tests/test_oracle_residual.py`:
 - R1: in-process introspection of the plugin (FALSE_PROVEN)
 - R2: `sitecustomize` in the app tree (FALSE_PROVEN, host path)
 - R3: subprocess reads (recall)
