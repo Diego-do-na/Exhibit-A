@@ -180,7 +180,7 @@ def render_markdown(package_dir: str | Path) -> str:
         lines.append(f"    {'>' if selected else ' '} {number:4} | {_code(content)}")
     lines += [
         "",
-        "## Hypothesis",
+        "## Hypothesis (the model's guess, not part of the proof)",
         "",
         _md(data["hypothesis"]),
         "",
@@ -237,7 +237,7 @@ def render_html(package_dir: str | Path) -> str:
 {"" if safe else '<p>Nothing could be proven; this result is not a claim about project security.</p>'}
 <div class="meta"><p><b>Vulnerability class:</b> {_html(data["class"])}</p><p><b>Severity:</b> {_html(data["severity"])} (proven + reachable entry point + observed effect =&gt; high)</p></div>
 <h2>Suspicious code</h2><p><b>File:</b> {_html(data["file"])}; <b>highlighted line:</b> {_html(data["line"])}</p><pre><code>{code}</code></pre>
-<h2>Hypothesis</h2><p>{_html(data["hypothesis"])}</p>
+<h2>Hypothesis <small>(the model's guess, not part of the proof)</small></h2><p>{_html(data["hypothesis"])}</p>
 <h2>Exploit test</h2><p><code>{_html(data["test"])}</code></p>
 <h2>Oracle evidence</h2><ul><li>Event: {_html(data["event"])}</li><li>Provenance: <code>{_html(json.dumps(data["provenance"], sort_keys=True))}</code></li><li>Stable runs: {_html(data["runs"])}</li></ul>
 <h2>Red → green</h2><p>Vulnerable: {_html(data["verdict"])}; fixed: {_html((verdict.get("evidence") or {}).get("passes_on", "not verified"))}</p>

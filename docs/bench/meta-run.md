@@ -189,6 +189,26 @@ still says what the live run concluded; `tests/test_meta_replay.py` replays it a
 current oracle and requires that nothing is proven. A new live run of the negative control has
 not been made since the fix.
 
+### Live confirmation runs (2026-10-30, after the oracle fix, not recorded)
+
+Run with `exhibit-a run --case ... --provider meta --model muse-wonder-1.0 --profile compact
+--budget-usd 1` (and `scripts/demo.sh --live` for the archive case), output to a scratch
+directory, so these runs are not in the repository and cannot be replayed; the numbers are
+what the CLI printed.
+
+| Case | Verdicts | Cost (US$) |
+|---|---|---|
+| archive-extraction-pathtraversal | S1 `proven`, fix verified, 3 bypass variants tried, 0 succeeded | 0.0879 |
+| starlette-cve-2023-29159 | S1 and S3 `proven`, both fixes verified; 1 `invalid_test` | 0.2370 |
+| starlette-cve-2023-29159-fixed (negative control) | **0 `proven`**: 2 `discarded_unproven`, 1 `invalid_test` | 0.1303 |
+
+The negative control is the first live run of the fixed tree since the oracle fix (section
+above): nothing was proven on code that is not vulnerable. On the vulnerable tree, S1 and S3 are
+the same bug: S3's exploit is the sibling-prefix request (`out` beside `outside`,
+`/../outside/canary.txt`), while S3's hypothesis text guessed a Windows backslash variant. The
+proof is the executed test, not the hypothesis; the report now labels the hypothesis as the
+model's guess, and grouping duplicate proofs of one effect is not implemented yet.
+
 ## Re-running
 
 `--case` limits the run to some cases. `--overwrite` replaces a recording. `--spent-usd` counts
