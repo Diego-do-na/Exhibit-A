@@ -1,0 +1,85 @@
+{
+  "cases": [
+    {
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "path_traversal_write",
+          "file": "vulnerable/uploadsvc/uploaded.py"
+        }
+      ],
+      "id": "upload-filename-traversal",
+      "kind": "vulnerable",
+      "repo": ""
+    }
+  ],
+  "held_out": true,
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "note": "Self-contained oracle case (stdlib only, not replay-driven), proven directly with effect='canary_write'. Held out: written after the compact profile and the oracle were frozen, from the public Django advisory CVE-2021-31542 (uploaded file names). No upstream repo/commit applies: the code is an original reimplementation of the vulnerable pattern, not Django.",
+  "real_world_analog": {
+    "advisory": "https://www.djangoproject.com/weblog/2021/may/04/security-releases/",
+    "cve": "CVE-2021-31542",
+    "fix": "Django 3.2.1, 3.1.9 and 2.2.21 apply stricter basename and path sanitation to uploaded file names (django.core.files.utils.validate_file_name rejects names with path elements and the names '', '.' and '..'; the commit is 0b79eb36915d178aef5c6a7bbce71b1e76d376d3). The fixed tree rejects such names with an original check.",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2021-31542",
+    "summary": "Potential directory traversal via uploaded files: MultiPartParser, UploadedFile and FieldFile allowed directory traversal with suitably crafted file names. Affected Django 2.2 before 2.2.21, 3.1 before 3.1.9 and 3.2 before 3.2.1; severity low by Django's policy.",
+    "verification": "CVE number, release notes and fix commit confirmed via web search (Django weblog, release notes, CVE record, GitHub commit) on 2026-10-31; the service in this case is original code written from that description, not Django."
+  },
+  "run": {
+    "baseline_test": "baseline_test.py",
+    "bypass": {
+      "expectation": "proven against fixed_incomplete: the name starts with a sub-directory ('sub/../../...'), so a screen that only looks at how the name begins lets it through and it still climbs out of the storage directory; the incomplete fix must not be accepted as fixed.",
+      "exploit": "exploits/exploit_true_nested_dotdot_filename.py",
+      "incomplete_fix": "fixed_incomplete"
+    },
+    "effect": "canary_write",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_dotdot_filename.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_absolute_filename.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_nested_dotdot_filename.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_plain_upload.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_no_content_type.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_sink_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_writes_canary.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_escape.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_escape.py",
+        "label": "flaky"
+      }
+    ],
+    "oracle_entry_point": "App.handle_request",
+    "source_file": "uploadsvc/uploaded.py",
+    "trees": {
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete",
+      "vulnerable": "vulnerable"
+    }
+  },
+  "synthetic": true
+}
