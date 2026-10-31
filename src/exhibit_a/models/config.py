@@ -5,11 +5,14 @@ to use with it. Providers are resolved by name through a small registry so new
 backends (for example the Meta provider) can plug in without touching this file.
 """
 
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from .base import ModelRole, Provider, Role
+from . import baseten as baseten_module
+from .baseten import BasetenProvider
 from .cost import CostMeter, Pricing
 from .meta import META_PRICING, MetaProvider
 from .ollama import OllamaProvider
@@ -103,10 +106,34 @@ def _meta_factory(spec: RoleConfig) -> Provider:
     return provider
 
 
+def _baseten_factory(spec: RoleConfig) -> Provider:
+    if not spec.model:
+        raise ValueError("baseten provider needs a model name")
+    # Fail before any model call so `run` refuses to start without a key.
+    api_key_env = spec.api_key_env or baseten_module.DEFAULT_API_KEY_ENV
+    if not os.environ.get(api_key_env):
+        raise ValueError(
+            f"baseten provider needs the {api_key_env} environment variable to be set"
+        )
+    # BasetenProvider raises ValueError when no rate is known (pricing table
+    # entry or EXHIBIT_A_PRICE_* env override), so `run` also refuses to
+    # start without a price: a budget cap that cannot measure is not a cap.
+    provider = BasetenProvider(
+        spec.model,
+        base_url=spec.base_url,
+        api_key_env=spec.api_key_env,
+        pricing=spec.pricing,
+        timeout=spec.timeout,
+    )
+    provider.configure_generation(spec.reasoning_effort, spec.max_output_tokens)
+    return provider
+
+
 register_provider("replay", _replay_factory)
 register_provider("ollama", _ollama_factory)
 register_provider("openai_compatible", _openai_compatible_factory)
 register_provider("meta", _meta_factory)
+register_provider("baseten", _baseten_factory)
 
 
 def _coerce_pricing(raw: Pricing | Mapping[str, Any]) -> Pricing:
