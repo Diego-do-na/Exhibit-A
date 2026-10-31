@@ -21,10 +21,16 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Sequence
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+from typing import get_args
 
 from ..ci.summary import build_result
+from ..graph import build_graph, find_paths, functions_in
+from ..oracle.oracle import Effect
 from ..schemas import Event, EventType, VerdictValue
+from ..schemas.graph import CodeGraph, ReachPath
+from ..ledger.trace import trace_events, trace_to_dict
 from .sources import RunData
 
 #: The verdict loop stages shown on the run timeline, in order.
@@ -42,6 +48,9 @@ MAX_STRING = 2000
 MAX_ITEMS = 200
 MAX_DEPTH = 8
 MAX_FRAMES = 60
+
+_GRAPH_CACHE: dict[str, tuple[str, dict[str, Any]]] = {}
+EFFECTS = tuple(get_args(Effect))
 
 _WRITE_MODE = set("wax+")
 _SHA = re.compile(r"^[0-9a-f]{7,64}\Z")
@@ -362,6 +371,7 @@ def _evidence(sid: str, entry_point: str, events: Sequence[Event], verdict: dict
         frames = _frames(inner.get("stack"), entry_point)
 
     fixes = [e for e in own if e.type == EventType.FIX_PROPOSED]
+    exploits = [e for e in own if e.type == EventType.EXPLOIT_WRITTEN]
     fix = fixes[-1].payload if fixes else {}
     fixed_baselines = [e for e in own if e.type == EventType.BASELINE_DONE]
     packaged = [e for e in own if e.type == EventType.PACKAGED]
@@ -401,7 +411,9 @@ def _evidence(sid: str, entry_point: str, events: Sequence[Event], verdict: dict
             "applied": bool(fixes) and fix.get("applied") is not False,
             "error": _text(fix.get("error"), 300),
             "patch_path": _text(fix.get("patch_path"), 300),
+            "diff": _text(fix.get("patch") or fix.get("diff"), MAX_STRING),
         },
+        "exploit_test": _text(exploits[-1].payload.get("test_path"), 300) if exploits else _text(declared.get("test_path"), 300),
         "passes_on_fixed": {
             "runs": len(fixed_runs),
             "effect_seen_after_fix": fixed_still_observed,
@@ -414,14 +426,157 @@ def _evidence(sid: str, entry_point: str, events: Sequence[Event], verdict: dict
             "variants": bypasses[:50],
         },
         "package": _text(pkg.get("path") or pkg.get("dir"), 300),
+        "cwe": _text(verdict.get("cwe") or declared.get("cwe"), 80),
     }
+
+
+def _costs(events: Sequence[Event]) -> dict[str, Any]:
+    roles: dict[str, dict[str, Any]] = {}
+    stages: dict[str, dict[str, Any]] = {}
+    for event in events:
+        role = _text(event.role, 64) or "engine"
+        stage = stage_of(event) or "INTAKE"
+        for bucket, key in ((roles, role), (stages, stage)):
+            item = bucket.setdefault(key, {"cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0, "events": 0})
+            item["cost_usd"] += event.cost_usd
+            item["tokens_in"] += event.tokens_in
+            item["tokens_out"] += event.tokens_out
+            item["events"] += 1
+    for bucket in (roles, stages):
+        for item in bucket.values():
+            item["cost_usd"] = round(item["cost_usd"], 8)
+    return {"by_role": roles, "by_stage": stages}
+
+
+def _tree_key(tree: Path | None) -> str:
+    if tree is None:
+        return ""
+    try:
+        stat = tree.stat()
+        return f"{tree}:{stat.st_mtime_ns}:{stat.st_size}"
+    except OSError:
+        return str(tree)
+
+
+def _node_dump(node: Any, *, entry: bool = False, sink: bool = False, proven: bool = False) -> dict[str, Any]:
+    return {
+        "id": node.id,
+        "kind": "sink" if sink else node.kind,
+        "module": "" if sink else node.module,
+        "name": node.name if not sink else node.id,
+        "file": "" if sink else node.file,
+        "line": 0 if sink else node.line,
+        "start": 0 if sink else node.start,
+        "end": 0 if sink else node.end,
+        "entry_point": entry,
+        "sink": sink,
+        "proven": proven,
+    }
+
+
+def build_graph_view(data: RunData) -> dict[str, Any]:
+    """Build the small entry-to-sink graph shown for a run.
+
+    The graph is AST-only and is cached by run/tree.  A replay from GitHub can
+    still show its ledger and findings, but has no local code tree to parse.
+    """
+    key = f"{data.ref.run_id}:{_tree_key(data.tree)}"
+    cached = _GRAPH_CACHE.get(key)
+    if cached is not None:
+        return cached[1]
+    empty = {"available": False, "reason": "run archive has no local code tree", "nodes": [], "edges": [],
+             "paths": [], "effects": list(EFFECTS), "sink_rule": "", "entry_points": []}
+    if data.error or data.tree is None:
+        _GRAPH_CACHE[key] = (key, empty)
+        return empty
+    try:
+        graph = build_graph(data.tree)
+    except (OSError, ValueError):
+        _GRAPH_CACHE[key] = (key, empty | {"reason": "code tree could not be parsed"})
+        return _GRAPH_CACHE[key][1]
+
+    suspicions: list[dict[str, Any]] = []
+    proven_ids: set[str] = set()
+    for event in data.events:
+        if event.type == EventType.SUSPICION_RAISED:
+            suspicion = _dict(event.payload.get("suspicion")) or event.payload
+            if isinstance(suspicion, dict):
+                suspicions.append(suspicion)
+        elif event.type == EventType.VERDICT and _sid(event):
+            if _text(event.payload.get("verdict"), 40) == VerdictValue.PROVEN.value:
+                proven_ids.add(_sid(event))
+
+    reports: list[tuple[str, Any, bool]] = []
+    for suspicion in suspicions:
+        location = _dict(suspicion.get("location"))
+        file = _text(location.get("file"), 300)
+        changed = functions_in(graph, file) if file else []
+        if not changed:
+            continue
+        declared = [_text(suspicion.get("entry_point"), 200)] if _text(suspicion.get("entry_point"), 200) else []
+        report = find_paths(graph, changed, declared_entries=declared)
+        reports.extend((_text(suspicion.get("id"), 128), path, _text(suspicion.get("id"), 128) in proven_ids)
+                       for path in report.paths)
+
+    selected: set[str] = set()
+    proven_paths: list[dict[str, Any]] = []
+    proven_keys: set[tuple[Any, ...]] = set()
+    entries: set[str] = set()
+    sink_rule = ""
+    for _, path, is_proven in reports:
+        ids = list(dict.fromkeys(path.to_changed + path.to_sink))
+        selected.update(ids)
+        entries.add(path.entry)
+        sink_rule = path.sink.target
+        if is_proven:
+            path_key = (path.entry, tuple(ids), path.sink.target, path.sink.line)
+            if path_key in proven_keys:
+                continue
+            proven_keys.add(path_key)
+            proven_paths.append({
+                "entry": path.entry, "entry_point": path.oracle_entry_point,
+                "nodes": ids, "sink": path.sink.target, "effect": path.sink.effect,
+                "rule": path.sink.category, "confidence": path.confidence,
+            })
+    # Include one hop around the relevant path, while retaining only repository nodes.
+    for edge in graph.edges:
+        if edge.src in selected or edge.dst in selected:
+            selected.add(edge.src)
+            if edge.dst in {n.id for n in graph.nodes}:
+                selected.add(edge.dst)
+    nodes_by_id = {node.id: node for node in graph.nodes}
+    node_rows = [
+        _node_dump(nodes_by_id[node_id], entry=node_id in entries,
+                   proven=any(node_id in p["nodes"] for p in proven_paths))
+        for node_id in sorted(selected) if node_id in nodes_by_id
+    ]
+    edge_rows = []
+    for edge in graph.edges:
+        if edge.src not in selected:
+            continue
+        dst = edge.dst
+        if dst not in selected and not any(p["sink"] == dst for p in proven_paths):
+            continue
+        if dst not in nodes_by_id and any(p["sink"] == dst for p in proven_paths):
+            node_rows.append({"id": dst, "kind": "sink", "module": "", "name": dst, "file": "",
+                              "line": 0, "start": 0, "end": 0, "entry_point": False,
+                              "sink": True, "proven": True})
+        edge_rows.append({"src": edge.src, "dst": dst, "kind": edge.kind, "line": edge.line,
+                          "text": _text(edge.text, 200),
+                          "proven": any(dst in p["nodes"] and edge.src in p["nodes"] for p in proven_paths)})
+    result = {"available": True, "reason": "", "nodes": node_rows, "edges": edge_rows,
+              "paths": proven_paths, "effects": list(EFFECTS), "sink_rule": sink_rule,
+              "entry_points": sorted(entries), "stats": graph.stats.model_dump()}
+    _GRAPH_CACHE[key] = (key, result)
+    return result
 
 
 def run_detail(data: RunData) -> dict[str, Any]:
     """Everything the run detail view shows, except the raw event list."""
     row = run_row(data)
     if row["error"]:
-        return {"run": row, "stages": _stages([]), "proven": [], "discarded": [], "latency_ms": 0}
+        return {"run": row, "stages": _stages([]), "proven": [], "discarded": [], "latency_ms": 0,
+                "trace": trace_to_dict(row["run_id"], []), "costs": _costs([]), "graph": build_graph_view(data)}
     events = data.events
     suspicions: dict[str, dict[str, Any]] = {}
     verdicts: dict[str, dict[str, Any]] = {}
@@ -451,12 +606,16 @@ def run_detail(data: RunData) -> dict[str, Any]:
         if label == VerdictValue.PROVEN.value:
             item["evidence"] = _evidence(sid, base["entry_point"], events, verdict)
         items.append(item)
+    steps = trace_events(events)
     return {
         "run": row,
         "stages": _stages(events),
         "proven": [i for i in items if i["verdict"] == VerdictValue.PROVEN.value],
         "discarded": [i for i in items if i["verdict"] != VerdictValue.PROVEN.value],
         "latency_ms": sum(e.latency_ms for e in events),
+        "trace": trace_to_dict(row["run_id"], steps),
+        "costs": _costs(events),
+        "graph": build_graph_view(data),
     }
 
 

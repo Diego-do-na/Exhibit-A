@@ -109,6 +109,7 @@ class RunData:
     events: list[Event] = field(default_factory=list)
     result: dict[str, Any] | None = None
     error: str = ""
+    tree: Path | None = None
 
 
 class RunSource(Protocol):
@@ -386,6 +387,16 @@ class LocalRunsSource:
             data = RunData(ref=ref, error=str(exc))
         else:
             data = _build_run(ref, ledger, result)
+            if not data.error:
+                # Local replay archives may carry the staged repository under one of
+                # these names.  The graph builder only parses this tree; it never runs it.
+                for name in ("tree", "repo", "case", "clone", "vulnerable", "app"):
+                    candidate = folder / name
+                    if candidate.is_dir() and not candidate.is_symlink():
+                        data.tree = candidate.resolve()
+                        break
+                if data.tree is None and any(folder.glob("*.py")):
+                    data.tree = folder
         self._cache.put(stamp, data)
         return data
 
