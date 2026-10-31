@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from typing import get_args
 
 from .ledger import cmd_ledger
 from .run import cmd_run
@@ -13,6 +14,8 @@ from .report import cmd_report
 from .runs import cmd_runs
 from .trace import cmd_trace
 from ..models.config import PROVIDER_REGISTRY
+from ..oracle.oracle import Effect
+from .ext import register_all as register_extensions
 
 NOT_WIRED_YET = "not wired yet"
 
@@ -89,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--effect",
-        choices=("canary_read", "canary_write", "canary_exec"),
+        choices=get_args(Effect),
         default="canary_read",
         help="Oracle effect to prove in PR-diff mode (default: canary_read).",
     )
@@ -123,13 +126,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--slice",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help=(
-            "Off by default. Build the static call graph first: when no changed function is on "
-            "a path from an entry point to a sink, record that and make no model call; "
-            "otherwise send the adversary only the functions on those paths and judge with the "
-            "graph's entry point, never the model's."
+            "Build the static call graph first: when no changed function is on a path from an "
+            "entry point to a sink, record that and make no model call; otherwise send the "
+            "adversary only the functions on those paths and judge with the graph's entry "
+            "point, never the model's. On by default with --profile compact, off with the "
+            "standard profile; --slice / --no-slice override."
         ),
     )
     run.add_argument(
@@ -198,4 +202,6 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--source", required=True, help="Dashboard source, such as local:RUNS.")
     dashboard.add_argument("--port", type=int, default=8765)
     dashboard.set_defaults(func=cmd_dashboard)
+
+    register_extensions(sub)
     return parser

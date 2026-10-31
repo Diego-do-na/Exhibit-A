@@ -153,8 +153,16 @@ def _events(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def test_slice_is_off_by_default():
-    assert build_parser().parse_args(["run"]).slice is False
+def test_slice_is_off_by_default_for_the_standard_profile_and_on_for_compact():
+    from exhibit_a.cli.run import _slice
+
+    parse = build_parser().parse_args
+    assert parse(["run"]).slice is None
+    assert _slice(parse(["run"])) is False
+    assert _slice(parse(["run", "--profile", "standard"])) is False
+    assert _slice(parse(["run", "--profile", "compact"])) is True
+    assert _slice(parse(["run", "--profile", "compact", "--no-slice"])) is False
+    assert _slice(parse(["run", "--slice"])) is True
     assert build_parser().parse_args(["run", "--slice"]).slice is True
 
 
