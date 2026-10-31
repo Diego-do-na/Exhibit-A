@@ -84,6 +84,14 @@ inputs:
     description: Post or update one PR comment with the summary (needs pull-requests write).
     required: false
     default: "false"
+  suggest-fixes:
+    description: Post verified fix hunks as GitHub review suggestions (needs pull-requests write).
+    required: false
+    default: "true"
+  open-fix-pr:
+    description: Push a verified fix branch and open a PR (never for fork PRs; needs contents write).
+    required: false
+    default: "false"
   comment-author:
     description: Login whose marker comment is updated in place.
     required: false
@@ -163,6 +171,8 @@ runs:
         IN_REPLAY: ${{ inputs.replay }}
         IN_RISK_GATE: ${{ inputs.risk-gate }}
         IN_COMMENT: ${{ inputs.comment }}
+        IN_SUGGEST_FIXES: ${{ inputs.suggest-fixes }}
+        IN_OPEN_FIX_PR: ${{ inputs.open-fix-pr }}
         IN_SARIF: ${{ inputs.sarif }}
         IN_RETENTION: ${{ inputs.artifact-retention-days }}
       run: |
@@ -176,7 +186,7 @@ runs:
         [[ -z "$IN_BUDGET" || "$IN_BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || fail "budget-usd must be a number"
         [[ "$IN_KEY_ENV" =~ ^[A-Z_][A-Z0-9_]*$ ]] || fail "api-key-env must be an upper-case variable name"
         case "$IN_KEY_ENV" in PATH|HOME|PYTHONPATH|LD_*|GITHUB_*|RUNNER_*|EXHIBIT_A_*) fail "api-key-env may not shadow $IN_KEY_ENV";; esac
-        for flag in "$IN_REPLAY" "$IN_RISK_GATE" "$IN_COMMENT" "$IN_SARIF"; do
+        for flag in "$IN_REPLAY" "$IN_RISK_GATE" "$IN_COMMENT" "$IN_SARIF" "$IN_SUGGEST_FIXES" "$IN_OPEN_FIX_PR"; do
           case "$flag" in true|false) ;; *) fail "boolean inputs must be 'true' or 'false'";; esac
         done
         # A case run installs the case's requirements and executes its baseline
@@ -383,6 +393,89 @@ runs:
             || echo "::warning title=Exhibit A::could not create the PR comment"
         fi
         rm -f "$report/comment-payload.json"
+
+    - name: Post verified fix suggestions
+      if: always() && inputs.suggest-fixes == 'true' && steps.summary.outcome == 'success' && github.event.pull_request.number && github.event.pull_request.head.repo.full_name == github.repository
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        OUT: ${{ steps.setup.outputs.out }}
+        PY: ${{ steps.setup.outputs.python }}
+        WORKDIR: ${{ steps.setup.outputs.workdir }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        COMMIT_ID: ${{ github.event.pull_request.head.sha }}
+        BASE_SHA: ${{ inputs.base-sha }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+        diff_file="$OUT/report/pr.diff"
+        base="${BASE_SHA:-$EVENT_BASE_SHA}"
+        head="${HEAD_SHA:-$EVENT_HEAD_SHA}"
+        git -C "$WORKDIR" diff --no-ext-diff --no-textconv "$base...$head" \
+          -- > "$diff_file"
+        "$PY" -m exhibit_a.ci.fixpr comments --run-dir "$OUT/run" --diff "$diff_file" --output "$OUT/report/fix-comments.json"
+        "$PY" - "$OUT/report/fix-comments.json" "$COMMIT_ID" "$OUT/report/fix-review.json" <<'PY'
+        import json, sys
+        comments = json.load(open(sys.argv[1], encoding="utf-8"))
+        commit = sys.argv[2]
+        review = []
+        ordinary = []
+        for comment in comments:
+            if "path" in comment and "line" in comment:
+                comment = {**comment, "commit_id": commit}
+                review.append(comment)
+            else:
+                ordinary.append(comment)
+        json.dump(review, open(sys.argv[3], "w"), indent=2)
+        json.dump(ordinary, open(sys.argv[3] + ".ordinary", "w"), indent=2)
+        PY
+        while IFS= read -r payload; do
+          [[ -z "$payload" ]] && continue
+          printf '%s\n' "$payload" > "$OUT/report/fix-comment.json"
+          gh api --method POST "repos/$REPO/pulls/$PR_NUMBER/comments" --input "$OUT/report/fix-comment.json" > /dev/null
+        done < <("$PY" -c 'import json,sys; [print(json.dumps(x)) for x in json.load(open(sys.argv[1]))]' "$OUT/report/fix-review.json")
+        while IFS= read -r payload; do
+          [[ -z "$payload" ]] && continue
+          printf '%s\n' "$payload" > "$OUT/report/fix-comment.json"
+          gh api --method POST "repos/$REPO/issues/$PR_NUMBER/comments" --input "$OUT/report/fix-comment.json" > /dev/null
+        done < <("$PY" -c 'import json,sys; [print(json.dumps({"body": x["body"]})) for x in json.load(open(sys.argv[1]))]' "$OUT/report/fix-review.json.ordinary")
+
+    - name: Open verified fix PR
+      if: always() && inputs.open-fix-pr == 'true' && steps.summary.outcome == 'success' && github.event.pull_request.number && github.event.pull_request.head.repo.full_name == github.repository
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        OUT: ${{ steps.setup.outputs.out }}
+        PY: ${{ steps.setup.outputs.python }}
+        WORKDIR: ${{ steps.setup.outputs.workdir }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+        HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      run: |
+        set -euo pipefail
+        "$PY" -m exhibit_a.ci.fixpr branch --run-dir "$OUT/run" --output "$OUT/report/fix-branch.json"
+        branch="$("$PY" -c 'import json,re,sys; d=json.load(open(sys.argv[1])); print("exhibit-a/fix-" + sys.argv[2] + "-" + re.sub(r"[^A-Za-z0-9._-]+", "-", d["test_path"].split("/")[-1][5:-3])[:40])' "$OUT/report/fix-branch.json" "$PR_NUMBER")"
+        git -C "$WORKDIR" switch -c "$branch"
+        "$PY" - "$OUT/report/fix-branch.json" "$WORKDIR" <<'PY'
+        import json, pathlib, sys
+        data = json.load(open(sys.argv[1], encoding="utf-8"))
+        root = pathlib.Path(sys.argv[2])
+        for item in data["files"]:
+            target = root / item["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(item["content"], encoding="utf-8")
+        PY
+        git -C "$WORKDIR" apply --index "$WORKDIR/fix.patch"
+        git -C "$WORKDIR" add tests/exhibit_a
+        git -C "$WORKDIR" commit -m "Apply verified Exhibit A fix"
+        git -C "$WORKDIR" push origin "$branch"
+        gh pr create --repo "$REPO" --base "$BASE_BRANCH" --head "$branch" \
+          --title "Apply verified Exhibit A fix for PR #$PR_NUMBER" \
+          --body-file "$OUT/report/summary.md"
 
     - name: Generate SARIF report
       id: sarif
