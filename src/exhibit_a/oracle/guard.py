@@ -22,6 +22,11 @@ For the ``canary_exec`` effect, ``exec_problem`` also rejects a test that starts
 builds code itself (``PROCESS_CALLS``). Naming a process API as data stays allowed: a pickle
 payload's ``__reduce__`` returns ``(os.system, (command,))`` without calling anything.
 
+For the ``canary_sql`` effect, ``sql_problem`` also rejects a test that works with the database
+itself: it names ``sqlite3``, calls or references a method that runs SQL or configures a connection
+(``SQL_METHODS``), names a database file (``SQL_FILE_SUFFIXES``), or hands a function it defines to
+an attribute of another object, which is how the app's query builder is swapped for the test's own.
+
 This is a tripwire, not a security boundary. It catches the naive and model-generated ways
 of tampering with the events file or the plugin, and forces any remaining attempt to be
 deliberately obfuscated (``getattr`` with computed names, ``exec`` of decoded strings,
@@ -700,6 +705,82 @@ def exec_problem(test_path: Path) -> str | None:
         rule = _process_api_rule(tree)
         if rule:
             return f"test starts a process itself: {path.name} matches rule '{rule}'"
+    return None
+
+
+# --- Working with the database from the test (canary_sql) ------------------------------------
+
+SQL_MODULE = "sqlite3"
+# Methods that run SQL or reconfigure a connection. A test never has a connection of its own to
+# use them on: it sends input through the app's entry point and looks at the response.
+SQL_METHODS = frozenset({
+    "execute", "executemany", "executescript", "cursor", "set_authorizer", "set_trace_callback",
+    "set_progress_handler", "create_function", "create_aggregate", "create_collation",
+    "create_window_function", "load_extension", "enable_load_extension", "backup", "iterdump",
+    "serialize", "deserialize", "blobopen", "setconfig", "commit", "rollback",
+})
+# Strings that name a database file (or its journal), which a test has no business opening.
+SQL_FILE_SUFFIXES = (".db", ".sqlite", ".sqlite3", ".db3", "-journal", "-wal", "-shm")
+# Calls that make a callable out of something else; handed to an attribute they swap a method.
+CALLABLE_MAKERS = frozenset({"partial", "partialmethod", "MethodType", "staticmethod", "classmethod"})
+
+
+def _sql_rule(tree: ast.AST) -> str | None:
+    """The rule a canary_sql test breaks by working with the database or the app's query code."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name == SQL_MODULE or a.name.startswith(SQL_MODULE + ".") for a in node.names):
+                return "sqlite3_module"
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and (node.module == SQL_MODULE or node.module.startswith(SQL_MODULE + ".")):
+                return "sqlite3_module"
+        elif isinstance(node, ast.Name) and node.id == SQL_MODULE:
+            return "sqlite3_module"
+        elif isinstance(node, ast.Attribute):
+            if node.attr == SQL_MODULE:
+                return "sqlite3_module"
+            if node.attr in SQL_METHODS:
+                return "sql_method"
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.value == SQL_MODULE or node.value.startswith(SQL_MODULE + "."):
+                return "sqlite3_module"
+            if node.value.endswith(SQL_FILE_SUFFIXES):
+                return "database_file"
+    defined = {n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    def callable_value(value: ast.AST) -> bool:
+        if isinstance(value, ast.Lambda):
+            return True
+        if isinstance(value, ast.Name):
+            return value.id in defined
+        if isinstance(value, ast.Call):
+            return _callee(value)[1] in CALLABLE_MAKERS
+        return False
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, (ast.Attribute, ast.Subscript)) for t in targets) and callable_value(node.value):
+                return "callable_to_attribute"
+        elif isinstance(node, ast.Call) and _callee(node) == (None, "setattr") and len(node.args) >= 3:
+            if callable_value(node.args[2]):
+                return "callable_to_attribute"
+    return None
+
+
+def sql_problem(test_path: Path) -> str | None:
+    """Why a canary_sql test (or its conftest) is rejected for working with the database itself, or None."""
+    test_path = Path(test_path)
+    for path in (test_path, test_path.parent / "conftest.py"):
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, UnicodeDecodeError, SyntaxError, ValueError, RecursionError):
+            continue  # pytest will report it as a collection error; nothing to judge here
+        rule = _sql_rule(tree)
+        if rule:
+            return f"test works with the database itself: {path.name} matches rule '{rule}'"
     return None
 
 

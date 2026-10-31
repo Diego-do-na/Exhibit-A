@@ -3,7 +3,7 @@
 The case's source tree is resolved from the case directory (``run.tree``) or by
 installing ``run.requirements``; ``repo`` is never treated as a path when it is a
 URL. The baseline test, recording and requirements all come from ``case.json``,
-and the oracle effect (``canary_read``/``canary_write``) reaches the judge from
+and the oracle effect (``canary_read``/``canary_write``/``canary_exec``/``canary_sql``) reaches the judge from
 ``case.json``/``profile.json`` instead of being hard-coded.
 """
 from __future__ import annotations
@@ -281,7 +281,7 @@ def make_pipeline(providers: Any, *, runner: Any = None) -> Pipeline:
             effective_runner = (
                 runner
                 if runner is not None
-                else SandboxRunner(requirements=tuple(case.requirements))
+                else SandboxRunner(requirements=tuple(case.requirements), sql_db=case.sql_db or None)
             )
             if not _runner_supports_effect(effective_runner, case.effect):
                 # Fail closed before anything executes: the runner cannot

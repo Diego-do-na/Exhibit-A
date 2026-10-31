@@ -218,6 +218,7 @@ class VerificationLoop:
         effect: str = "canary_read",
         prompt_profile: str = "standard",
         slice_plan: SlicePlan | None = None,
+        sql_db: str | None = None,
     ) -> None:
         if runs < 1:
             raise ValueError("runs must be at least 1")
@@ -229,14 +230,16 @@ class VerificationLoop:
         self.runs = runs
         self.timeout = timeout
         self.run_id = run_id or uuid.uuid4().hex[:12]
-        # ``requirements`` only shape the default runner; an injected one carries its own.
-        self.runner = runner if runner is not None else SandboxRunner(requirements=tuple(requirements))
+        # ``requirements`` and ``sql_db`` (canary_sql: the app's database) only shape the default
+        # runner; an injected one carries its own.
+        self.runner = runner if runner is not None else SandboxRunner(
+            requirements=tuple(requirements), sql_db=sql_db)
         self.baseline_runner = baseline_runner or self.runner.run_baseline
         # The judge is a callable that must accept the `effect` keyword so the loop
         # can call it uniformly as `self.judge(..., effect=self.effect)`.
         self.judge = judge or self.runner.run_exploit
         self.flags: LoopFlags = flags if flags is not None else FullSystem()
-        # Which oracle effect the judge proves ("canary_read" or "canary_write").
+        # Which oracle effect the judge proves (see oracle.Effect).
         # Recorded on the verdict payload (audit F7); the signed oracle-event
         # channel itself is unchanged.
         self.effect = effect

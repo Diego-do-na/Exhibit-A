@@ -70,6 +70,15 @@ the canary and whether the innermost application frame names a sink; native call
 are recorded like opens of the canary, with ``target`` ``marker``. A forked child shares the event
 counter with its parent, so its events keep ``seq`` increasing. Other effects record none of this.
 
+For the ``canary_sql`` effect (``EXHIBIT_A_CANARY_SQL`` names the canary table, ``EXHIBIT_A_CANARY``
+is the application's database file; docs/oracle/oracle-provenance.md, section 3.10) the plugin records
+every ``sqlite3`` connection with the stack that opened it (the ``sqlite3.connect`` and
+``sqlite3.connect/handle`` audit events), and every read of the canary table, from an authorizer it
+installs on each connection. The connection object the handle event carries is not initialised yet
+(``set_authorizer`` raises there, on 3.11 to 3.14), so the authorizer is installed by a wrapper around
+``sqlite3.connect``; a connection that bypasses it is still recorded, as not instrumented. Opens of the
+database file by Python code are observed as opens of the canary, with ``target`` ``db``.
+
 The module stays self-contained (stdlib only): the sandbox mounts it as a single file.
 """
 
@@ -80,6 +89,7 @@ import asyncio
 import contextvars
 import hashlib
 import hmac
+import itertools
 import json
 import mmap
 import os
@@ -95,6 +105,9 @@ ENV_CANARY = "EXHIBIT_A_CANARY"
 ENV_EVENTS = "EXHIBIT_A_EVENTS"
 # Where the canary executable records that it ran; set only for the canary_exec effect.
 ENV_MARKER = "EXHIBIT_A_CANARY_MARKER"
+# canary_sql: the name of the canary table in the application's database (EXHIBIT_A_CANARY is
+# the database file for this effect). Its one column is _SQL_COLUMN.
+ENV_SQL = "EXHIBIT_A_CANARY_SQL"
 
 # What the orchestrator writes to stdin: the magic, the key in hex, a newline. Nothing else.
 KEY_MAGIC = b"EXHIBIT-A-KEY "
@@ -154,6 +167,14 @@ _WATCHED_APIS = {
 }
 _MAX_COMMAND = 4096
 _MAX_SCANNED = 1 << 16
+# canary_sql: sqlite3's SQLITE_READ and SQLITE_OK (as numbers: they exist as module constants
+# from 3.11 only), the canary table's one column, and how many distinct stacks may read it
+# before the plugin records an overflow, which the judge refuses.
+_SQLITE_READ = 20
+_SQLITE_OK = 0
+_SQL_COLUMN = "token"
+_MAX_SQL_STACKS = 100
+_SQL_EVENTS = frozenset({"sqlite3.connect", "sqlite3.connect/handle"})
 _COMMAND_SPLIT = re.compile(r"[\s;|&()<>`'\"$=,]+")
 
 # A captured stack is a tuple of code objects, outermost first; None marks a thread boundary
@@ -656,6 +677,30 @@ def _patch_fork_exec() -> None:
     subprocess._fork_exec = fork_exec
 
 
+def _patch_sqlite(instrument):
+    """Wrap ``sqlite3.connect`` so every connection it returns is instrumented once it is usable.
+
+    The audit event for a new connection carries an object whose ``__init__`` has not finished,
+    so nothing can be installed on it there; the wrapper runs after ``connect`` returned. It is
+    bound on ``sqlite3`` and ``sqlite3.dbapi2``, which is where ``sqlite3.connect`` and an ORM's
+    ``dbapi.connect`` look it up. Returns the wrapper.
+    """
+    import sqlite3
+    from sqlite3 import dbapi2
+
+    real = sqlite3.connect
+
+    def connect(*args, **kwargs):
+        connection = real(*args, **kwargs)
+        instrument(connection)
+        return connection
+
+    connect.__doc__ = real.__doc__
+    sqlite3.connect = connect
+    dbapi2.connect = connect
+    return connect
+
+
 def _api_snapshot() -> tuple[list[tuple[str, object, str, object]], dict[str, str]]:
     """The watched process APIs and sensitive environment, as they are now."""
     import builtins
@@ -922,7 +967,8 @@ def _patch_os_open() -> None:
 
 
 def _install(
-    canary: str, events_path: str, key: bytes | None, app: dict | None = None, marker: str | None = None
+    canary: str, events_path: str, key: bytes | None, app: dict | None = None, marker: str | None = None,
+    sql_table: str | None = None,
 ) -> None:
     global _installed
     if _installed:
@@ -942,8 +988,9 @@ def _install(
     seq = [0]
     lock = threading.Lock()
     if marker is not None:
-        # A forked child writes to the same file: it must continue the parent's sequence.
         marker = os.path.join(os.path.dirname(canary), os.path.basename(marker))
+    if marker is not None or sql_table is not None:
+        # A forked child writes to the same file: it must continue the parent's sequence.
         seq = memoryview(mmap.mmap(-1, 8)).cast("Q")
         lock = _PipeLock()
 
@@ -1026,9 +1073,136 @@ def _install(
             "stack": _stack(frame, admission), **detail,
         })
 
+    # canary_sql only. ``connections`` maps id(connection) to (index, opened on the declared
+    # database); ``seen`` holds the (connection, column, database, stack) of every read already
+    # recorded, so a loop of requests that reads the canary the same way is one event while a
+    # read from another stack is a new one.
+    connections: dict[int, tuple[int, bool]] = {}
+    seen: set = set()
+    counter = itertools.count()
+    connect_wrapper: list = []
+    sql_watched = _SQL_EVENTS if sql_table is not None else frozenset()
+
+    def sql_record(op: str, mode: str, stack: list, **fields) -> None:
+        emit({
+            "path": canary, "mode": mode, "op": op, "flags": None, "access": "sql", "requested": None,
+            "target": "db", "via_symlink": bool(tainted),
+            "symlink": tainted[0][0][:_MAX_FIELD] if tainted else None, "stack": stack, **fields,
+        })
+
+    def declared_db(database: object) -> bool:
+        """Whether a connection to ``database`` is a connection to the application's own database."""
+        try:
+            if not isinstance(database, (str, bytes, os.PathLike)):
+                return False
+            name = os.fsdecode(database)
+            if not name or name == ":memory:" or name.startswith("file:"):
+                return False
+            if os.path.realpath(name) == canary:
+                return True
+            st = os.stat(name)
+            return (st.st_dev, st.st_ino) == canary_id
+        except (OSError, ValueError, TypeError):
+            return False
+
+    def sql_drift() -> str | None:
+        """``sqlite3.connect`` (or the copy ORMs use) no longer being the plugin's wrapper."""
+        import sqlite3
+        from sqlite3 import dbapi2
+
+        for label, current in (("sqlite3.connect", sqlite3.connect), ("sqlite3.dbapi2.connect", dbapi2.connect)):
+            if not connect_wrapper or current is not connect_wrapper[0]:
+                return label
+        return None
+
+    def watch_sql(event: str, args: tuple, frame) -> None:
+        """Record a new connection with the stack that opened it (the audit event for it)."""
+        if event == "sqlite3.connect":
+            _local.sql_database = args[0] if args else None
+            return
+        database = getattr(_local, "sql_database", None)
+        _local.sql_database = None
+        index = next(counter)
+        declared = declared_db(database)
+        connections[id(args[0] if args else None)] = (index, declared)
+        name = os.fsdecode(database)[:_MAX_FIELD] if isinstance(database, (str, bytes, os.PathLike)) else None
+        # Instrumented only if the wrapper made the connection: it is the caller of the event.
+        wrapped = bool(connect_wrapper) and frame is not None and frame.f_code is connect_wrapper[0].__code__
+        sql_record("sql_connect", event, _stack(frame, admission), connection=index, declared_db=declared,
+                   command=name, instrumented=wrapped, patched=sql_drift())
+
+    def note_read(index: int, declared: bool, column: object, database: object, frame) -> None:
+        """Record one read of the canary table (from the authorizer, so ``frame`` is its caller)."""
+        codes = _capture(frame)
+        key = (index, column, database, codes)
+        if key in seen:
+            return
+        _local.busy = True
+        try:
+            if len(seen) >= _MAX_SQL_STACKS:
+                # Too many distinct stacks to list: say so, as a read the judge cannot place.
+                if len(seen) == _MAX_SQL_STACKS:
+                    seen.add(("overflow",))
+                    sql_record("sql_read", "overflow", [], command="<too many distinct stacks>")
+                return
+            seen.add(key)
+            sql_record(
+                "sql_read", "SQLITE_READ", [_frame_dict(code, admission) for code in codes], connection=index,
+                table=sql_table, column=str(column)[:_MAX_FIELD], database=str(database)[:_MAX_FIELD],
+                declared_db=declared,
+            )
+        finally:
+            _local.busy = False
+
+    def instrument(connection) -> None:
+        """Observe the canary table on ``connection``: an authorizer for reads, a trace for the text."""
+        try:
+            held = connections.get(id(connection))
+            if held is None:
+                return
+            index, declared = held
+            table = sql_table.lower()
+            texts = [False]
+
+            def authorizer(action, arg1, arg2, database, source):
+                try:
+                    if action == _SQLITE_READ and isinstance(arg1, str) and arg1.lower() == table:
+                        note_read(index, declared, arg2, database, sys._getframe(1))
+                        texts[0] = True
+                except Exception:  # noqa: BLE001 - an observer must never change what the app does
+                    pass
+                return _SQLITE_OK
+
+            def trace(statement):
+                try:
+                    if texts[0] and isinstance(statement, str):
+                        texts[0] = False
+                        _local.busy = True
+                        try:
+                            sql_record("sql_text", "trace", [], connection=index, command=statement[:_MAX_COMMAND])
+                        finally:
+                            _local.busy = False
+                except Exception:  # noqa: BLE001
+                    pass
+
+            connection.set_authorizer(authorizer)
+            connection.set_trace_callback(trace)
+        except Exception:  # noqa: BLE001 - not instrumented: its reads cannot be seen, so none can prove
+            pass
+
     def hook(event: str, args: tuple) -> None:
         if getattr(_local, "busy", False):
             return  # busy: admission reading an app file from inside this hook
+        if event in sql_watched:
+            _local.busy = True
+            try:
+                try:
+                    frame = sys._getframe(1)
+                except ValueError:
+                    frame = None
+                watch_sql(event, args, frame)
+            finally:
+                _local.busy = False
         if marker is not None and event in exec_events:
             _local.busy = True
             try:
@@ -1079,6 +1253,8 @@ def _install(
             record = {"path": canary, **fields, "stack": _stack(sys._getframe(1), admission)}
             if marker is not None and reached == marker:
                 record.update(path=marker, target="marker")
+            elif sql_table is not None:
+                record["target"] = "db"  # for canary_sql the canary is the database file
             record["requested"] = absolute if absolute is not None and len(absolute) <= _MAX_REQUESTED else None
             record.update(_symlink_fields(absolute, since))
             if tainted and not record["via_symlink"]:
@@ -1103,6 +1279,11 @@ def _install(
         stdlib = os.path.dirname(os.__file__) + "/"
         outside_dir = os.path.dirname(marker)
         exec_events = _PROCESS_EVENTS | _NATIVE_EVENTS | {"compile", "os.putenv", "os.unsetenv", "os.chdir", "os.rename"}
+    if sql_table is not None:
+        try:
+            connect_wrapper.append(_patch_sqlite(instrument))
+        except ImportError:
+            pass  # no sqlite3: no connection can be observed, so nothing can be proven
     sys.addaudithook(hook)
 
 
@@ -1112,11 +1293,12 @@ def _install_from_env() -> None:
     canary = os.environ.get(ENV_CANARY)
     events_path = os.environ.get(ENV_EVENTS)
     marker = os.environ.get(ENV_MARKER)
+    sql_table = os.environ.get(ENV_SQL)
     if canary and events_path:
         # stdin is read only in a run the orchestrator set up (both variables present), so
         # importing this module elsewhere (the orchestrator itself) never touches its stdin.
         key, app = _read_channel()
-        _install(canary, events_path, key, app, marker)
+        _install(canary, events_path, key, app, marker, sql_table)
         # Neither path is left for the test. The canary path is not part of the test contract
         # (finding A-11 F2: a test that knows it can root a safe app at the canary's
         # directory); a real exploit reaches it from the allowed directory. /proc/self/environ
@@ -1125,6 +1307,7 @@ def _install_from_env() -> None:
         os.environ.pop(ENV_EVENTS, None)
         os.environ.pop(ENV_CANARY, None)
         os.environ.pop(ENV_MARKER, None)
+        os.environ.pop(ENV_SQL, None)
 
 
 # Install on import, not only at configure time: ``-p`` plugins are imported before
