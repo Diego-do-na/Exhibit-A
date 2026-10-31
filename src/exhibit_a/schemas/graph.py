@@ -53,8 +53,9 @@ class GraphEdge(StrictModel):
     line: int = Field(ge=0)
     text: str = ""  # what was called, as written (capped)
     via: str = ""  # ref edges: the callee the function was handed to
-    args: list[str] = Field(default_factory=list)  # external edges: positional args (capped)
-    kwargs: dict[str, str] = Field(default_factory=dict)  # external edges: keyword args (capped)
+    # External edges, and unresolved ``.execute``-style calls: positional and keyword args (capped).
+    args: list[str] = Field(default_factory=list)
+    kwargs: dict[str, str] = Field(default_factory=dict)
     ref: bool = False  # external edges: referenced as an argument, not called here
 
 

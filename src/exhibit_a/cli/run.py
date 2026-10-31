@@ -550,7 +550,8 @@ def _run_case(args: argparse.Namespace) -> int:
             clone, out, ledger, roles, "test_baseline.py",
             run_id=case_id,
             runner=SandboxRunner(
-                requirements=tuple(settings.get("requirements", ()))
+                requirements=tuple(settings.get("requirements", ())),
+                sql_db=settings.get("sql_db") or None,
             ),
             requirements=tuple(settings.get("requirements", ())),
             effect=settings.get("effect", "canary_read"),

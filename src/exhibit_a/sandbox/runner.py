@@ -25,7 +25,9 @@ Returns:
     plus, for effect="canary_write" only: "canary_written": bool and "outside_listing": list
     (what the run left in the writable outside/ tmpfs; see docs/reference/sandbox-write-effect.md),
     and for effect="canary_exec" only: "canary_ran": bool (the host's own check of the marker the
-    canary executable left; see docs/reference/sandbox.md).
+    canary executable left; see docs/reference/sandbox.md). For effect="canary_sql" the canary table is
+    added to a copy of the application's database by a first, equally isolated container, and the copy
+    is mounted read-only over the declared path in the test's container (docs/reference/sandbox.md).
 
 Oracle events are signed by the plugin with a key generated here per run and written to the
 container's stdin (``docker run -i``), never to its environment, command line or a mount.
@@ -46,6 +48,7 @@ from __future__ import annotations
 import json
 import secrets
 import shutil
+import stat
 import subprocess
 import tempfile
 import uuid
@@ -55,8 +58,8 @@ from pathlib import Path, PurePosixPath
 from typing import Dict, Any, Mapping
 
 from .image import build_image
-from exhibit_a.oracle.oracle import marker_holds_token
-from exhibit_a.oracle.plugin import ENV_MARKER, KEY_BYTES, key_message, verify_lines
+from exhibit_a.oracle.oracle import SQL_CANARY_COLUMN, SQL_CANARY_TABLE, marker_holds_token, sql_db_problem
+from exhibit_a.oracle.plugin import ENV_MARKER, ENV_SQL, KEY_BYTES, key_message, verify_lines
 from exhibit_a.oracle.provenance import ManifestError, app_manifest, staging_exclude, tree_changes
 
 PYTEST_VERSION = "pytest==7.3.2"
@@ -71,6 +74,24 @@ _ENV_PREFIX = "EXHIBIT_A_"
 _WORKSPACE = "/workspace"
 _MARKER_NAME = "canary_ran"
 _TOKEN_ENV = "EXHIBIT_A_CANARY_TOKEN"
+
+# canary_sql: a first container adds the canary table to a copy of the application's database. It
+# sees the original read-only and one scratch directory, with the same limits and no network as the
+# test's container; the host never opens the database. The test's container then gets the copy
+# mounted read-only over the declared path, so neither the test nor the app can change it.
+_SEED_TIMEOUT = 120
+_SEED_SCRIPT = f'''
+import os, shutil, sqlite3, sys
+source, target = sys.argv[1:3]
+shutil.copyfile(source, target)
+connection = sqlite3.connect(target)
+connection.execute("PRAGMA trusted_schema=OFF")
+connection.execute("PRAGMA journal_mode=DELETE").fetchall()
+connection.execute("CREATE TABLE {SQL_CANARY_TABLE} ({SQL_CANARY_COLUMN} TEXT)")
+connection.execute("INSERT INTO {SQL_CANARY_TABLE} ({SQL_CANARY_COLUMN}) VALUES (?)", (os.environ["EXHIBIT_A_CANARY_TOKEN"],))
+connection.commit()
+connection.close()
+'''
 
 
 def _env_failure(stderr: str) -> Dict[str, Any]:
@@ -153,6 +174,34 @@ def _read_outside(path: str) -> tuple[bool, list[dict]]:
     return data.get("canary_written") is True, listing
 
 
+def _seed_database(image: str, source: str, seed_dir: str, token: str) -> str | None:
+    """Add the canary table to a copy of ``source`` in a throwaway container; None, or why it failed.
+
+    Same isolation as the test's container: read-only root, no network, no capabilities, the same
+    limits. The original is mounted read-only; the copy lands in ``seed_dir``, the only writable mount.
+    """
+    name = f"exhibit_a_seed_{uuid.uuid4().hex[:8]}"
+    cmd = [
+        "docker", "run", "--name", name, "--rm", "--read-only", "--tmpfs", "/tmp:rw,size=64m,mode=1777",
+        "--network", "none", "-e", "HOME=/tmp", "-e", f"{_TOKEN_ENV}={token}", "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "512m",
+        "--memory-swap", "512m", "--cpus", "0.5",
+        "-v", f"{source}:/seed/original.db:ro", "-v", f"{seed_dir}:/seed/out:rw",
+        "--user", f"{os.getuid()}:{os.getgid()}", image,
+        "python", "-I", "-S", "-c", _SEED_SCRIPT, "/seed/original.db", "/seed/out/seeded.db",
+    ]
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_SEED_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return "seeding the canary table timed out"
+    except OSError as e:
+        return f"cannot seed the canary table: {e}"
+    if proc.returncode != 0:
+        return "cannot add the canary table to the application's database: " + proc.stderr.decode(errors="replace")[-500:]
+    return None
+
+
 def _check_docker_available() -> bool:
     from shutil import which
 
@@ -179,6 +228,7 @@ def run(
     canary_mount: str = _CANARY_MOUNT,
     manifest: Mapping[str, str] | None = None,
     effect: str = "canary_read",
+    sql_db: str | None = None,
 ) -> Dict[str, Any]:
     """
     Execute pytest inside an ephemeral, hardened docker container.
@@ -200,6 +250,9 @@ def run(
         manifest: the caller's manifest of the staged app (provenance.app_manifest of `clone_path` with
             `staging_exclude(test_path)`). The workspace copy must hash to it, or the run is an env_failure.
             Without it the copy's own manifest is used. Only used when the oracle is loaded.
+        sql_db: for effect="canary_sql", the application's database as a path relative to the clone. It
+            must exist there as a regular file; the test's container sees a copy of it with the canary
+            table added, mounted read-only at that path.
 
     Returns:
         dict with outcome, exit_code, stdout, stderr, oracle_events, oracle_forged_events,
@@ -242,7 +295,7 @@ def run(
         ):
             return _env_failure(f"invalid canary_mount: {canary_mount!r}")
 
-        if effect not in ("canary_read", "canary_write", "canary_exec"):
+        if effect not in ("canary_read", "canary_write", "canary_exec", "canary_sql"):
             return _env_failure(f"unknown oracle effect: {effect}")
         if effect == "canary_write":
             if canary_path is not None:
@@ -252,6 +305,13 @@ def run(
         if effect == "canary_exec" and (canary_path is None or not custom_mount or _TOKEN_ENV not in extra_env):
             return _env_failure("an exec effect needs the canary, a canary_mount of the shape "
                                 f"/tmp/<work>/<dir>/<file> and {_TOKEN_ENV}")
+        if effect == "canary_sql":
+            problem = sql_db_problem(Path(workspace), sql_db)
+            if problem is not None:
+                return _env_failure(problem)
+            if canary_path is not None or events_path is None or _TOKEN_ENV not in extra_env:
+                return _env_failure("a sql effect mounts no canary file and needs events_path and "
+                                    f"{_TOKEN_ENV}")
         observe = canary_path is not None or events_path is not None or effect == "canary_write"
         oracle_key = secrets.token_bytes(KEY_BYTES)
         events_file = os.path.join(tmpdir, "events.jsonl")
@@ -299,6 +359,10 @@ def run(
                     marker = mount.parent / _MARKER_NAME
                     extra_args += ["-v", f"{outside_dir}:{mount.parent}:rw", "-e", f"{ENV_MARKER}={marker}"]
                 extra_args += ["-v", f"{canary_copy}:{mount}:ro", "-e", f"EXHIBIT_A_CANARY={mount}"]
+            elif effect == "canary_sql":
+                # The canary is the database file, at its declared path; the mount comes once the
+                # seeded copy exists (below). The plugin gets the path and the table, never the test.
+                extra_args += ["-e", f"EXHIBIT_A_CANARY={_WORKSPACE}/{sql_db}", "-e", f"{ENV_SQL}={SQL_CANARY_TABLE}"]
             elif effect == "canary_write":
                 # Write effect: NO canary file is mounted. The scratch directory is a small
                 # tmpfs (size-capped, gone with the container), so the app can create
@@ -344,6 +408,24 @@ def run(
                 image = build_image([PYTEST_VERSION, *(requirements or [])])
             except (RuntimeError, ValueError, subprocess.SubprocessError, OSError) as e:
                 return _env_failure(f"failed to prepare sandbox image: {e}")
+
+        if effect == "canary_sql":
+            seed_dir = os.path.join(tmpdir, "seed")
+            os.mkdir(seed_dir)
+            os.chmod(seed_dir, 0o777)
+            seeded = os.path.join(seed_dir, "seeded.db")
+            failure = _seed_database(
+                image, os.path.join(workspace, str(sql_db)), seed_dir, extra_env[_TOKEN_ENV],
+            )
+            if failure is not None:
+                return _env_failure(failure)
+            try:
+                if not stat.S_ISREG(os.lstat(seeded).st_mode):
+                    return _env_failure("the seeded database is not a regular file")
+                os.chmod(seeded, 0o444)
+            except OSError as e:
+                return _env_failure(f"the seeded database is missing: {e}")
+            extra_args += ["-v", f"{seeded}:{_WORKSPACE}/{sql_db}:ro"]
 
         # 2) Run the image with strict isolation and no network.
         pytest_args = ["-q", "-p", "no:cacheprovider", *plugin_args, f"/workspace/{rel_test}"]

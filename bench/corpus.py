@@ -20,8 +20,10 @@ KINDS = ("vulnerable", "fixed", "clean")
 
 #: Observed effects the oracle can prove. ``canary_read`` is the original
 #: path-traversal style effect; ``canary_write`` is the archive-extraction /
-#: zip-slip style effect (the app creates a file outside the allowed directory).
-EFFECTS = ("canary_read", "canary_write", "canary_exec")
+#: zip-slip style effect (the app creates a file outside the allowed directory);
+#: ``canary_exec`` is command execution; ``canary_sql`` is SQL injection (the app reads a row
+#: of a table it never queries, in the SQLite database ``run.sql_db`` declares).
+EFFECTS = ("canary_read", "canary_write", "canary_exec", "canary_sql")
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,9 @@ class Case:
     effect: str = "canary_read"
     # Source file the loop inspects, relative to the staged source tree.
     source_file: str = ""
+    # canary_sql only: the application's SQLite database, a path inside the source tree that the
+    # sandbox copies, seeds with the canary table and mounts read-only at that path ("" otherwise).
+    sql_db: str = ""
 
 
 def _check_common(raw: dict, seen: set[str]) -> None:
@@ -77,6 +82,15 @@ def _case_from_real(case_dir: Path, raw: dict, run: dict) -> Case:
     effect = run.get("effect") or _profile_effect(case_dir) or "canary_read"
     if effect not in EFFECTS:
         raise ValueError(f"case {raw.get('id')}: unknown run.effect {effect!r}")
+    sql_db = run.get("sql_db", "")
+    if effect == "canary_sql" or sql_db:
+        from exhibit_a.oracle.oracle import sql_db_shape_problem
+
+        if effect != "canary_sql":
+            raise ValueError(f"case {raw.get('id')}: run.sql_db is only for the canary_sql effect")
+        problem = sql_db_shape_problem(sql_db)
+        if problem is not None:
+            raise ValueError(f"case {raw.get('id')}: run.sql_db: {problem}")
     trees = run.get("trees") or {}
     tree = run.get("tree") or trees.get("vulnerable", "")
     requirements = tuple(str(item) for item in run.get("requirements", []))
@@ -94,6 +108,7 @@ def _case_from_real(case_dir: Path, raw: dict, run: dict) -> Case:
         requirements=requirements,
         effect=effect,
         source_file=str(run.get("source_file", "")),
+        sql_db=sql_db,
     )
 
 

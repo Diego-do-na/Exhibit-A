@@ -58,6 +58,11 @@ _BUILTINS = frozenset(dir(builtins))
 MODULE_QUALNAME = "<module>"
 #: ``via`` marker of the calls made under ``if __name__ == "__main__":``.
 MAIN_GUARD = "__main__"
+#: Methods that run a SQL statement whatever object they are called on, and how much of their
+#: arguments is kept: the catalog needs the whole statement text to tell a constant from one that
+#: carries input (an unresolved ``cur.execute(q)`` keeps its arguments for that reason).
+SQL_RUN_METHODS = frozenset({"execute", "executemany", "executescript"})
+MAX_QUERY_TEXT = 600
 
 _DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
@@ -807,15 +812,19 @@ class _Builder:
         res = self.resolve(sc, call.func)
         text = _text(call.func)
         line = call.lineno
+        runs_sql = text.rsplit(".", 1)[-1] in SQL_RUN_METHODS
+        limit = MAX_QUERY_TEXT if runs_sql else MAX_ARG_TEXT
+        args = [_text(a, limit) for a in call.args[:MAX_ARGS]]
+        kwargs = {k.arg: _text(k.value, limit) for k in call.keywords if k.arg} if len(call.keywords) <= 16 else {}
         if res.kind == "node":
             self._edge(GraphEdge(src=sc.id, dst=res.value, kind=res.edge, line=line, text=text, via=via))  # type: ignore[arg-type]
         elif res.kind == "external":
             self._edge(GraphEdge(
-                src=sc.id, dst=res.value, kind="external", line=line, text=text, via=via,
-                args=[_text(a, MAX_ARG_TEXT) for a in call.args[:MAX_ARGS]],
-                kwargs={k.arg: _text(k.value, MAX_ARG_TEXT) for k in call.keywords if k.arg}
-                if len(call.keywords) <= 16 else {},
+                src=sc.id, dst=res.value, kind="external", line=line, text=text, via=via, args=args, kwargs=kwargs,
             ))
+        elif runs_sql:
+            self._edge(GraphEdge(src=sc.id, dst="", kind="unresolved", line=line, text=text, via=via,
+                                 args=args, kwargs=kwargs))
         else:
             self._edge(GraphEdge(src=sc.id, dst="", kind="unresolved", line=line, text=text, via=via))
         for arg in [*call.args, *(k.value for k in call.keywords)]:
