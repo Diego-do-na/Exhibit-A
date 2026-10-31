@@ -6,6 +6,7 @@ as ``tests/test_oracle_eval.py``). Nothing here touches ``src/``.
 """
 from __future__ import annotations
 
+import sqlite3
 import sys
 import tempfile
 import textwrap
@@ -21,6 +22,9 @@ from exhibit_a.oracle import Judgement, run_oracle  # noqa: E402
 GUARD = True
 _channel_problem = _oracle.channel_problem
 _exec_problem = _oracle.exec_problem
+_sql_problem = _oracle.sql_problem
+
+SQL_DB = "data/app.db"
 
 
 def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeout=60.0, effect="canary_read") -> Judgement:
@@ -40,11 +44,23 @@ def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeo
     exploit.write_text(textwrap.dedent(exploit_src), encoding="utf-8")
     _oracle.channel_problem = _channel_problem if GUARD else (lambda path: None)
     _oracle.exec_problem = _exec_problem if GUARD else (lambda path: None)
+    _oracle.sql_problem = _sql_problem if GUARD else (lambda path: None)
+    sql_db = None
+    if effect == "canary_sql":
+        # The application's own database, as a case's ``run.sql_db`` would declare it.
+        sql_db = SQL_DB
+        (app_root / "data").mkdir()
+        conn = sqlite3.connect(app_root / SQL_DB)
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.executemany("INSERT INTO users (name) VALUES (?)", [("alice",), ("bob",)])
+        conn.commit()
+        conn.close()
     try:
-        return run_oracle(app_root, exploit, set(entry_points), timeout=timeout, effect=effect)
+        return run_oracle(app_root, exploit, set(entry_points), timeout=timeout, effect=effect, sql_db=sql_db)
     finally:
         _oracle.channel_problem = _channel_problem
         _oracle.exec_problem = _exec_problem
+        _oracle.sql_problem = _sql_problem
 
 
 def classify(j: Judgement, *, app_is_safe: bool) -> str:

@@ -46,6 +46,20 @@ ATTACKS = [
     "attack_exec_true_pickle",
     "attack_exec_r1_cell_tamper",
     "attack_exec_r5_app_binding",
+    "attack_sql_test_opens_db",
+    "attack_sql_test_execute",
+    "attack_sql_injected_connection",
+    "attack_sql_read_db_file",
+    "attack_sql_monkeypatch_query",
+    "attack_sql_connect_swap",
+    "attack_sql_copied_token",
+    "attack_sql_internal_helper",
+    "attack_sql_thread",
+    "attack_sql_true_union",
+    "attack_sql_true_boolean",
+    "attack_sql_true_order_by",
+    "attack_sql_r1_forge_events",
+    "attack_sql_r5_app_binding",
 ]
 
 if __name__ == "__main__":
