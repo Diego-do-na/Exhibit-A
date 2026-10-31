@@ -2,6 +2,15 @@
 from __future__ import annotations
 
 from .image import build_image, image_tag
-from .runner import PYTEST_VERSION, run
+from .runner import DECLARED_MOUNTS, PYTEST_VERSION, RUNTIME_ENV, SECCOMP_PROFILE, probe_isolation, run
 
-__all__ = ["PYTEST_VERSION", "build_image", "image_tag", "run"]
+__all__ = [
+    "DECLARED_MOUNTS",
+    "PYTEST_VERSION",
+    "RUNTIME_ENV",
+    "SECCOMP_PROFILE",
+    "build_image",
+    "image_tag",
+    "probe_isolation",
+    "run",
+]
