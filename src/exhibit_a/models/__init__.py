@@ -9,6 +9,7 @@ from .config import (
     build_roles,
     register_provider,
 )
+from .baseten import BasetenProvider
 from .cost import CostMeter, Pricing
 from .errors import (
     BudgetExceeded,
@@ -23,6 +24,7 @@ from .openai_compat import OpenAICompatibleProvider
 from .replay import ReplayProvider
 
 __all__ = [
+    "BasetenProvider",
     "BudgetExceeded",
     "Completion",
     "CostMeter",

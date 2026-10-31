@@ -61,7 +61,9 @@ def fake_backend():
 
 
 def test_registry_lists_the_builtin_providers():
-    assert {"replay", "ollama", "openai_compatible", "meta"} <= set(PROVIDER_REGISTRY)
+    assert {"replay", "ollama", "openai_compatible", "meta", "baseten"} <= set(
+        PROVIDER_REGISTRY
+    )
 
 
 def test_build_roles_returns_one_model_role_per_role(fake_backend):
@@ -114,6 +116,7 @@ def test_replay_entry_points_at_its_recording(tmp_path):
         RoleConfig(provider="ollama"),  # no model
         RoleConfig(provider="openai_compatible", model="m"),  # no base_url
         RoleConfig(provider="openai_compatible", base_url="http://127.0.0.1:9"),  # no model
+        RoleConfig(provider="baseten"),  # no model
     ],
 )
 def test_factories_reject_missing_fields(spec):
