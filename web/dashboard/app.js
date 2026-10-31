@@ -135,7 +135,10 @@ function renderError(error) {
 
 function statusBadge(row) {
   if (row.status === "unreadable") return h("span", { class: "badge warn", text: "unreadable" });
-  if (row.proven > 0) return h("span", { class: "badge proven", text: `${row.proven} proven` });
+  if (row.proven > 0) {
+    return h("span", { class: "badge proven", text: `${row.proven} proven` },
+      row.proven_raw > row.proven ? ` (${row.proven_raw} proofs)` : null);
+  }
   const labels = { aborted: "aborted", timed_out: "timed out", not_run: "not run", skipped: "skipped" };
   if (labels[row.status]) return h("span", { class: "badge warn", text: labels[row.status] });
   return h("span", { class: "badge", text: "nothing could be proven" });
@@ -238,9 +241,7 @@ function findingCard(item) {
   const fix = ev.fix || {};
   const bypass = ev.bypass || { tried: 0, succeeded: 0, variants: [] };
   const runsText = red.of ? `${red.runs} of ${red.of} runs` : plural(red.runs || 0, "run");
-  const effectLabel = effect.type === "canary_write" ? "canary_write — the app created a file outside its allowed directory"
-    : effect.type === "canary_read" ? "canary_read — the app read a file outside its allowed directory"
-      : String(effect.type || "unknown");
+  const effectLabel = effect.label || String(effect.type || "unknown");
 
   const chain = h("ol", { class: "chain" }, (prov.frames || []).map((f) => h("li", {
     class: f.entry_point ? "entry" : (f.admitted ? "app" : ""),
@@ -265,7 +266,13 @@ function findingCard(item) {
     h("div", { class: "headline" },
       h("span", { class: "badge proven", text: "proven" }),
       h("h3", { text: `${item.id} · ${item.class || "unknown class"}` })),
-    h("p", { class: "mono small muted", text: `${item.file || "?"}:${item.line} · entry point ${item.entry_point || "?"}` }),
+    h("div", { class: "finding-meta" },
+      h("p", { class: "mono small muted", text: `Model's guess: ${item.file || "?"}:${item.line}` }),
+      ev.observed_location && ev.observed_location.file
+        ? h("p", { class: "mono small observed-location", text: `Oracle-observed: ${ev.observed_location.file}:${ev.observed_location.line}` })
+        : null,
+      h("span", { class: "tag", text: `${ev.cwe || "CWE unknown"} · ${ev.severity || "severity unknown"}` }),
+      h("span", { class: `effect ${effect.color || ""}`, text: effectLabel })),
     h("p", { class: "hyp", text: item.hypothesis || item.reason || "" }),
     h("div", { class: "proof" },
       h("section", {},
@@ -295,6 +302,15 @@ function findingCard(item) {
       h("h3", { text: "Provenance chain" }),
       h("p", { class: "small muted", text: `Call stack recorded by the oracle when the effect happened, outermost first. The proof requires the effect to come from application code reached through the entry point ${prov.entry_point || "?"}.` }),
       (prov.frames || []).length ? chain : h("p", { class: "muted small", text: "No stack was recorded in this ledger." })),
+    ev.duplicates && ev.duplicates.length
+      ? h("details", { class: "duplicates" },
+        h("summary", { text: `${ev.duplicates.length} duplicate proof${ev.duplicates.length === 1 ? "" : "s"} grouped under this finding` }),
+        h("ul", {}, ev.duplicates.map((duplicate) => h("li", {},
+          h("strong", { text: duplicate.suspicion_id }),
+          h("span", { class: "mono small", text: ` model's guess ${duplicate.file || "?"}:${duplicate.line}` }),
+          duplicate.observed_location && duplicate.observed_location.file
+            ? h("span", { class: "mono small observed-location", text: ` oracle-observed ${duplicate.observed_location.file}:${duplicate.observed_location.line}` })
+            : null)))) : null,
     h("div", { class: "artifact-grid" },
       h("section", { class: "artifact" }, h("h3", { text: "Exploit test" }), h("code", { text: ev.exploit_test || "Not recorded" })),
       h("section", { class: "artifact" }, h("h3", { text: "Fix diff" }), h("pre", { text: fix.diff || "Patch content is not in this ledger." }))));
@@ -422,7 +438,7 @@ async function renderRun(id) {
     sections.push(graphView(data.graph));
     sections.push(costsView(data.costs));
     sections.push(traceView(data.trace));
-    sections.push(h("h2", { text: data.proven.length ? `Proven findings (${data.proven.length})` : "Proven findings" }));
+    sections.push(h("h2", { text: data.proven.length ? `Proven findings (${data.proven.length} unique, ${data.proven_raw || data.proven.length} proofs)` : "Proven findings" }));
     if (data.proven.length) sections.push(...data.proven.map(findingCard));
     else sections.push(h("div", { class: "card" }, h("p", { text: "Nothing could be proven in this run." }),
       h("p", { class: "muted small", text: "This is not a statement that the code is safe: only that no suspicion survived the proof standard." })));

@@ -28,6 +28,7 @@ from typing import get_args
 from ..ci.summary import build_result
 from ..graph import build_graph, find_paths, functions_in
 from ..oracle.oracle import Effect
+from ..report.cwe import get_cwe, severity_from_effect
 from ..schemas import Event, EventType, VerdictValue
 from ..schemas.graph import CodeGraph, ReachPath
 from ..ledger.trace import trace_events, trace_to_dict
@@ -51,6 +52,14 @@ MAX_FRAMES = 60
 
 _GRAPH_CACHE: dict[str, tuple[str, dict[str, Any]]] = {}
 EFFECTS = tuple(get_args(Effect))
+EFFECT_SCHEMA = tuple(
+    {
+        "value": effect,
+        "label": effect.removeprefix("canary_").replace("_", " ").title(),
+        "color": f"effect-{effect}",
+    }
+    for effect in EFFECTS
+)
 
 _WRITE_MODE = set("wax+")
 _SHA = re.compile(r"^[0-9a-f]{7,64}\Z")
@@ -255,6 +264,8 @@ def run_row(data: RunData) -> dict[str, Any]:
         "risk": "",
         "status": "unreadable",
         "proven": 0,
+        "proven_raw": 0,
+        "duplicates": 0,
         "verdicts": {v.value: 0 for v in VerdictValue},
         "suspicions_raised": 0,
         "dropped": 0,
@@ -288,6 +299,8 @@ def run_row(data: RunData) -> dict[str, Any]:
                 "ledger_run_id": _text(result["run_id"], 128),
                 "status": result["status"],
                 "proven": result["proven"],
+                "proven_raw": result.get("proven_raw", result["proven"]),
+                "duplicates": result.get("duplicates", 0),
                 "verdicts": {_text(k, 64): v for k, v in result["verdicts"].items()},
                 "suspicions_raised": result["suspicions_raised"],
                 "dropped": result["dropped"],
@@ -340,10 +353,17 @@ def _frames(stack: Any, entry_point: str) -> list[dict[str, Any]]:
     return frames
 
 
-def _evidence(sid: str, entry_point: str, events: Sequence[Event], verdict: dict[str, Any]) -> dict[str, Any]:
+def _evidence(
+    sid: str,
+    entry_point: str,
+    vuln_class: str,
+    events: Sequence[Event],
+    verdict: dict[str, Any],
+) -> dict[str, Any]:
     """Collect the proof of one proven suspicion from its events."""
     own = [e for e in events if _sid(e) == sid]
     declared = _dict(verdict.get("evidence"))
+    facts = _dict(verdict.get("facts"))
     vulnerable_runs = [e for e in own if e.type == EventType.RUN_STARTED and stage_of(e) == "RUN"]
     fixed_runs = [e for e in own if e.type == EventType.RUN_STARTED and stage_of(e) == "VERIFY"]
     oracle_vuln = [e for e in own if e.type == EventType.ORACLE_EVENT and stage_of(e) == "RUN"]
@@ -369,6 +389,18 @@ def _evidence(sid: str, entry_point: str, events: Sequence[Event], verdict: dict
         events_list = declared_oracle.get("events")
         inner = _dict(events_list[0]) if isinstance(events_list, list) and events_list else {}
         frames = _frames(inner.get("stack"), entry_point)
+    observed_location = _dict(facts.get("observed_location")) or _dict(declared.get("observed_location"))
+    observed_location = {
+        "file": _text(observed_location.get("file"), 300),
+        "line": _int(observed_location.get("line")) or 0,
+        "function": _text(observed_location.get("function"), 200),
+        "line_source": _text(observed_location.get("line_source"), 80),
+    } if observed_location else {}
+    effect_type = _text(effect.get("type"), 64)
+    effect_display = next((entry for entry in EFFECT_SCHEMA if entry["value"] == effect_type), None)
+    if effect_display:
+        effect["label"] = effect_display["label"]
+        effect["color"] = effect_display["color"]
 
     fixes = [e for e in own if e.type == EventType.FIX_PROPOSED]
     exploits = [e for e in own if e.type == EventType.EXPLOIT_WRITTEN]
@@ -426,7 +458,17 @@ def _evidence(sid: str, entry_point: str, events: Sequence[Event], verdict: dict
             "variants": bypasses[:50],
         },
         "package": _text(pkg.get("path") or pkg.get("dir"), 300),
-        "cwe": _text(verdict.get("cwe") or declared.get("cwe"), 80),
+        "observed_location": observed_location,
+        "model_location": {},
+        "cwe": _text(verdict.get("cwe") or declared.get("cwe"), 80)
+        or get_cwe(effect_type, vuln_class).cwe_id,
+        "severity": _text(verdict.get("severity") or declared.get("severity"), 32)
+        or severity_from_effect(
+            effect_type,
+            vuln_class=vuln_class,
+            provenance_ok=bool(frames) or bool(entry_point),
+            has_entry_point=bool(entry_point),
+        ),
     }
 
 
@@ -602,16 +644,57 @@ def run_detail(data: RunData) -> dict[str, Any]:
         base = suspicions.get(sid) or {"id": sid, "class": "", "file": "", "line": 0, "entry_point": "", "hypothesis": ""}
         verdict = verdicts.get(sid, {})
         label = _text(verdict.get("verdict"), 64) or "not judged"
-        item = {**base, "verdict": label, "reason": _text(verdict.get("reason"), 600), "evidence": None}
+        item = {
+            **base,
+            "verdict": label,
+            "reason": _text(verdict.get("reason"), 600),
+            "evidence": None,
+            "duplicate_of": _text(verdict.get("duplicate_of"), 200),
+        }
         if label == VerdictValue.PROVEN.value:
-            item["evidence"] = _evidence(sid, base["entry_point"], events, verdict)
+            item["evidence"] = _evidence(sid, base["entry_point"], base["class"], events, verdict)
+            item["evidence"]["model_location"] = {
+                "file": base["file"],
+                "line": base["line"],
+            }
         items.append(item)
+    proven_by_id = {item["id"]: item for item in items if item["verdict"] == VerdictValue.PROVEN.value}
+    primary_ids = set(proven_by_id)
+    for item in proven_by_id.values():
+        evidence = item["evidence"] or {}
+        duplicate_ids = verdicts.get(item["id"], {}).get("duplicates")
+        if not isinstance(duplicate_ids, list):
+            duplicate_ids = [
+                other["id"] for other in proven_by_id.values()
+                if other.get("duplicate_of") == item["id"]
+            ]
+        duplicates = []
+        for duplicate_id in duplicate_ids[:MAX_ITEMS]:
+            duplicate = proven_by_id.get(_text(duplicate_id, 200))
+            if duplicate is None or duplicate["id"] == item["id"]:
+                continue
+            duplicate_evidence = duplicate.get("evidence") or {}
+            duplicates.append(
+                {
+                    "suspicion_id": duplicate["id"],
+                    "file": duplicate.get("file", ""),
+                    "line": duplicate.get("line", 0),
+                    "observed_location": duplicate_evidence.get("observed_location", {}),
+                }
+            )
+            primary_ids.discard(duplicate["id"])
+        evidence["duplicates"] = duplicates
+    proven = [item for item in items if item["id"] in primary_ids]
+    duplicate_ids = {item["id"] for item in items if item["verdict"] == VerdictValue.PROVEN.value} - primary_ids
     steps = trace_events(events)
     return {
         "run": row,
         "stages": _stages(events),
-        "proven": [i for i in items if i["verdict"] == VerdictValue.PROVEN.value],
+        "proven": proven,
         "discarded": [i for i in items if i["verdict"] != VerdictValue.PROVEN.value],
+        "proven_raw": sum(1 for i in items if i["verdict"] == VerdictValue.PROVEN.value),
+        "duplicates": len(duplicate_ids),
+        "effect_schema": list(EFFECT_SCHEMA),
         "latency_ms": sum(e.latency_ms for e in events),
         "trace": trace_to_dict(row["run_id"], steps),
         "costs": _costs(events),
