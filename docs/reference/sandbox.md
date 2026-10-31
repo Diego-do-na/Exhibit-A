@@ -42,6 +42,14 @@ Operational notes and limitations
 - Always treat model outputs and PR diffs as untrusted input; validation and provenance checks are mandatory.
 - If `docker info` fails or the container runtime is not available, sandbox tests must stop and report `env_failure` rather than attempting to skip or ignore sandbox tests.
 
+The `canary_exec` effect
+- `SandboxRunner.run_exploit(..., effect="canary_exec")` proves command execution: the application, reached through an entry point, starts a process that runs an executable outside the allowed directory. Proof rules: `docs/oracle/oracle-provenance.md`, section 3.9.
+- The container keeps every flag above (`--read-only`, `--network none`, `--cap-drop ALL`, `no-new-privileges`, memory and pids limits, its unprivileged user).
+- `/tmp/exhibit_a_oracle/outside/canary` is a host file bind-mounted read-only with mode 0555. It has to be a bind mount: a Docker `--tmpfs` is `noexec`, and a test cannot write its own executables into `/tmp` or the scratch tmpfs either.
+- `/tmp/exhibit_a_oracle/outside/` is a writable bind mount of a temporary host directory, so the canary can create its marker, `canary_ran`, there. The directory is gone after the run. Unlike the write effect's tmpfs it is not size-capped, like the writable `/workspace` copy.
+- The host reads the marker itself after the container exits: no symlinks, a regular file with a single link, at most 1 MiB, each line exactly the run's token. Nothing the container says about it is trusted, and a run that was never checked is not a proof.
+- What it cannot see: a process started by a C extension without an audit event, a shell that never execs the canary (`echo <token> > marker` is real command execution but not this effect), and a command that computes the canary's name. A green result still means "nothing could be proven".
+
 Wording and guidance
 - Always say "isolated and resource-limited" when summarizing the sandbox guarantees.
 - Never say "100% safe" or imply the sandbox is impenetrable.
