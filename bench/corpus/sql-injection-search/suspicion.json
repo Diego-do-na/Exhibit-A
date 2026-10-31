@@ -1,0 +1,11 @@
+{
+  "class": "sql_injection",
+  "entry_point": "App.handle_request",
+  "hypothesis": "ProductRepository.find builds its statement by string concatenation from the parsed request: the search term is placed inside a quoted LIKE pattern, the category list is joined into a quoted IN list, and the sort text is placed in the ORDER BY clause. The statement is assembled two calls below the route handler, so a crafted term, category or sort changes the statement (for example a UNION or a subquery over a table the app never queries) (SQL injection).",
+  "id": "sql-injection-search-find",
+  "location": {
+    "file": "vulnerable/shop/repository.py",
+    "line": 29
+  },
+  "source": "manual (case author); real-world analog CVE-2017-8917"
+}

@@ -1,0 +1,90 @@
+{
+  "cases": [
+    {
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "sql_injection",
+          "file": "vulnerable/shop/repository.py"
+        }
+      ],
+      "id": "sql-injection-search",
+      "kind": "vulnerable",
+      "repo": ""
+    }
+  ],
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "note": "Self-contained oracle case over a multi-module app (ten modules). It installs no third-party package and is not replay-driven: it is proven directly with effect='canary_sql' against the SQLite database run.sql_db declares (a copy of it is seeded with the canary table; the original is never touched). The injectable statement is assembled in shop/repository.py, two calls below the route handler (routes.search_products -> services.search_catalog -> ProductRepository.find), so the graph slice has real hops to cut. No upstream repo/commit applies because the code is original synthetic code written for this case.",
+  "real_world_analog": {
+    "advisory": "https://developer.joomla.org/security-centre/692-20170501-core-sql-injection.html",
+    "cve": "CVE-2017-8917",
+    "fix": "Joomla 3.7.1 escapes list.fullordering and list.direction before they reach the ORDER BY clause. The general fix for the class is an allow-list of sortable columns plus bound parameters for values, which is what the fixed tree does.",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2017-8917",
+    "related": "CVE-2014-3704 (Drupal 7 expandArguments): the placeholders of an IN list were built from caller-controlled array keys. The IN-list exploit in this case models the same family (a statement assembled from a list).",
+    "summary": "SQL injection in the com_fields component of Joomla 3.7.0: the list[fullordering] request parameter reached the model's ORDER BY clause unsanitized, without authentication. The pattern is a sort parameter reaching the ORDER BY of a list query.",
+    "verification": "CVE numbers and summaries confirmed via web search (Joomla security centre, NVD, Sucuri, Drupal SA-CORE-2014-005) on 2026-10-31; the app in this case is original synthetic code, not Joomla or Drupal."
+  },
+  "run": {
+    "baseline_test": "baseline_test.py",
+    "bypass": {
+      "expectation": "proven against fixed_incomplete: the sort text is only checked to be made of identifier-like characters, so a quote-free boolean expression over the canary table still gets into the ORDER BY; the incomplete fix must not be accepted as fixed.",
+      "exploit": "exploits/exploit_true_order_by_quote_free.py",
+      "incomplete_fix": "fixed_incomplete"
+    },
+    "effect": "canary_sql",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_like_union.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_in_list_union.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_order_by_boolean.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_order_by_quote_free.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_filtered_search.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_missing_product.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_repository_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_reads_database.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_leak.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_leak.py",
+        "label": "flaky"
+      }
+    ],
+    "oracle_entry_point": "App.handle_request",
+    "source_file": "shop/repository.py",
+    "sql_db": "data/app.db",
+    "trees": {
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete",
+      "vulnerable": "vulnerable"
+    }
+  },
+  "synthetic": true
+}
