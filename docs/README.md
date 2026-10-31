@@ -26,6 +26,7 @@ One line per document. Paths are relative to the repository root.
 - [bench/bench.md](bench/bench.md) — naive LLM versus the proof loop on the corpus, with the generated results table.
 - [bench/benchmark.md](bench/bench.md) — benchmark harness: corpus format, ablations, metrics, run instructions.
 - [bench/meta-run.md](bench/meta-run.md) — real Meta-model runs (`muse-wonder-1.0`), standard and compact profiles, recordings and replay.
+- [bench/repeatability.md](bench/repeatability.md) — repeatability harness output, with and without slicing.
 - [bench/cost-controls.md](bench/cost-controls.md) — `--profile compact` cost controls: bounded answers, search/replace fixes, reasoning effort.
 
 ## security/ — threat model and audits
