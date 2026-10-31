@@ -169,18 +169,28 @@ def _by_id(cases):
     return {case.id: case for case in cases}
 
 
-def test_load_corpus_accepts_directory_with_all_seven_cases():
+def test_load_corpus_accepts_directory_with_all_eleven_cases():
     cases = load_corpus(CORPUS_DIR)
     assert [c.id for c in cases] == [
         "archive-extraction-pathtraversal",
         "command-injection-shell",
+        "docsuite-large-command-injection",
         "sql-injection-login",
         "sql-injection-search",
+        "sql-trunc-kind-injection",
         "starlette-cve-2023-29159",
         "starlette-cve-2023-29159-fixed",
+        "static-route-traversal",
         "unsafe-deserialization-pickle",
+        "upload-filename-traversal",
     ]
     by_id = _by_id(cases)
+    assert [c.id for c in cases if c.held_out] == [
+        "docsuite-large-command-injection",
+        "sql-trunc-kind-injection",
+        "static-route-traversal",
+        "upload-filename-traversal",
+    ]
 
     for case_id, source_file, truth_file in (
         ("sql-injection-login", "app.py", "vulnerable/app.py"),

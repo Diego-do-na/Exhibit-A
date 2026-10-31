@@ -112,6 +112,17 @@ TARGETS = (
     Target("unsafe-deserialization-pickle", VULNERABLE),
     Target("sql-injection-login", VULNERABLE),
     Target("sql-injection-search", VULNERABLE),
+    Target("static-route-traversal", VULNERABLE),
+    Target("static-route-traversal", FIXED, "fixed", paired=False),
+    Target("static-route-traversal", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("upload-filename-traversal", VULNERABLE),
+    Target("upload-filename-traversal", FIXED, "fixed", paired=False),
+    Target("upload-filename-traversal", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("sql-trunc-kind-injection", VULNERABLE),
+    Target("sql-trunc-kind-injection", FIXED, "fixed", paired=False),
+    Target("sql-trunc-kind-injection", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("docsuite-large-command-injection", VULNERABLE),
+    Target("docsuite-large-command-injection", FIXED, "fixed", paired=False),
 )
 
 #: Ground-truth classes, each with the wordings that mean it. Matching stays literal on purpose:

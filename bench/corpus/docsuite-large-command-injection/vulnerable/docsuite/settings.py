@@ -22,7 +22,7 @@ class Settings:
 
     def ensure_dirs(self):
         """Create the directories the service writes to."""
-        for name in ("blobs", "exports", "outbox", "cache", "audit"):
+        for name in ("blobs", "exports", "outbox", "cache", "audit", "backups"):
             os.makedirs(self.path(name), exist_ok=True)
 
 

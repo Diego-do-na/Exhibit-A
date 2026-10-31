@@ -53,6 +53,17 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Naive LLM (reports everything) | unsafe-deserialization-pickle | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Naive LLM (reports everything) | sql-injection-login | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Naive LLM (reports everything) | sql-injection-search | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | static-route-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | static-route-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | static-route-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | upload-filename-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | upload-filename-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | upload-filename-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | sql-trunc-kind-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | sql-trunc-kind-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | sql-trunc-kind-injection/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | docsuite-large-command-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | docsuite-large-command-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | starlette-cve-2023-29159 | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.1106 | 0.1106 | 34.2 |
 | Exhibit A, compact profile | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 3 | 4 | 0.1358 | 0.2834 | 60.5 |
 | Exhibit A, compact profile | archive-extraction-pathtraversal | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.0597 | 0.0597 | 65.7 |
@@ -62,6 +73,17 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Exhibit A, compact profile | unsafe-deserialization-pickle | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | sql-injection-login | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | sql-injection-search | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | static-route-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | static-route-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | static-route-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | upload-filename-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | upload-filename-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | upload-filename-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | sql-trunc-kind-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | sql-trunc-kind-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | sql-trunc-kind-injection/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | docsuite-large-command-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | docsuite-large-command-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159 | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 1.9052 | 1.9052 | 980.7 |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 7 | 8 | 2.1415 | 2.1415 | 1054.0 |
 | Exhibit A, standard profile (nothing proven live) | archive-extraction-pathtraversal | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 0.7357 | 0.7357 | 339.0 |
@@ -71,6 +93,17 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Exhibit A, standard profile (nothing proven live) | unsafe-deserialization-pickle | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | sql-injection-login | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | sql-injection-search | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | static-route-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | static-route-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | static-route-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | upload-filename-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | upload-filename-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | upload-filename-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | sql-trunc-kind-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | sql-trunc-kind-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | sql-trunc-kind-injection/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | docsuite-large-command-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | docsuite-large-command-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 <!-- END GENERATED -->
 
 Columns:
@@ -172,6 +205,12 @@ No live run of the negative control has been made since the oracle fix.
   whichever system repeats itself.
 - **Exhibit A was not measured on the archive `fixed` and `fixed_incomplete` trees.** No recording
   exists for them, so they are out of the headline row and marked `-`.
+- **Four held-out cases exist and are registered, but unmeasured.** `static-route-traversal`,
+  `upload-filename-traversal`, `sql-trunc-kind-injection` and `docsuite-large-command-injection`
+  carry `held_out: true` in their `case.json`: they were written after the compact profile and the
+  oracle were frozen, from public advisories, so nothing was tuned on them. Their rows are `-`
+  until the owner records the Meta-model and naive runs; the flag lets docs and tables separate
+  tuned from held-out results once they are measured.
 - **`fixed_incomplete` is scored as still vulnerable, not as a negative control.** Its case says an
   absolute member path still escapes, so reporting traversal there is correct.
 - **Cost uses the list price.** Every input token is metered at the full rate; cached input is not
