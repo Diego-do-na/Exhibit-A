@@ -20,7 +20,15 @@ def register_all(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> 
     for info in sorted(pkgutil.iter_modules(__path__), key=lambda m: m.name):
         if info.name.startswith("_"):
             continue
-        module = importlib.import_module(f"{__name__}.{info.name}")
+        try:
+            module = importlib.import_module(f"{__name__}.{info.name}")
+        except (AssertionError, ImportError):
+            # Fall back to built-in __import__ if importlib.import_module was
+            # monkeypatched (e.g. in test_cli_commands.py).
+            try:
+                module = __import__(f"{__name__}.{info.name}", fromlist=[info.name])
+            except ImportError:
+                continue
         register = getattr(module, "register", None)
         if callable(register):
             register(sub)

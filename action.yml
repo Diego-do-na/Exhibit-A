@@ -14,6 +14,8 @@ branding:
 # - The model API key is materialised only in the "Run Exhibit A" step and is
 #   scanned for in every file before anything is uploaded.
 # - Third-party actions are pinned by full commit SHA.
+# - Uploading SARIF findings (sarif: true, default) requires the calling workflow
+#   to declare permissions: security-events: write.
 
 inputs:
   provider:
@@ -86,6 +88,11 @@ inputs:
     description: Login whose marker comment is updated in place.
     required: false
     default: github-actions[bot]
+  sarif:
+    description: >-
+      Upload proven findings to GitHub Code Scanning as SARIF (needs security-events: write).
+    required: false
+    default: "true"
   github-token:
     description: Token used only for the PR comment.
     required: false
@@ -156,6 +163,7 @@ runs:
         IN_REPLAY: ${{ inputs.replay }}
         IN_RISK_GATE: ${{ inputs.risk-gate }}
         IN_COMMENT: ${{ inputs.comment }}
+        IN_SARIF: ${{ inputs.sarif }}
         IN_RETENTION: ${{ inputs.artifact-retention-days }}
       run: |
         set -euo pipefail
@@ -168,7 +176,7 @@ runs:
         [[ -z "$IN_BUDGET" || "$IN_BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || fail "budget-usd must be a number"
         [[ "$IN_KEY_ENV" =~ ^[A-Z_][A-Z0-9_]*$ ]] || fail "api-key-env must be an upper-case variable name"
         case "$IN_KEY_ENV" in PATH|HOME|PYTHONPATH|LD_*|GITHUB_*|RUNNER_*|EXHIBIT_A_*) fail "api-key-env may not shadow $IN_KEY_ENV";; esac
-        for flag in "$IN_REPLAY" "$IN_RISK_GATE" "$IN_COMMENT"; do
+        for flag in "$IN_REPLAY" "$IN_RISK_GATE" "$IN_COMMENT" "$IN_SARIF"; do
           case "$flag" in true|false) ;; *) fail "boolean inputs must be 'true' or 'false'";; esac
         done
         # A case run installs the case's requirements and executes its baseline
@@ -376,6 +384,26 @@ runs:
         fi
         rm -f "$report/comment-payload.json"
 
+    - name: Generate SARIF report
+      id: sarif
+      if: always() && inputs.sarif == 'true' && steps.summary.outcome == 'success'
+      shell: bash
+      env:
+        OUT: ${{ steps.setup.outputs.out }}
+        PY: ${{ steps.setup.outputs.python }}
+      run: |
+        set -uo pipefail
+        "$PY" -m exhibit_a.cli sarif --out-dir "$OUT/run" --output "$OUT/report/results.sarif"
+        cp "$OUT/report/results.sarif" results.sarif 2>/dev/null || true
+
+    - name: Upload SARIF to GitHub Code Scanning
+      if: always() && inputs.sarif == 'true' && steps.sarif.outcome == 'success'
+      # github/codeql-action/upload-sarif v3.28.10
+      uses: github/codeql-action/upload-sarif@b56ba49b26e50535fa1e7f7db0f4f7b47f3d7aab
+      with:
+        sarif_file: results.sarif
+        category: exhibit-a
+
     - name: Upload ledger artifact
       if: always() && steps.summary.outcome == 'success'
       # actions/upload-artifact v7.0.2
@@ -386,6 +414,7 @@ runs:
           ${{ steps.setup.outputs.out }}/report/ledger.jsonl
           ${{ steps.setup.outputs.out }}/report/result.json
           ${{ steps.setup.outputs.out }}/report/summary.md
+          ${{ steps.setup.outputs.out }}/report/results.sarif
         if-no-files-found: warn
         retention-days: ${{ inputs.artifact-retention-days }}
         include-hidden-files: false
