@@ -294,7 +294,90 @@ function findingCard(item) {
     h("section", { style: null },
       h("h3", { text: "Provenance chain" }),
       h("p", { class: "small muted", text: `Call stack recorded by the oracle when the effect happened, outermost first. The proof requires the effect to come from application code reached through the entry point ${prov.entry_point || "?"}.` }),
-      (prov.frames || []).length ? chain : h("p", { class: "muted small", text: "No stack was recorded in this ledger." })));
+      (prov.frames || []).length ? chain : h("p", { class: "muted small", text: "No stack was recorded in this ledger." })),
+    h("div", { class: "artifact-grid" },
+      h("section", { class: "artifact" }, h("h3", { text: "Exploit test" }), h("code", { text: ev.exploit_test || "Not recorded" })),
+      h("section", { class: "artifact" }, h("h3", { text: "Fix diff" }), h("pre", { text: fix.diff || "Patch content is not in this ledger." }))));
+}
+
+function graphView(graph) {
+  if (!graph || !graph.available) {
+    return h("div", { class: "card muted", text: graph && graph.reason ? graph.reason : "No code graph is available for this run." });
+  }
+  const nodes = graph.nodes || [];
+  const edges = graph.edges || [];
+  const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+  const order = nodes.slice().sort((a, b) => (a.file || "").localeCompare(b.file || "") || a.line - b.line);
+  const positions = Object.fromEntries(order.map((n, i) => [n.id, { x: 80 + (i % 5) * 190, y: 70 + Math.floor(i / 5) * 100 }]));
+  let scale = 1;
+  let panX = 0;
+  let panY = 0;
+  const width = Math.max(900, 120 + (Math.min(order.length, 5) * 190));
+  const height = Math.max(260, 140 + Math.ceil(order.length / 5) * 100);
+  const root = svg("svg", { class: "graph-svg", viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Entry to sink code graph" });
+  const edgeLayer = svg("g", {});
+  const nodeLayer = svg("g", {});
+  root.append(edgeLayer, nodeLayer);
+  const detail = h("div", { class: "graph-detail muted", text: "Select a node to inspect its file and line range." });
+  const update = () => root.setAttribute("viewBox", `${panX} ${panY} ${width / scale} ${height / scale}`);
+  edges.forEach((edge) => {
+    const a = positions[edge.src], b = positions[edge.dst];
+    if (!a || !b) return;
+    edgeLayer.appendChild(svg("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: edge.proven ? "graph-edge proven" : "graph-edge" }));
+  });
+  order.forEach((node) => {
+    const p = positions[node.id];
+    const group = svg("g", { class: `graph-node ${node.proven ? "proven" : ""} ${node.entry_point ? "entry" : ""}`, tabindex: "0" });
+    group.appendChild(svg("rect", { x: p.x - 75, y: p.y - 22, width: 150, height: 44, rx: 6 }));
+    group.appendChild(svg("text", { x: p.x, y: p.y + 4, "text-anchor": "middle", text: String(node.name || node.id).slice(0, 22) }));
+    const select = () => {
+      detail.replaceChildren(
+        h("strong", { text: node.name || node.id }),
+        h("span", { class: "mono small", text: ` ${node.file || "sink"}${node.line ? `:${node.line}-${node.end}` : ""}` }),
+        node.entry_point ? h("span", { class: "tag", text: "entry point" }) : null,
+        node.sink ? h("span", { class: "tag", text: "sink" }) : null);
+    };
+    group.addEventListener("click", select);
+    group.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") select(); });
+    nodeLayer.appendChild(group);
+  });
+  let drag = null;
+  root.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    scale = Math.max(0.6, Math.min(2.4, scale * (event.deltaY < 0 ? 1.1 : 0.9)));
+    update();
+  }, { passive: false });
+  root.addEventListener("pointerdown", (event) => { drag = { x: event.clientX, y: event.clientY, panX, panY }; root.setPointerCapture(event.pointerId); });
+  root.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    panX = drag.panX - (event.clientX - drag.x) / scale;
+    panY = drag.panY - (event.clientY - drag.y) / scale;
+    update();
+  });
+  root.addEventListener("pointerup", () => { drag = null; });
+  return h("div", { class: "card graph-card" },
+    h("div", { class: "graph-heading" }, h("h2", { text: "Entry to sink graph" }),
+      h("span", { class: "muted small", text: `${nodes.length} nodes, ${edges.length} edges · drag to pan, wheel to zoom` })),
+    h("div", { class: "graph-canvas" }, root), detail,
+    graph.sink_rule ? h("p", { class: "muted small", text: `Sink rule: ${graph.sink_rule}. Effects: ${(graph.effects || []).join(", ")}.` }) : null);
+}
+
+function costsView(costs) {
+  const rows = (bucket) => Object.entries(bucket || {}).map(([name, value]) => h("tr", {},
+    h("td", { class: "mono", text: name }), h("td", { class: "num", text: fmtCost(value.cost_usd) }),
+    h("td", { class: "num", text: String(value.tokens_in || 0) }), h("td", { class: "num", text: String(value.tokens_out || 0) })));
+  return h("div", { class: "cost-grid" },
+    ...[["Cost by role", costs && costs.by_role], ["Cost by stage", costs && costs.by_stage]].map(([title, bucket]) =>
+      h("section", { class: "card" }, h("h2", { text: title }), h("div", { class: "table-wrap" }, h("table", {},
+        h("thead", {}, h("tr", {}, h("th", { text: "Name" }), h("th", { class: "num", text: "Cost" }), h("th", { class: "num", text: "In" }), h("th", { class: "num", text: "Out" }))),
+        h("tbody", {}, rows(bucket)))))));
+}
+
+function traceView(trace) {
+  return h("div", { class: "card" }, h("h2", { text: "Trace timeline" }),
+    h("ol", { class: "trace" }, (trace && trace.steps || []).map((step) =>
+      h("li", {}, h("span", { class: "trace-stage", text: step.stage }), h("span", { class: "trace-summary", text: step.summary }),
+        h("span", { class: "mono small muted", text: `${step.role || "engine"} · ${fmtCost(step.cost_usd)}` })))));
 }
 
 function discardedTable(items) {
@@ -336,6 +419,9 @@ async function renderRun(id) {
   const sections = [h("p", {}, h("a", { href: "#/runs", text: "← All runs" })), header];
   if (row.status !== "unreadable") {
     sections.push(h("div", { class: "card" }, h("h2", { text: "Verdict timeline" }), stageTracker(data.stages)));
+    sections.push(graphView(data.graph));
+    sections.push(costsView(data.costs));
+    sections.push(traceView(data.trace));
     sections.push(h("h2", { text: data.proven.length ? `Proven findings (${data.proven.length})` : "Proven findings" }));
     if (data.proven.length) sections.push(...data.proven.map(findingCard));
     else sections.push(h("div", { class: "card" }, h("p", { text: "Nothing could be proven in this run." }),

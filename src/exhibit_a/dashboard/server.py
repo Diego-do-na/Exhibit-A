@@ -46,7 +46,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from ..live.replay import Replayer, format_done, parse_speed, select_events
-from .model import build_trends, event_view, run_detail, run_row
+from .model import build_graph_view, build_trends, event_view, run_detail, run_row
 from .sources import RUN_ID_RE, RunSource, SourceError, parse_source
 
 HOST = "127.0.0.1"
@@ -86,7 +86,7 @@ DEFAULT_TREND_RUNS = 50
 #: Fastest replay accepted; faster requests are clamped.
 MAX_SPEED = 64.0
 
-_RUN_ROUTE = re.compile(r"^/api/runs/([^/]+)(/events|/replay)?$")
+_RUN_ROUTE = re.compile(r"^/api/runs/([^/]+)(/events|/replay|/trace|/graph|/costs)?$")
 
 
 def default_web_dir() -> Path:
@@ -360,6 +360,15 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 return
             if data.error:
                 self._error(422, f"run could not be read: {data.error}")
+                return
+            if tail == "/trace":
+                self._json(run_detail(data)["trace"])
+                return
+            if tail == "/graph":
+                self._json(build_graph_view(data))
+                return
+            if tail == "/costs":
+                self._json(run_detail(data)["costs"])
                 return
             if tail == "/events":
                 start = _int_param(query, "from", 0, 0, 10**9)

@@ -349,6 +349,32 @@ tbody tr:hover { background: var(--surface-2); }
   .events li { grid-template-columns: 1fr; gap: 0; }
 }
 
+.graph-card { overflow: hidden; }
+.graph-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.graph-canvas { overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); border-radius: 8px; cursor: grab; }
+.graph-canvas:active { cursor: grabbing; }
+.graph-svg { display: block; width: 100%; min-height: 300px; touch-action: none; }
+.graph-edge { stroke: var(--ink-3); stroke-width: 1.5; opacity: .7; }
+.graph-edge.proven { stroke: var(--critical); stroke-width: 3; opacity: 1; }
+.graph-node { cursor: pointer; }
+.graph-node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.graph-node text { fill: var(--ink); font: 12px var(--mono); pointer-events: none; }
+.graph-node.entry rect { stroke: var(--accent); stroke-width: 3; }
+.graph-node.proven rect { stroke: var(--critical); stroke-width: 3; }
+.graph-detail { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 10px; }
+.cost-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.trace { list-style: none; margin: 0; padding: 0; }
+.trace li { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.trace-stage { font: 650 11px var(--mono); color: var(--accent); }
+.trace-summary { overflow-wrap: anywhere; }
+.artifact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.artifact { min-width: 0; background: var(--surface-2); border-radius: 8px; padding: 12px 14px; }
+.artifact code, .artifact pre { display: block; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; font: 12px/1.45 var(--mono); }
+@media (max-width: 760px) {
+  .cost-grid, .artifact-grid { grid-template-columns: 1fr; }
+  .trace li { grid-template-columns: 1fr; gap: 2px; }
+}
+
 /* -- trends --------------------------------------------------------------- */
 
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; padding: 0; list-style: none; font-size: 13px; color: var(--ink-2); }
