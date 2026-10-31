@@ -20,9 +20,10 @@ from exhibit_a.oracle import Judgement, run_oracle  # noqa: E402
 # layers below it (signed events, frame admission, app-tree tamper check) do on their own.
 GUARD = True
 _channel_problem = _oracle.channel_problem
+_exec_problem = _oracle.exec_problem
 
 
-def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeout=60.0) -> Judgement:
+def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeout=60.0, effect="canary_read") -> Judgement:
     """Write a one-file app and an exploit test to a temp dir and judge with run_oracle."""
     tmp = Path(tempfile.mkdtemp(prefix="redteam_"))
     app_root = tmp / "app_root"
@@ -38,10 +39,12 @@ def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeo
     exploit = tests_dir / "test_exploit.py"
     exploit.write_text(textwrap.dedent(exploit_src), encoding="utf-8")
     _oracle.channel_problem = _channel_problem if GUARD else (lambda path: None)
+    _oracle.exec_problem = _exec_problem if GUARD else (lambda path: None)
     try:
-        return run_oracle(app_root, exploit, set(entry_points), timeout=timeout)
+        return run_oracle(app_root, exploit, set(entry_points), timeout=timeout, effect=effect)
     finally:
         _oracle.channel_problem = _channel_problem
+        _oracle.exec_problem = _exec_problem
 
 
 def classify(j: Judgement, *, app_is_safe: bool) -> str:
