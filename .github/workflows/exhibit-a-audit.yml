@@ -1,0 +1,95 @@
+# Exhibit A repository audit: what is already wrong in main.
+#
+# Red only when a finding is PROVEN by execution in an isolated,
+# resource-limited sandbox. Green means "nothing could be proven", never
+# "safe". See docs/ci/audit.md.
+#
+# Opt-in: the job stays skipped until the repository variable
+# EXHIBIT_A_ENABLED is "true", so this file is inert without it. It runs on a
+# weekly schedule and on manual dispatch, never on pull requests and never on
+# forks (a schedule only runs in the base repository; there is no
+# pull_request trigger here at all).
+
+name: Exhibit A audit
+
+on:
+  schedule:
+    # Weekly, Monday 06:00 UTC. Avoid :00/:30 for approximate times.
+    - cron: "7 6 * * 1"
+  workflow_dispatch:
+
+# Nothing by default; the job asks for exactly what it needs.
+permissions: {}
+
+jobs:
+  audit:
+    name: exhibit-a / audit
+    if: vars.EXHIBIT_A_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: exhibit-a
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        # actions/setup-python v7.1.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.11"
+
+      - name: Run the repository audit
+        id: audit
+        env:
+          EXHIBIT_A_API_KEY: ${{ secrets.EXHIBIT_A_API_KEY }}
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet .
+          python -m exhibit_a.cli audit --repo . \
+            --budget-usd 2 --max-targets 10 --profile compact \
+            --provider meta --model muse-wonder-1.0 \
+            --out audit-out
+          {
+            echo "## Exhibit A audit"
+            echo
+            cat audit-out/audit.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Export SARIF when available
+        if: always()
+        run: |
+          set -euo pipefail
+          if python -m exhibit_a.cli sarif --out-dir audit-out --output audit-out/results.sarif; then
+            echo "sarif=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "no SARIF: nothing proven or no packages yet" >&2
+          fi
+        id: sarif
+
+      - name: Upload audit report
+        if: always()
+        # actions/upload-artifact v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: exhibit-a-audit
+          path: |
+            audit-out/audit.md
+            audit-out/audit.json
+            audit-out/results.sarif
+          if-no-files-found: warn
+          retention-days: 30
+          include-hidden-files: false
+
+      - name: Upload SARIF to code scanning
+        if: always() && steps.sarif.outputs.sarif == '1'
+        # github/codeql-action/upload-sarif v3.28.10
+        uses: github/codeql-action/upload-sarif@b56ba49b26e50535fa1e7f7db0f4f7b47f3d7aab
+        with:
+          sarif_file: audit-out/results.sarif
+          category: exhibit-a-audit
