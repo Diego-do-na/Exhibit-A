@@ -293,6 +293,17 @@ tbody tr:hover { background: var(--surface-2); }
 
 .finding { border-left: 3px solid var(--critical); }
 .finding .hyp { color: var(--ink-2); margin: 4px 0 14px; }
+.finding-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.finding-meta p { margin: 0; }
+.observed-location { color: var(--good); }
+.effect { font-weight: 600; }
+.effect-canary_read { color: var(--good); }
+.effect-canary_write { color: var(--warning); }
+.effect-canary_exec { color: var(--critical); }
+.effect-canary_sql { color: var(--accent); }
+.duplicates { margin: 12px 0; }
+.duplicates summary { cursor: pointer; font-weight: 600; }
+.duplicates ul { margin: 8px 0 0; }
 .proof { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .proof section { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; min-width: 0; }
 .proof h3 { display: flex; gap: 8px; align-items: center; }
