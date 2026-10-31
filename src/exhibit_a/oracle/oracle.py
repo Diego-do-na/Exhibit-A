@@ -29,12 +29,15 @@ mode string (F4), and a write effect also needs the canary to exist with the tok
 run (F5). See docs/oracle/oracle-provenance.md, section 3.7.
 
 The ``canary_exec`` effect (command execution, unsafe deserialization) plants an executable
-instead; ``_judge_exec`` and section 3.9 of that document say what proves it.
+instead; ``_judge_exec`` and section 3.9 of that document say what proves it. The ``canary_sql``
+effect (SQL injection) adds a table with the token to a copy of the application's own SQLite
+database; ``_judge_sql`` and section 3.10 say what proves it.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -43,11 +46,19 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Collection
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Literal
 
-from exhibit_a.oracle.guard import channel_problem, exec_problem
-from exhibit_a.oracle.plugin import ENV_CANARY, ENV_EVENTS, ENV_MARKER, KEY_BYTES, key_message, verify_lines
+from exhibit_a.oracle.guard import channel_problem, exec_problem, sql_problem
+from exhibit_a.oracle.plugin import (
+    ENV_CANARY,
+    ENV_EVENTS,
+    ENV_MARKER,
+    ENV_SQL,
+    KEY_BYTES,
+    key_message,
+    verify_lines,
+)
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest, tree_changes
 from exhibit_a.schemas.base import StrictModel
 
@@ -62,8 +73,9 @@ TestOutcome = Literal["passed", "failed", "error", "timeout"]
 # outside the allowed directory). Both are observed through the same signed events; only the
 # access the event carries differs. See docs/oracle/second-class.md. "canary_exec" is command
 # execution: the app runs an executable outside the allowed directory, which leaves the token in
-# a marker file beside it; it has its own judge (_judge_exec).
-Effect = Literal["canary_read", "canary_write", "canary_exec"]
+# a marker file beside it; it has its own judge (_judge_exec). "canary_sql" is SQL injection: the
+# app reads a row of a table it never queries, in its own SQLite database (_judge_sql).
+Effect = Literal["canary_read", "canary_write", "canary_exec", "canary_sql"]
 # Which accesses count for each effect: "r+" or O_RDWR is both a read and a write.
 _ACCEPTED_ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}
 # A write effect reads at most this much of the canary after the run to find the token.
@@ -71,6 +83,12 @@ _MAX_CANARY_READ = 1 << 20
 # canary_exec: the executable and the marker it leaves, side by side under outside/.
 EXEC_CANARY_NAME = "canary"
 EXEC_MARKER_NAME = "canary_ran"
+# canary_sql: the table (and its one column) added to a copy of the application's database. The
+# test is told the table's name and that the application never queries it, never the database path.
+SQL_CANARY_TABLE = "exhibit_canary"
+SQL_CANARY_COLUMN = "token"
+_MAX_SQL_DB_BYTES = 256 << 20
+_SQL_DB_PATH = re.compile(r"[A-Za-z0-9_./-]{1,200}")
 _PLUGIN_MODULE = "exhibit_a_oracle_plugin"
 _PLUGIN_SOURCE = Path(__file__).resolve().parent / "plugin.py"
 
@@ -98,6 +116,9 @@ REASON_NOT_VIA_ALLOWED_DIR = "canary_not_via_allowed_dir"
 REASON_CANARY_TAMPERED = "canary_tampered"
 REASON_FROM_TEST = "process_from_test"
 REASON_PROCESS_API_CHANGED = "process_api_changed"
+REASON_SQL_FROM_TEST = "sql_from_test"
+REASON_SQL_API_CHANGED = "sql_api_changed"
+REASON_SQL_UNPLACED = "sql_unplaced"
 
 
 class Frame(StrictModel):
@@ -122,9 +143,12 @@ class OracleEvent(StrictModel):
     stack: list[Frame]
     # How the canary was reached and what the operation could do (see plugin.access_of).
     # Missing in events from older plugins, which classify as "unknown": never a proof.
-    op: Literal["open", "rename", "link", "process", "native", "env", "chdir", "codegen"] = "open"
+    op: Literal[
+        "open", "rename", "link", "process", "native", "env", "chdir", "codegen",
+        "sql_connect", "sql_read", "sql_text",
+    ] = "open"
     flags: int | None = None
-    access: Literal["read", "write", "read_write", "unknown", "exec"] | None = None
+    access: Literal["read", "write", "read_write", "unknown", "exec", "sql"] | None = None
     # The path as the code asked for it, absolute but not resolved; None if unknown.
     requested: str | None = None
     # Set when the opened path went through a symlink created during the run; such a read
@@ -135,11 +159,23 @@ class OracleEvent(StrictModel):
     # canary_exec only: which file an open reached, the command a process event started, whether
     # it names the canary, whether the innermost app frame names a sink, and what changed since
     # install (a watched API or sensitive variable) when the process started.
-    target: Literal["canary", "marker"] = "canary"
+    target: Literal["canary", "marker", "db"] = "canary"
     command: str | None = None
     names_canary: bool = False
     sink_named: bool = False
     patched: str | None = None
+    # canary_sql only. ``sql_connect``: ``connection`` (the plugin's index of it), whether it was
+    # opened on the application's own database file, whether the plugin could instrument it, and in
+    # ``command`` the database name as passed; ``patched`` names ``sqlite3.connect`` if it was no
+    # longer the plugin's wrapper. ``sql_read``: a read of the canary ``table`` and ``column`` in
+    # ``database`` (sqlite's name for it: main, temp or an alias) on that ``connection``.
+    # ``sql_text``: the statement that read it, from the trace callback.
+    connection: int | None = None
+    declared_db: bool = False
+    instrumented: bool = False
+    table: str | None = None
+    column: str | None = None
+    database: str | None = None
 
 
 class Judgement(StrictModel):
@@ -165,6 +201,7 @@ def run_oracle(
     *,
     timeout: float = 60.0,
     effect: Effect = "canary_read",
+    sql_db: str | None = None,
 ) -> Judgement:
     """Run ``test_path`` against the app in ``app_root`` and judge the result.
 
@@ -177,22 +214,31 @@ def run_oracle(
     archive-extraction / zip-slip escape). For a write effect the canary file is not planted:
     the proof is that the app itself opens the canary path for writing, so it must not exist
     beforehand. ``"canary_exec"`` plants an executable at ``outside/canary``: the app must run it
-    (see ``_judge_exec``).
+    (see ``_judge_exec``). ``"canary_sql"`` runs the test against a staged copy of the app whose
+    database, ``sql_db`` (a path relative to ``app_root``, a SQLite file the app uses), has the canary
+    table added; the app must read it through an entry point (see ``_judge_sql``). Raises
+    ``ValueError`` if ``sql_db`` is missing or unusable.
     """
-    if effect not in ("canary_read", "canary_write", "canary_exec"):
+    if effect not in ("canary_read", "canary_write", "canary_exec", "canary_sql"):
         raise ValueError(f"unknown effect {effect!r}")
+    if sql_db is not None and effect != "canary_sql":
+        raise ValueError("sql_db is only for the canary_sql effect")
     app_root = Path(app_root).resolve()
     test_path = Path(test_path).resolve()
 
     problem = channel_problem(test_path)
     if problem is None and effect == "canary_exec":
         problem = exec_problem(test_path)
+    if problem is None and effect == "canary_sql":
+        problem = sql_problem(test_path)
     if problem is not None:
         # Not run at all: an "error" outcome, which the loop classifies as invalid_test.
         return Judgement(
             observed_effect=False, provenance_ok=False, reason=problem, test_outcome="error",
             reason_code=REASON_CHANNEL_TRIPWIRE,
         )
+    if effect == "canary_sql":
+        return _run_sql(app_root, test_path, set(entry_points), timeout, sql_db)
 
     # The test's own directory is test code even when it sits inside the app root.
     exclude = []
@@ -251,6 +297,130 @@ def run_oracle(
         app_tree=AppTree(str(app_root), app_root, manifest), app_tree_changes=changes,
         allowed_dir=str(allowed), canary_written=written, canary_ran=ran,
     )
+
+
+def sql_db_shape_problem(rel: object) -> str | None:
+    """Why ``rel`` cannot name the application's database (``run.sql_db``), or None.
+
+    It must be a plain relative path inside the app: letters, digits and ``_./-`` only (it ends up
+    in a container mount specification), no ``..`` or ``.`` component, no empty one, no leading ``/``.
+    """
+    if not isinstance(rel, str) or not rel:
+        return "sql_db must be a non-empty path relative to the application tree"
+    if not _SQL_DB_PATH.fullmatch(rel):
+        return "sql_db may only hold letters, digits and '_', '.', '-', '/' (at most 200 characters)"
+    path = PurePosixPath(rel)
+    if path.is_absolute() or path.as_posix() != rel or any(part in (".", "..") for part in path.parts):
+        return "sql_db must be a normalised relative path without '.' or '..' components"
+    return None
+
+
+def sql_db_problem(root: Path, rel: object) -> str | None:
+    """Why ``root / rel`` cannot be the application's database, or None.
+
+    The database must be a regular file (not a link, nor behind one) inside ``root``, of a size
+    that is cheap to copy for every run. It may be empty: an empty file is a valid empty SQLite
+    database. A missing file is a problem: the app has to find its own database where it expects it.
+    """
+    problem = sql_db_shape_problem(rel)
+    if problem is not None:
+        return problem
+    current = Path(root)
+    for part in PurePosixPath(str(rel)).parts:
+        current = current / part
+        try:
+            st = os.lstat(current)
+        except OSError:
+            return f"sql_db {rel!r} does not exist in the application tree"
+        if stat.S_ISLNK(st.st_mode):
+            return f"sql_db {rel!r} is, or is behind, a symbolic link"
+    if not stat.S_ISREG(st.st_mode):
+        return f"sql_db {rel!r} is not a regular file"
+    if st.st_size > _MAX_SQL_DB_BYTES:
+        return f"sql_db {rel!r} is larger than {_MAX_SQL_DB_BYTES >> 20} MiB"
+    return None
+
+
+def seed_sql_canary(db: Path, token: str) -> None:
+    """Add the canary table, holding ``token``, to ``db``, a private copy of the app's database.
+
+    Host path only (a research and test tool, not isolated): the sandbox seeds inside a container
+    (sandbox/runner.py). The copy is switched to the rollback journal, so reading it never needs a
+    write-ahead log beside it, and made read-only, so the tree check sees any change to it. A
+    database that already has a table of that name is refused rather than trusted.
+    """
+    import sqlite3
+
+    try:
+        connection = sqlite3.connect(db)
+        try:
+            connection.execute("PRAGMA journal_mode=DELETE").fetchall()
+            connection.execute(f"CREATE TABLE {SQL_CANARY_TABLE} ({SQL_CANARY_COLUMN} TEXT)")
+            connection.execute(f"INSERT INTO {SQL_CANARY_TABLE} ({SQL_CANARY_COLUMN}) VALUES (?)", (token,))
+            connection.commit()
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise ValueError(f"cannot add the canary table to the application's database: {exc}") from exc
+    os.chmod(db, 0o444)
+
+
+def _run_sql(app_root: Path, test_path: Path, entry_points: set[str], timeout: float, sql_db: str | None) -> Judgement:
+    """The host path of ``canary_sql``: run in a staged copy of the app, with the canary table seeded.
+
+    The application's own database file is never touched: the app is copied into the work
+    directory, the canary table is added to the copy and the test runs there. The copy is hashed
+    with the rest of the app (database included, read-only), so a change to it by the app or the
+    test shows in the tree check.
+    """
+    problem = sql_db_problem(app_root, sql_db)
+    if problem is not None:
+        raise ValueError(problem)
+    key = secrets.token_bytes(KEY_BYTES)
+    token = "CANARY-" + secrets.token_hex(16)
+    with tempfile.TemporaryDirectory(prefix="exhibit_a_oracle_") as tmp:
+        work = Path(tmp).resolve()
+        allowed = work / "allowed"
+        allowed.mkdir()
+        (allowed / "public.txt").write_text("public file\n", encoding="utf-8")
+        stage = work / "app"
+        try:
+            shutil.copytree(app_root, stage, symlinks=True)
+        except (OSError, shutil.Error) as exc:
+            return Judgement(
+                observed_effect=False, provenance_ok=False, test_outcome="error",
+                reason=f"the application tree could not be staged: {exc}", reason_code=REASON_MANIFEST_FAILED,
+            )
+        run_test = stage / test_path.relative_to(app_root) if test_path.is_relative_to(app_root) else test_path
+        db = stage / str(sql_db)
+        seed_sql_canary(db, token)
+        exclude = []
+        if run_test.parent.is_relative_to(stage) and run_test.parent != stage:
+            exclude.append(run_test.parent.relative_to(stage).as_posix())
+        elif run_test.parent == stage:
+            exclude += [run_test.name, "conftest.py"]
+        try:
+            manifest = app_manifest(stage, exclude)
+        except ManifestError as exc:
+            return Judgement(
+                observed_effect=False, provenance_ok=False, test_outcome="error",
+                reason=f"the application tree could not be hashed before the run: {exc}",
+                reason_code=REASON_MANIFEST_FAILED,
+            )
+        events_path = work / "events.jsonl"
+        ini = work / "pytest.ini"
+        ini.write_text("[pytest]\n", encoding="utf-8")
+        outcome = _run_test(
+            stage, run_test, work, ini, allowed, db.resolve(), token, events_path, timeout, key=key,
+            manifest=manifest, sql_table=SQL_CANARY_TABLE,
+        )
+        events, forged, forged_reason = _read_events(events_path, key)
+        changes = tree_changes(stage, manifest, exclude)
+        return _judge(
+            outcome, events, stage, run_test, entry_points,
+            effect="canary_sql", forged_events=forged, forged_reason=forged_reason,
+            app_tree=AppTree(str(stage), stage, manifest), app_tree_changes=changes,
+        )
 
 
 def canary_written(canary: Path, token: str) -> bool:
@@ -320,6 +490,7 @@ def _run_test(
     key: bytes | None,
     manifest: dict[str, str] | None = None,
     marker: Path | None = None,
+    sql_table: str | None = None,
 ) -> TestOutcome:
     """Run the test with the plugin; ``key`` goes to the plugin on stdin, never elsewhere.
 
@@ -347,6 +518,8 @@ def _run_test(
     }
     if marker is not None:
         env[ENV_MARKER] = str(marker)
+    if sql_table is not None:
+        env[ENV_SQL] = sql_table  # ENV_CANARY above is the application's database file
     cmd = [
         sys.executable,
         "-m",
@@ -486,6 +659,8 @@ def _judge(
         )
     if effect == "canary_exec":
         return _judge_exec(outcome, events, app_root, test_path.parent, entry_points, app_tree, canary_ran)
+    if effect == "canary_sql":
+        return _judge_sql(outcome, events, app_root, test_path.parent, entry_points, app_tree)
     # Only opens of the kind this effect looks for count. A write-effect run ignores a read of
     # the canary path, and a read-effect run ignores a write: the wrong access never proves the
     # intended vulnerability. The full event list is still returned for the record.
@@ -614,6 +789,92 @@ def _judge_exec(
         reason = "canary executed by a process application code started through an entry point; test failed"
     else:
         reason = f"canary executed through an entry point, but the test did not fail ({outcome})"
+    return Judgement(
+        observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
+        reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
+    )
+
+
+def _judge_sql(
+    outcome: TestOutcome,
+    events: list[OracleEvent],
+    app_root: Path,
+    test_dir: Path,
+    entry_points: set[str],
+    app_tree: AppTree | None,
+) -> Judgement:
+    """Decide a canary_sql run (docs/oracle/oracle-provenance.md, section 3.10).
+
+    Proven only if all hold: every connection of the run was opened by admitted application code;
+    nothing but application code touched the database file; the canary table's token column was
+    read at least once, and every read of that table ran on a connection to the application's own
+    database (its main schema), came from admitted application code, reached through a declared
+    entry point called from the test; and the test failed. A read from a test frame, a connection
+    the test opened, a statement the test ran on the app's connection, a copy of the database read
+    by the test: none proves, and neither does anything the oracle could not place. The oracle
+    checks the read; that the token reached the test is what the failing assertion checks.
+    """
+
+    def refuse(code: str, why: str, observed: bool = False) -> Judgement:
+        return Judgement(
+            observed_effect=observed, provenance_ok=False, reason=f"canary_sql not proven: {why}; test {outcome}",
+            test_outcome=outcome, events=events, reason_code=code,
+        )
+
+    if app_tree is None:
+        return refuse(REASON_PROVENANCE, "provenance cannot be authenticated without the staged app")
+    connections: dict[int, OracleEvent] = {}
+    reads = []
+    for event in events:
+        if event.op == "sql_connect":
+            who = _started_from(event, app_root, test_dir)
+            if who != "app":
+                return refuse(REASON_SQL_FROM_TEST, "a database connection was opened by "
+                              + ("the test itself" if who == "test" else "code nobody vouches for"))
+            if event.patched is not None:
+                return refuse(REASON_SQL_API_CHANGED, f"{event.patched} was replaced before a connection opened")
+            if event.connection is None or event.connection in connections:
+                return refuse(REASON_PROVENANCE, "a connection could not be told apart from another")
+            connections[event.connection] = event
+        elif event.op in ("open", "rename", "link"):
+            who = _started_from(event, app_root, test_dir)
+            if who != "app":
+                return refuse(REASON_SQL_FROM_TEST, f"the database file was touched by "
+                              f"{'the test itself' if who == 'test' else 'code nobody vouches for'} ({event.mode})")
+            if _access(event) != "read":
+                return refuse(REASON_CANARY_TAMPERED, f"in-process {event.op} of the database file ({_access(event)})")
+        elif event.op == "sql_read":
+            reads.append(event)
+    relevant = []
+    for event in reads:
+        who = _started_from(event, app_root, test_dir)
+        if who != "app":
+            return refuse(REASON_SQL_FROM_TEST, "the canary table was read by "
+                          + ("a statement the test ran itself" if who == "test" else "code nobody vouches for"))
+        opened = connections.get(event.connection) if event.connection is not None else None
+        if opened is None or not opened.declared_db or not event.declared_db or event.database != "main":
+            return refuse(REASON_SQL_UNPLACED, "the canary table was read on a connection, or in a database, "
+                          "that is not the application's own database as opened by the application")
+        problem = _provenance_problem(event, app_root, test_dir, entry_points, app_tree)
+        if problem is not None:
+            return refuse(problem[0], f"canary table read without valid provenance: {problem[1]}", observed=True)
+        if event.column == SQL_CANARY_COLUMN:
+            relevant.append(event)
+    if not relevant:
+        why = {
+            "failed": "test failed but the canary row was never read: it failed for the wrong reason",
+            "passed": "test passed and the canary row was never read: nothing was proven",
+            "error": "test did not run to a result and the canary row was never read",
+            "timeout": "test timed out and the canary row was never read",
+        }[outcome]
+        return Judgement(
+            observed_effect=False, provenance_ok=False, reason=why, test_outcome=outcome, events=events,
+            reason_code=REASON_NO_EFFECT,
+        )
+    if outcome == "failed":
+        reason = "canary row read by application code through an entry point; test failed"
+    else:
+        reason = f"canary row read through an entry point, but the test did not fail ({outcome})"
     return Judgement(
         observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
         reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
