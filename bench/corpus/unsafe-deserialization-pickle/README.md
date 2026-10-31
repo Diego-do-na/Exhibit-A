@@ -71,9 +71,10 @@ never "100% safe".
 
 This case has no `recordings/` yet: its offline `--replay` answers come from
 its own hand-authored materials (`suspicion.json`, `exploits/`, `fixed/`)
-through `CaseMaterialsProvider`, not from any model. The owner records the
-real Meta-model run with
+through `CaseMaterialsProvider`, not from any model. The case id is already
+registered in `bench/record_meta.py::CASES` and `bench/baseline.py::TARGETS`;
+both commands treat its missing recordings as unmeasured until the owner
+records the real Meta-model run with
 `python -m bench.record_meta --profile compact --case unsafe-deserialization-pickle`
-(no key was available when the case was written), then registers the id in
-`bench/record_meta.py::CASES` and `bench/baseline.py::TARGETS` together with
-those recordings so every registered case keeps a real recording behind it.
+plus `python -m bench.baseline --record` (no key was available when the case
+was written), which flips its rows to measured with no code change.
