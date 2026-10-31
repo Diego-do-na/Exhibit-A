@@ -1,0 +1,11 @@
+{
+  "class": "command_injection",
+  "entry_point": "App.handle_request",
+  "hypothesis": "The listing helper builds a shell command line from the requested name and runs it with shell=True, so a name carrying a shell metacharacter (for example ';' or a newline) breaks out of the file operand and executes an attacker command (OS command injection).",
+  "id": "command-injection-shell-command",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 14
+  },
+  "source": "manual (case author); real-world analog CVE-2021-22205"
+}

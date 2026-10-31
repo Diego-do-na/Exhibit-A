@@ -169,14 +169,40 @@ def _by_id(cases):
     return {case.id: case for case in cases}
 
 
-def test_load_corpus_accepts_directory_with_all_three_cases():
+def test_load_corpus_accepts_directory_with_all_five_cases():
     cases = load_corpus(CORPUS_DIR)
     assert [c.id for c in cases] == [
         "archive-extraction-pathtraversal",
+        "command-injection-shell",
         "starlette-cve-2023-29159",
         "starlette-cve-2023-29159-fixed",
+        "unsafe-deserialization-pickle",
     ]
     by_id = _by_id(cases)
+
+    command = by_id["command-injection-shell"]
+    assert command.kind == "vulnerable"
+    assert command.tree == "vulnerable"
+    assert command.baseline_test == "baseline_test.py"
+    assert command.effect == "canary_exec"
+    assert command.recording == ""
+    assert command.requirements == ()
+    assert command.source_file == "app.py"
+    assert command.ground_truth == (
+        {"class": "command_injection", "file": "vulnerable/app.py"},
+    )
+
+    pickle = by_id["unsafe-deserialization-pickle"]
+    assert pickle.kind == "vulnerable"
+    assert pickle.tree == "vulnerable"
+    assert pickle.baseline_test == "baseline_test.py"
+    assert pickle.effect == "canary_exec"
+    assert pickle.recording == ""
+    assert pickle.requirements == ()
+    assert pickle.source_file == "app.py"
+    assert pickle.ground_truth == (
+        {"class": "insecure_deserialization", "file": "vulnerable/app.py"},
+    )
 
     archive = by_id["archive-extraction-pathtraversal"]
     assert archive.kind == "vulnerable"

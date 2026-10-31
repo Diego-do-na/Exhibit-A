@@ -108,13 +108,21 @@ TARGETS = (
     Target("archive-extraction-pathtraversal", VULNERABLE),
     Target("archive-extraction-pathtraversal", FIXED, "fixed", paired=False),
     Target("archive-extraction-pathtraversal", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("command-injection-shell", VULNERABLE),
+    Target("unsafe-deserialization-pickle", VULNERABLE),
 )
 
 #: Ground-truth classes, each with the wordings that mean it. Matching stays literal on purpose:
 #: symlink or TOCTOU findings are other claims, even when they sit near a traversal bug.
 _TRAVERSAL = "path_traversal"
+_COMMAND_INJECTION = "command_injection"
+_INSECURE_DESERIALIZATION = "insecure_deserialization"
 _CLASS_MEMBERS = {
     _TRAVERSAL: ("traversal", "zip_slip", "zipslip", "tar_slip"),
+    _COMMAND_INJECTION: ("command_injection", "shell_injection", "command_execution", "os_command"),
+    _INSECURE_DESERIALIZATION: (
+        "insecure_deserialization", "unsafe_deserialization", "deserialization", "pickle", "yaml",
+    ),
 }
 
 
@@ -379,6 +387,23 @@ def _target_name(target: Target) -> str:
     return f"{target.case_id}/{target.tree}" if target.tree else target.case_id
 
 
+def _naive_recorded(target: Target, model: str = DEFAULT_MODEL) -> bool:
+    """Whether the naive recording for one target exists.
+
+    Record it with ``python -m bench.baseline --record`` (needs the model key).
+    """
+    return naive_paths(target, model)[0].is_file()
+
+
+def _exhibit_a_recorded(target: Target, profile: str, model: str = DEFAULT_MODEL) -> bool:
+    """Whether both Meta files for one replay exist (the answers and their metadata).
+
+    Record them with ``python -m bench.record_meta --profile <profile> --case <id>``.
+    """
+    recording, metadata = recording_paths(target.case_id, model, profile)
+    return recording.is_file() and metadata.is_file()
+
+
 def _row(system: str, target: Target, score: Score | None) -> dict[str, Any]:
     """One per-target row; ``score`` None means the system was not measured there."""
     return {"system": system, "target": _target_name(target), "role": target.role,
@@ -396,9 +421,11 @@ def compare(work_dir: Path, targets: Sequence[Target] = TARGETS, profiles: Seque
     result = Comparison()
     naive_parts: list[Score] = []
     for target in targets:
-        score = replay_naive(target, work_dir / "naive")
+        # A target with no recording yet is unmeasured, not a failure: the owner
+        # records it with a model key, and the next comparison scores it.
+        score = replay_naive(target, work_dir / "naive") if _naive_recorded(target) else None
         result.per_target.append(_row(NAIVE_LABEL, target, score))
-        if target.paired:
+        if target.paired and score is not None:
             naive_parts.append(score)
     result.systems[NAIVE_LABEL] = combine(naive_parts)
     labels = {"compact": COMPACT_LABEL, "standard": STANDARD_LABEL}
@@ -406,7 +433,7 @@ def compare(work_dir: Path, targets: Sequence[Target] = TARGETS, profiles: Seque
         started = time.monotonic()
         parts: list[Score] = []
         for target in targets:
-            if not target.paired:
+            if not target.paired or not _exhibit_a_recorded(target, profile):
                 result.per_target.append(_row(labels[profile], target, None))
                 continue
             score = replay_exhibit_a(target, profile, work_dir / profile)
@@ -437,7 +464,7 @@ def render_section(result: Comparison) -> str:
     """The generated part of docs/bench/bench.md. A pure function of the replayed recordings."""
     header = " | ".join(_COLUMNS)
     lines = [
-        "Same three targets for every row: the two vulnerable cases and the fixed Starlette tree.",
+        "Paired targets count toward the headline scores; a target with no recording yet is unmeasured (-).",
         "",
         f"| system | {header} |",
         "|---|" + "---|" * len(_COLUMNS),

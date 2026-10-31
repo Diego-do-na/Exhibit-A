@@ -53,6 +53,8 @@ CASES = (
     "starlette-cve-2023-29159",
     "starlette-cve-2023-29159-fixed",
     "archive-extraction-pathtraversal",
+    "command-injection-shell",
+    "unsafe-deserialization-pickle",
 )
 DEFAULT_MODEL = "muse-wonder-1.0"
 CASE_BUDGET_USD = 2.0
