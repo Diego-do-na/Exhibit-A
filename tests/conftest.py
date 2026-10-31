@@ -1,6 +1,15 @@
+import os
 import subprocess
 
 import pytest
+
+# Give every test a fixed attestation key before any fixture runs
+# (module-scoped fixtures execute before function-scoped autouse ones).
+# Packaging signs every bundle, and without this the default key resolution
+# would generate a machine-local key under the real home directory:
+# surprising I/O from a test run, and unavailable in a locked-down sandbox.
+# A test that exercises key handling overrides it with monkeypatch.
+os.environ.setdefault("EXHIBIT_A_ATTEST_KEY", "a5" * 32)
 
 
 @pytest.fixture(scope="session")
