@@ -18,6 +18,10 @@ read-only queries (or assigned to an attribute), is a hit with the reason "test 
 the app is rooted". A safe app rooted there serves the canary through its real entry point.
 The tables below are the whole configuration; the code only applies them.
 
+For the ``canary_exec`` effect, ``exec_problem`` also rejects a test that starts a process or
+builds code itself (``PROCESS_CALLS``). Naming a process API as data stays allowed: a pickle
+payload's ``__reduce__`` returns ``(os.system, (command,))`` without calling anything.
+
 This is a tripwire, not a security boundary. It catches the naive and model-generated ways
 of tampering with the events file or the plugin, and forces any remaining attempt to be
 deliberately obfuscated (``getattr`` with computed names, ``exec`` of decoded strings,
@@ -636,6 +640,67 @@ def _items(tree: ast.AST):
                 yield "name", alias.name
         elif isinstance(node, ast.keyword) and node.arg:
             yield "name", node.arg
+
+
+# --- Starting a process from the test (canary_exec) ------------------------------------------
+
+PROCESS_CALLS: dict[str, frozenset[str] | None] = {  # None: every attribute of the module
+    "subprocess": None,
+    "multiprocessing": None,
+    "pty": frozenset({"spawn", "fork"}),
+    "asyncio": frozenset({"create_subprocess_shell", "create_subprocess_exec"}),
+    "os": frozenset({"system", "popen", "fork", "forkpty", "posix_spawn", "posix_spawnp",
+                     "execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
+                     "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe"}),
+}
+EXEC_CODEGEN_NAMES = frozenset({"eval", "exec", "compile"})
+
+
+def _process_api_rule(tree: ast.AST) -> str | None:
+    """Rule hit by a call of a process API, or by one handed to another call as a callable."""
+    modules: dict[str, str] = {}  # local name -> module
+    apis: set[str] = set()  # local names bound to a process API by "from m import f"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in PROCESS_CALLS:
+                    modules[alias.asname or alias.name] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module in PROCESS_CALLS:
+            allowed = PROCESS_CALLS[node.module]
+            apis |= {a.asname or a.name for a in node.names if allowed is None or a.name in allowed}
+
+    def is_api(expr: ast.AST) -> bool:
+        if isinstance(expr, ast.Name):
+            return expr.id in apis
+        if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name) and expr.value.id in modules:
+            allowed = PROCESS_CALLS[modules[expr.value.id]]
+            return allowed is None or expr.attr in allowed
+        return False
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name) and node.func.id in EXEC_CODEGEN_NAMES:
+            return "exec_codegen"
+        if is_api(node.func) or any(is_api(a) for a in (*node.args, *(k.value for k in node.keywords))):
+            return "process_call"
+    return None
+
+
+def exec_problem(test_path: Path) -> str | None:
+    """Why a canary_exec test (or its conftest) is rejected for starting a process itself, or None."""
+    test_path = Path(test_path)
+    for path in (test_path, test_path.parent / "conftest.py"):
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, UnicodeDecodeError, SyntaxError, ValueError, RecursionError):
+            continue  # pytest will report it as a collection error; nothing to judge here
+        rule = _process_api_rule(tree)
+        if rule:
+            return f"test starts a process itself: {path.name} matches rule '{rule}'"
+    return None
 
 
 def _source_problem(path: Path) -> str | None:
