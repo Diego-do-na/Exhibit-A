@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_serializer
 
 from .base import StrictModel
 
@@ -40,3 +40,17 @@ class Verdict(StrictModel):
     evidence: Evidence | None = None
     fix: Fix | None = None
     bypass_attempts: BypassAttempts | None = None
+    # Duplicate proofs of one effect (same entry point, same application frames to the sink,
+    # see exhibit_a.findings): a primary lists the suspicions it absorbed, a duplicate names
+    # its primary. Both stay empty for a finding of its own.
+    duplicates: list[str] = Field(default_factory=list)
+    duplicate_of: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_grouping(self, handler):
+        """Keep the documented verdict.json shape: the grouping keys appear only when set."""
+        data = handler(self)
+        for key in ("duplicates", "duplicate_of"):
+            if not data.get(key):
+                data.pop(key, None)
+        return data

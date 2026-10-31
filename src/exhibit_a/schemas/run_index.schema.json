@@ -78,6 +78,19 @@
       "default": null,
       "title": "Pr"
     },
+    "proven_raw": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proven Raw"
+    },
     "repo": {
       "title": "Repo",
       "type": "string"
