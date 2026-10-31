@@ -87,20 +87,25 @@ def test_advisories_offline_json_and_bad_input(tmp_path, capsys):
 
 def test_dashboard_delegates_and_reports_missing_build(monkeypatch, capsys):
     calls = []
+    real_import_module = dashboard_cli.importlib.import_module
 
-    def fake_import(name):
+    def fake_import(name, *args, **kwargs):
         if name == "exhibit_a.dashboard":
             return object()
         if name == "exhibit_a.dashboard.server":
             return type("Server", (), {"main": lambda argv: calls.append(argv) or 0})
-        raise AssertionError(name)
+        # Parser construction imports the cli/ext subcommands; only the
+        # dashboard imports are faked here, everything else goes through.
+        return real_import_module(name, *args, **kwargs)
 
     monkeypatch.setattr(dashboard_cli.importlib, "import_module", fake_import)
     assert main(["dashboard", "--source", "local:runs", "--port", "9000"]) == 0
     assert calls == [["--source", "local:runs", "--port", "9000"]]
 
-    def missing(_name):
-        raise ImportError("not packaged")
+    def missing(name, *args, **kwargs):
+        if name == "exhibit_a.dashboard" or name.startswith("exhibit_a.dashboard."):
+            raise ImportError("not packaged")
+        return real_import_module(name, *args, **kwargs)
 
     monkeypatch.setattr(dashboard_cli.importlib, "import_module", missing)
     assert main(["dashboard", "--source", "local:runs"]) == 2

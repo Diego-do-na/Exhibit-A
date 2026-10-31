@@ -171,7 +171,7 @@ def test_proven_case_is_fixed_verified_and_packaged(recorded):
     assert proven.verdict.bypass_attempts.tried == 1
     assert proven.verdict.bypass_attempts.succeeded == 0
     pkg = proven.package_dir
-    assert {p.name for p in pkg.iterdir()} == {"test_exploit.py", "fix.patch", "verdict.json", "evidence.json"}
+    assert {p.name for p in pkg.iterdir()} == {"test_exploit.py", "fix.patch", "verdict.json", "evidence.json", "manifest.json"}
     assert "+        base = os.path.realpath" in (pkg / "fix.patch").read_text()
     assert json.loads((pkg / "verdict.json").read_text())["verdict"] == "proven"
 

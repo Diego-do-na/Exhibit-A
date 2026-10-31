@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
+from exhibit_a import attest
 from exhibit_a.graph.reach import render
 from exhibit_a.graph.slicer import SlicePlan
 from exhibit_a.ledger import Ledger
@@ -723,6 +724,29 @@ class VerificationLoop:
             "usage": self.ledger.totals(self.run_id),
         }
         (pkg / "evidence.json").write_text(json.dumps(_portable(evidence, roots), indent=2), encoding="utf-8")
+        supporting = [
+            {"index": index, "type": event.type.value}
+            for index, event in enumerate(self.ledger.read_all())
+            if event.run_id == self.run_id
+            and event.payload.get("suspicion_id") == outcome.suspicion.id
+        ]
+        attest.write_manifest(
+            pkg,
+            attest.resolve_key(create=True),
+            case_id=self.run_id,
+            effect=self.effect,
+            entry_point=outcome.suspicion.entry_point,
+            oracle_verdict={
+                "verdict": verdict.verdict.value,
+                "reason": outcome.reason,
+                "effect": self.effect,
+                "evidence": verdict_json.get("evidence"),
+                "fix_verified": outcome.fix_verified,
+                "fix_incomplete": outcome.fix_incomplete,
+            },
+            ledger_events=supporting,
+            requirements=self.requirements,
+        )
         self._emit(EventType.PACKAGED, suspicion_id=outcome.suspicion.id, path=str(pkg.relative_to(self.out)), fix_verified=outcome.fix_verified, fix_incomplete=outcome.fix_incomplete)
         return pkg
 
