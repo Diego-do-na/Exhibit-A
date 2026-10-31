@@ -113,8 +113,14 @@ TARGETS = (
 #: Ground-truth classes, each with the wordings that mean it. Matching stays literal on purpose:
 #: symlink or TOCTOU findings are other claims, even when they sit near a traversal bug.
 _TRAVERSAL = "path_traversal"
+_COMMAND_INJECTION = "command_injection"
+_INSECURE_DESERIALIZATION = "insecure_deserialization"
 _CLASS_MEMBERS = {
     _TRAVERSAL: ("traversal", "zip_slip", "zipslip", "tar_slip"),
+    _COMMAND_INJECTION: ("command_injection", "shell_injection", "command_execution", "os_command"),
+    _INSECURE_DESERIALIZATION: (
+        "insecure_deserialization", "unsafe_deserialization", "deserialization", "pickle", "yaml",
+    ),
 }
 
 
