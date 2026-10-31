@@ -23,8 +23,11 @@ plugin admitted them and they match the staged copy kept on the host.
 
 from __future__ import annotations
 
+import os
 import secrets
 import shutil
+import subprocess
+import sys
 import tempfile
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
@@ -33,7 +36,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from pydantic import ValidationError
 
-from exhibit_a.oracle import Judgement, OracleEvent
+from exhibit_a.oracle import Judgement, OracleEvent, run_oracle
 from exhibit_a.oracle.guard import channel_problem, exec_problem, sql_problem
 from exhibit_a.oracle.oracle import (
     ENV_ALLOWED_DIR,
@@ -193,6 +196,71 @@ class SandboxRunner:
                 # Exec: the host's own read of the marker; a missing answer stays unverified.
                 canary_ran=result.get("canary_ran") is True if effect == "canary_exec" else None,
             )
+
+
+@dataclass(frozen=True)
+class HostRunner:
+    """Test-only host runner for unit tests and research tooling.
+
+    Runs the baseline via host ``pytest`` in a scrubbed child process and the exploit via
+    ``run_oracle`` on the host. Untrusted test code must never execute on the host in
+    normal operation, so ``allow_host_execution=True`` is required as an explicit switch
+    that the CLI never sets.
+    """
+
+    allow_host_execution: bool = False
+    requirements: Sequence[str] = ()
+    sql_db: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.allow_host_execution:
+            raise PermissionError(
+                "HostRunner executes untrusted test code on the host and requires "
+                "allow_host_execution=True (test-only switch; never set by the CLI)"
+            )
+
+    def run_baseline(self, clone_path: str, test_path: str, timeout: float) -> dict[str, Any]:
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONPATH": str(clone_path),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", test_path]
+        try:
+            proc = subprocess.run(cmd, cwd=clone_path, env=env, capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return {
+                "outcome": "timeout",
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "",
+                "oracle_events": [],
+            }
+        return {
+            "outcome": "passed" if proc.returncode == 0 else "failed",
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout.decode(errors="replace"),
+            "stderr": proc.stderr.decode(errors="replace"),
+            "oracle_events": [],
+        }
+
+    def run_exploit(
+        self,
+        app_root: Path,
+        test_path: Path,
+        entry_points: Collection[str],
+        *,
+        timeout: float,
+        effect: str = "canary_read",
+    ) -> Judgement:
+        return run_oracle(
+            app_root,
+            test_path,
+            entry_points,
+            timeout=timeout,
+            effect=effect,
+            sql_db=self.sql_db,
+        )
 
 
 def _outcome(result: dict[str, Any]) -> TestOutcome:
