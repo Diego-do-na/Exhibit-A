@@ -224,6 +224,37 @@ def test_profile_input_is_validated_and_passed_to_the_engine() -> None:
     assert '--profile "$IN_PROFILE"' in engine["run"]
 
 
+# -- SARIF code-scanning wiring (T095) ------------------------------------------
+
+
+def test_sarif_input_is_validated_and_wired() -> None:
+    action = _load_action()
+    sarif = action["inputs"]["sarif"]
+    assert sarif["default"] == "true"
+    assert sarif["required"] is False
+    setup = _step(action, "Validate inputs and install Exhibit A")
+    assert setup["env"]["IN_SARIF"] == "${{ inputs.sarif }}"
+    assert "$IN_SARIF" in setup["run"]
+
+
+def test_sarif_steps_generate_and_upload() -> None:
+    action = _load_action()
+    sarif_step = _step(action, "Generate SARIF report")
+    assert "exhibit_a.cli sarif" in sarif_step["run"]
+    assert '--out-dir "$OUT/run"' in sarif_step["run"]
+    assert '--output "$OUT/report/results.sarif"' in sarif_step["run"]
+    assert "inputs.sarif == 'true'" in sarif_step["if"]
+
+    upload_step = _step(action, "Upload SARIF to GitHub Code Scanning")
+    assert "inputs.sarif == 'true'" in upload_step["if"]
+    uses = upload_step.get("uses", "")
+    assert uses.startswith("github/codeql-action/upload-sarif@")
+    ref = uses.split("@", 1)[1]
+    assert SHA40.match(ref), f"upload-sarif is not SHA-pinned: {uses}"
+    assert upload_step["with"]["category"] == "exhibit-a"
+    assert upload_step["with"]["sarif_file"] == "results.sarif"
+
+
 def _verify_steps() -> dict[str, dict]:
     steps = _load_workflow()["jobs"]["verify"]["steps"]
     return {step.get("id", step.get("name")): step for step in steps}
