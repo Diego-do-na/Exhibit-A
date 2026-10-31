@@ -165,6 +165,10 @@ def generate_sarif(
         # Discarded suspicions are NOT results
         if verdict.get("verdict") != "proven":
             continue
+        # A proof grouped under another (same effect, entry point and admitted frames) is not a
+        # separate alert; its primary already carries it in ``duplicates``.
+        if verdict.get("duplicate_of"):
+            continue
 
         evidence = _read_json(pkg / "evidence.json")
         suspicion = evidence.get("suspicion") if isinstance(evidence.get("suspicion"), dict) else {}
@@ -326,7 +330,6 @@ def generate_sarif(
                 "verdict": "proven",
                 "fix_verified": fix_verified,
                 "package_path": package_path,
-                "package path": package_path,
                 "cost": cost,
             },
         }
@@ -426,7 +429,7 @@ def validate_sarif(data: Any) -> None:
                 if req_key not in props:
                     raise ValueError(f"result[{res_idx}].properties missing required key {req_key!r}")
 
-            if "package_path" not in props and "package path" not in props:
+            if "package_path" not in props:
                 raise ValueError(f"result[{res_idx}].properties missing package path")
 
             code_flows = res.get("codeFlows")

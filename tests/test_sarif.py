@@ -189,6 +189,29 @@ def test_sarif_proven_package_structure(tmp_path: Path) -> None:
     assert "App.read_doc" in steps[1]["location"]["message"]["text"]
 
 
+def test_sarif_skips_proofs_grouped_under_another_finding(tmp_path: Path) -> None:
+    """A duplicate proof (T088 grouping) is not a second alert; its primary already lists it."""
+    for name, extra in (("S1", {"duplicates": ["S2"]}), ("S2", {"duplicate_of": "S1"})):
+        pkg = tmp_path / "packages" / name
+        pkg.mkdir(parents=True)
+        evidence = {
+            "suspicion": {"id": name, "class": "path_traversal", "location": {"file": "app/views.py", "line": 42}},
+            "fix_verified": True,
+            "evidence": {"oracle": {"effect": "canary_read", "events": []}, "provenance": {"ok": True, "entry_point": "App.route"}},
+            "usage": {"cost_usd": 0.01},
+        }
+        verdict = {"suspicion_id": name, "verdict": "proven", "evidence": evidence["evidence"], **extra}
+        (pkg / "evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
+        (pkg / "verdict.json").write_text(json.dumps(verdict), encoding="utf-8")
+
+    sarif = generate_sarif(tmp_path)
+    validate_sarif(sarif)
+    results = sarif["runs"][0]["results"]
+    assert len(results) == 1
+    assert results[0]["properties"]["package_path"].endswith("S1")
+    assert "package path" not in results[0]["properties"]
+
+
 @pytest.mark.docker
 def test_sarif_replayed_archive_run_acceptance_criterion(tmp_path: Path, monkeypatch) -> None:
     """Acceptance criteria: results.sarif for a replayed archive run has one result with CWE-22 and a code flow."""
