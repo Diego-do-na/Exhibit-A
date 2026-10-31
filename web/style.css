@@ -148,6 +148,8 @@ button:hover { background: #eee; }
   flex-direction: column;
 }
 
+.observed-location { color: var(--green); }
+
 .dropped { font-size: 34px; margin: 0; font-weight: bold; }
 
 .footer { padding: 0 20px 16px; color: var(--muted); }
