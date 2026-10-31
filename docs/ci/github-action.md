@@ -64,6 +64,7 @@ Security design and its reasons: [github-action-security.md](github-action-secur
 | `model` | `""` | Model id for every role. See Requires. |
 | `api-key` | `""` | Pass `${{ secrets.EXHIBIT_A_API_KEY }}` from a protected environment. |
 | `api-key-env` | `META_API_KEY` | Variable the provider reads the key from (`MetaProvider` default). |
+| `profile` | `standard` | Prompt profile passed to `--profile` (`standard` or `compact`). |
 | `fail-on` | `proven` | `proven` or `never` (report only). |
 | `working-directory` | `.` | Directory to analyse; must stay inside the workspace. |
 | `max-runtime-minutes` | `30` | Hard wall-clock limit for the engine (1 to 360). |
@@ -76,6 +77,7 @@ Security design and its reasons: [github-action-security.md](github-action-secur
 | `comment` | `false` | Post/update the PR comment (needs `pull-requests: write`). |
 | `comment-author` | `github-actions[bot]` | Only this author's marker comment is updated. |
 | `github-token` | `github.token` | Used only by the comment step. |
+| `sarif` | `true` | Upload proven findings to GitHub Code Scanning as SARIF (needs `security-events: write`). |
 | `python-version` | `3.11` | Python for the engine. |
 | `artifact-name` | `exhibit-a-ledger` | Artifact name. |
 | `artifact-retention-days` | `14` | Artifact retention. |
@@ -195,6 +197,8 @@ create `triage/`.
    skipped.
 5. **Actions policy.** Settings, Actions, General:
    - Workflow permissions: "Read repository contents and packages permissions".
+     When `sarif: true` is enabled (the default), the calling workflow job also requires
+     `security-events: write` permissions so results can be uploaded to GitHub Code Scanning.
    - Fork pull request workflows: require approval for all outside collaborators.
    - Allowed actions: restrict to `actions/*` and `diego-do-na/Exhibit-A@*`;
      if offered, enable "Require actions to be pinned to a full-length commit SHA".
