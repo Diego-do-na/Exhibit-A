@@ -302,8 +302,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
         if getattr(args, "slice", False):
             from .scan import git_unified_diff
 
-            # The loop judges PR-diff runs with its default effect, so the slice does too.
-            effect = "canary_read"
+            effect = args.effect
             graph, report, plans, seconds = _slice_plans(
                 clone, changed, effect, diff=git_unified_diff(repo, spec))
             if not plans:
@@ -322,7 +321,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
         for source in changed:
             loop = VerificationLoop(
                 clone, out, ledger, roles, baseline, run_id=run_id,
-                runner=runner, prompt_profile=_profile(args),
+                runner=runner, prompt_profile=_profile(args), effect=args.effect,
                 **({"slice_plan": plans[source]} if source in plans else {}),
             )
             try:

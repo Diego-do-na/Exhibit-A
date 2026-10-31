@@ -21,7 +21,7 @@ KINDS = ("vulnerable", "fixed", "clean")
 #: Observed effects the oracle can prove. ``canary_read`` is the original
 #: path-traversal style effect; ``canary_write`` is the archive-extraction /
 #: zip-slip style effect (the app creates a file outside the allowed directory).
-EFFECTS = ("canary_read", "canary_write")
+EFFECTS = ("canary_read", "canary_write", "canary_exec")
 
 
 @dataclass(frozen=True)

@@ -61,6 +61,15 @@ open, the ``access`` they mean on this platform (``read``, ``write``, ``read_wri
 and ``requested``: the path as the code asked for it, made absolute but not resolved. The judge
 uses ``requested`` to require that the canary was reached through the allowed directory.
 
+For the ``canary_exec`` effect (``EXHIBIT_A_CANARY_MARKER`` set; docs/oracle/oracle-provenance.md,
+section 3.9) the canary is an executable and the plugin also records, as signed events, every
+process it can see being created (``op`` ``process``) with the command, whether the command names
+the canary and whether the innermost application frame names a sink; native calls through ctypes
+(``native``); and what could redirect a command to something else: sensitive environment changes
+(``env``), ``os.chdir`` (``chdir``) and code compiled at run time (``codegen``). Opens of the marker
+are recorded like opens of the canary, with ``target`` ``marker``. A forked child shares the event
+counter with its parent, so its events keep ``seq`` increasing. Other effects record none of this.
+
 The module stays self-contained (stdlib only): the sandbox mounts it as a single file.
 """
 
@@ -72,7 +81,9 @@ import contextvars
 import hashlib
 import hmac
 import json
+import mmap
 import os
+import re
 import stat
 import sys
 import threading
@@ -82,6 +93,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 ENV_CANARY = "EXHIBIT_A_CANARY"
 ENV_EVENTS = "EXHIBIT_A_EVENTS"
+# Where the canary executable records that it ran; set only for the canary_exec effect.
+ENV_MARKER = "EXHIBIT_A_CANARY_MARKER"
 
 # What the orchestrator writes to stdin: the magic, the key in hex, a newline. Nothing else.
 KEY_MAGIC = b"EXHIBIT-A-KEY "
@@ -109,6 +122,39 @@ _MAX_REQUESTED = 4096  # a longer requested path is recorded as None (the judge 
 # Audit events that can put content at the canary's path, and the ``op`` each is recorded as.
 # os.replace raises "os.rename" too.
 _OBSERVED = {"open": "open", "os.rename": "rename", "os.link": "link"}
+
+# canary_exec: audit events that create a process. "exhibit_a.fork_exec" is raised by the wrapper
+# around _posixsubprocess.fork_exec, which has no audit event of its own when called directly.
+_PROCESS_EVENTS = frozenset({"subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn",
+                             "os.fork", "os.forkpty", "pty.spawn", "exhibit_a.fork_exec"})
+_NATIVE_EVENTS = frozenset({"ctypes.dlsym", "ctypes.dlsym/handle", "ctypes.call_function"})
+# Environment names that change which program a command runs, or what it loads.
+_SENSITIVE_ENV = frozenset({"PATH", "IFS", "ENV", "BASH_ENV", "CDPATH", "SHELL", "GLOBIGNORE"})
+_SENSITIVE_ENV_PREFIXES = ("LD_", "DYLD_", "PYTHON", "BASH_FUNC_")
+# Names that must appear in the innermost application frame that started a process: a frame that
+# only calls a method of its input (stream.read()) did not ask for one, whatever the input does.
+_SINK_NAMES = frozenset({
+    "run", "call", "check_call", "check_output", "Popen", "getoutput", "getstatusoutput",
+    "system", "popen", "execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
+    "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
+    "posix_spawn", "posix_spawnp", "fork", "forkpty", "spawn", "create_subprocess_shell",
+    "create_subprocess_exec", "loads", "load", "Unpickler", "unsafe_load", "full_load", "shelve",
+    "eval", "exec",
+})
+# What must still be the object it was at install when a process starts: replacing one of these
+# changes what the application's own, unmodified code does.
+_WATCHED_APIS = {
+    "subprocess": ("run", "call", "check_call", "check_output", "Popen", "getoutput", "getstatusoutput",
+                   "list2cmdline", "_fork_exec"),
+    "os": ("system", "popen", "execv", "execve", "execvp", "execvpe", "execl", "execle", "execlp", "execlpe",
+           "spawnv", "spawnve", "spawnvp", "spawnvpe", "posix_spawn", "posix_spawnp", "fork", "forkpty"),
+    "shlex": ("quote", "split", "join"),
+    "pickle": ("loads", "load", "Unpickler"),
+    "builtins": ("eval", "exec", "compile", "__import__", "str"),
+}
+_MAX_COMMAND = 4096
+_MAX_SCANNED = 1 << 16
+_COMMAND_SPLIT = re.compile(r"[\s;|&()<>`'\"$=,]+")
 
 # A captured stack is a tuple of code objects, outermost first; None marks a thread boundary
 # and _TASK_EDGE a task boundary.
@@ -507,6 +553,122 @@ def access_of(flags: object) -> str:
     return "write" if write else "read" if read else "unknown"
 
 
+def _command_parts(value: object) -> list[str]:
+    """The strings of an audit event's command argument; anything else contributes nothing."""
+    if isinstance(value, (list, tuple)):
+        return [part for item in value for part in _command_parts(item)]
+    if isinstance(value, (str, bytes, os.PathLike)):
+        try:
+            return [os.fsdecode(value)]
+        except (TypeError, ValueError):
+            return []
+    return []
+
+
+def _process_command(event: str, args: tuple) -> tuple[list[str], str | None]:
+    """The command an audit event starts, as strings, and its working directory (if it gives one)."""
+    if event == "subprocess.Popen":  # (executable, args, cwd, env)
+        cwd = _command_parts(args[2])
+        return _command_parts((args[0], args[1])), cwd[0] if cwd else None
+    if event in ("os.exec", "os.posix_spawn"):  # (path, argv, env)
+        return _command_parts((args[0], args[1])), None
+    if event == "os.spawn":  # (mode, path, args, env)
+        return _command_parts((args[1], args[2])), None
+    if event in ("os.system", "pty.spawn", "exhibit_a.fork_exec"):  # (command)
+        return _command_parts(args[0]), None
+    return [], None  # os.fork, os.forkpty: the command comes with the exec that follows
+
+
+def names_canary(parts: list[str], cwd: str | None, canary: str) -> bool:
+    """Whether a command line names the canary executable.
+
+    Shell text is split on whitespace and shell punctuation, not parsed. An absolute word must
+    resolve to the canary. A relative one must resolve to it from the working directory, or end
+    in ``outside/canary`` (a shell may ``cd`` first, which cannot be seen from here). A command
+    that computes the name (``$(printf ...)``, a glob) does not name it: a recall cost.
+    """
+    name = os.path.basename(canary)
+    suffix = f"{os.path.basename(os.path.dirname(canary))}/{name}"
+    for part in parts:
+        for word in _COMMAND_SPLIT.split(part[:_MAX_SCANNED]):
+            if name not in word:
+                continue
+            if word.startswith("/"):
+                if os.path.realpath(word) == canary:
+                    return True
+            elif os.path.realpath(os.path.join(cwd or os.getcwd(), word)) == canary or (
+                os.path.normpath(word).endswith("/" + suffix)
+            ):
+                return True
+    return False
+
+
+def _sensitive_env(name: str) -> bool:
+    return name in _SENSITIVE_ENV or name.startswith(_SENSITIVE_ENV_PREFIXES)
+
+
+def _sink_named(codes: tuple, admission: _Admission | None) -> bool:
+    """Whether the innermost staged-app code object on a captured stack names a sink."""
+    if admission is None:
+        return False
+    for code in reversed(codes):
+        if code is None or code is _TASK_EDGE or code.co_filename.startswith("<"):
+            continue
+        rel = admission.relative(os.path.realpath(code.co_filename))
+        if rel is not None and rel in admission.files:
+            return bool(_SINK_NAMES & set(code.co_names))
+    return False
+
+
+class _PipeLock:
+    """A mutex that also works across fork: whoever reads the one byte in the pipe holds it.
+
+    A thread lock could be copied into a child while another thread holds it, and never be
+    released there. If the test steals the byte, the run hangs until its timeout: no proof.
+    """
+
+    def __init__(self) -> None:
+        self._read, self._write = os.pipe()
+        self._release, self._acquire = os.write, os.read
+        self._release(self._write, b"x")
+
+    def __enter__(self) -> None:
+        self._acquire(self._read, 1)
+
+    def __exit__(self, *exc) -> None:
+        self._release(self._write, b"x")
+
+
+def _patch_fork_exec() -> None:
+    """Raise an audit event for direct calls of fork_exec; subprocess raises its own first."""
+    import _posixsubprocess
+    import subprocess
+
+    real = _posixsubprocess.fork_exec
+    popen = subprocess.Popen._execute_child.__code__
+
+    def fork_exec(*args, **kwargs):
+        if sys._getframe(1).f_code is not popen:
+            sys.audit("exhibit_a.fork_exec", args[0] if args else None)
+        return real(*args, **kwargs)
+
+    _posixsubprocess.fork_exec = fork_exec
+    subprocess._fork_exec = fork_exec
+
+
+def _api_snapshot() -> tuple[list[tuple[str, object, str, object]], dict[str, str]]:
+    """The watched process APIs and sensitive environment, as they are now."""
+    import builtins
+    import pickle
+    import shlex
+    import subprocess
+
+    modules = {"subprocess": subprocess, "os": os, "shlex": shlex, "pickle": pickle, "builtins": builtins}
+    apis = [(f"{mod}.{name}", modules[mod], name, getattr(modules[mod], name, None))
+            for mod, names in _WATCHED_APIS.items() for name in names]
+    return apis, {k: v for k, v in os.environ.items() if _sensitive_env(k)}
+
+
 def key_message(key: bytes, *, app_root: str | None = None, manifest: dict | None = None) -> bytes:
     """What the orchestrator writes to the plugin's stdin: ``key`` and, optionally, the manifest.
 
@@ -759,7 +921,9 @@ def _patch_os_open() -> None:
     os.open = open_
 
 
-def _install(canary: str, events_path: str, key: bytes | None, app: dict | None = None) -> None:
+def _install(
+    canary: str, events_path: str, key: bytes | None, app: dict | None = None, marker: str | None = None
+) -> None:
     global _installed
     if _installed:
         return
@@ -777,15 +941,106 @@ def _install(canary: str, events_path: str, key: bytes | None, app: dict | None 
     fd = os.open(events_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
     seq = [0]
     lock = threading.Lock()
+    if marker is not None:
+        # A forked child writes to the same file: it must continue the parent's sequence.
+        marker = os.path.join(os.path.dirname(canary), os.path.basename(marker))
+        seq = memoryview(mmap.mmap(-1, 8)).cast("Q")
+        lock = _PipeLock()
 
     # Set once the process creates a link to the canary (see _link_to_canary). Every canary
     # access after that is flagged via_symlink, whatever the opened path looks like when it
     # is checked: a link that is swapped in and out cannot win a race against this flag.
     tainted: list[tuple[str, str]] = []
+    # Filled in below for canary_exec only; bound here so every cell of the hook has a value.
+    apis: list[tuple[str, object, str, object]] = []
+    env_at_install: dict[str, str] = {}
+    stdlib = outside_dir = ""
+    exec_events: frozenset[str] = frozenset()
+
+    def emit(record: dict) -> None:
+        with lock:
+            line = json.dumps(sign_event(key, seq[0], record)) + "\n"
+            seq[0] += 1
+            os.write(fd, line.encode("utf-8"))
+
+    def drift() -> str | None:
+        """The first watched API or sensitive variable that changed since install."""
+        for label, module, name, original in apis:
+            if getattr(module, name, None) is not original:
+                return label
+        current = {k: v for k, v in os.environ.items() if _sensitive_env(k)}
+        changed = {k for k in current.keys() | env_at_install.keys()
+                   if current.get(k) != env_at_install.get(k)}
+        return f"env:{sorted(changed)[0]}" if changed else None
+
+    def watch_exec(event: str, args: tuple, frame) -> None:
+        """Record what the canary_exec judge needs from one audit event, if it matters."""
+        if event == "os.rename":
+            # Moving the canary's directory, or one above it, swaps the marker and the canary
+            # without opening either. (A rename onto the marker itself is recorded in hook.)
+            def moved(path, dir_fd) -> bool:
+                absolute = _absolute(os.fsdecode(path), dir_fd if isinstance(dir_fd, int) and dir_fd >= 0 else None)
+                if absolute is None:
+                    return True
+                real = os.path.realpath(absolute)
+                return outside_dir == real or outside_dir.startswith(real.rstrip("/") + "/")
+
+            try:
+                if not (moved(args[0], args[2]) or moved(args[1], args[3])):
+                    return
+            except (OSError, ValueError, TypeError, IndexError):
+                pass  # fail closed: recorded as if it moved the directory
+            emit({"path": marker, "mode": event, "op": "rename", "flags": None, "access": "write", "target": "marker",
+                  "requested": None, "stack": _stack(frame, admission), "via_symlink": False})
+            return
+        if event == "compile":
+            # Imports and the stdlib's own code generation are not the test building code.
+            name = frame.f_code.co_filename if frame is not None else ""
+            if name.startswith("<frozen") or "/site-packages/" in name or name.startswith(stdlib):
+                return
+            detail = {"op": "codegen"}
+        elif event in ("os.putenv", "os.unsetenv"):
+            variable = _command_parts(args[0])
+            if not variable or not _sensitive_env(variable[0]):
+                return
+            detail = {"op": "env", "command": variable[0][:_MAX_FIELD]}
+        elif event == "os.chdir":
+            detail = {"op": "chdir"}
+        elif event in _NATIVE_EVENTS:
+            symbol = args[1] if event == "ctypes.dlsym" and len(args) > 1 else None
+            detail = {"op": "native", "command": str(symbol)[:_MAX_FIELD] if symbol is not None else None}
+        else:
+            try:
+                parts, cwd = _process_command(event, args)
+                named = names_canary(parts, cwd, canary)
+            except (OSError, ValueError, TypeError, IndexError):
+                parts, named = [], False  # unreadable command: it names nothing
+            codes = _capture(frame)
+            detail = {
+                "op": "process", "command": " ".join(parts)[:_MAX_COMMAND], "names_canary": named,
+                "sink_named": _sink_named(codes, admission), "patched": drift(),
+            }
+        emit({
+            "path": canary, "mode": event, "flags": None, "access": "exec", "requested": None,
+            "via_symlink": bool(tainted), "symlink": tainted[0][0][:_MAX_FIELD] if tainted else None,
+            "stack": _stack(frame, admission), **detail,
+        })
 
     def hook(event: str, args: tuple) -> None:
         if getattr(_local, "busy", False):
             return  # busy: admission reading an app file from inside this hook
+        if marker is not None and event in exec_events:
+            _local.busy = True
+            try:
+                # No Python caller at all (an atexit callback that is a C function): such an
+                # event has an empty stack, and the judge refuses a process nobody vouches for.
+                try:
+                    frame = sys._getframe(1)
+                except ValueError:
+                    frame = None
+                watch_exec(event, args, frame)
+            finally:
+                _local.busy = False
         if event in ("os.symlink", "os.link") and not tainted:
             _local.busy = True
             try:
@@ -808,7 +1063,8 @@ def _install(canary: str, events_path: str, key: bytes | None, app: dict | None 
             return  # an integer file descriptor, not a path
         try:
             requested = os.fsdecode(target)
-            if _resolve(requested, dir_fd, canary_id, canary) != canary:
+            reached = _resolve(requested, dir_fd, canary_id, canary)
+            if reached != canary and (marker is None or reached != marker):
                 return
         except (OSError, ValueError, TypeError):
             return
@@ -821,6 +1077,8 @@ def _install(canary: str, events_path: str, key: bytes | None, app: dict | None 
             else:
                 fields = {"op": _OBSERVED[event], "mode": event, "flags": None, "access": "write"}
             record = {"path": canary, **fields, "stack": _stack(sys._getframe(1), admission)}
+            if marker is not None and reached == marker:
+                record.update(path=marker, target="marker")
             record["requested"] = absolute if absolute is not None and len(absolute) <= _MAX_REQUESTED else None
             record.update(_symlink_fields(absolute, since))
             if tainted and not record["via_symlink"]:
@@ -839,6 +1097,12 @@ def _install(canary: str, events_path: str, key: bytes | None, app: dict | None 
 
     _patch_handoffs()
     _patch_os_open()
+    if marker is not None:
+        _patch_fork_exec()
+        apis, env_at_install = _api_snapshot()
+        stdlib = os.path.dirname(os.__file__) + "/"
+        outside_dir = os.path.dirname(marker)
+        exec_events = _PROCESS_EVENTS | _NATIVE_EVENTS | {"compile", "os.putenv", "os.unsetenv", "os.chdir", "os.rename"}
     sys.addaudithook(hook)
 
 
@@ -847,11 +1111,12 @@ def _install_from_env() -> None:
         return
     canary = os.environ.get(ENV_CANARY)
     events_path = os.environ.get(ENV_EVENTS)
+    marker = os.environ.get(ENV_MARKER)
     if canary and events_path:
         # stdin is read only in a run the orchestrator set up (both variables present), so
         # importing this module elsewhere (the orchestrator itself) never touches its stdin.
         key, app = _read_channel()
-        _install(canary, events_path, key, app)
+        _install(canary, events_path, key, app, marker)
         # Neither path is left for the test. The canary path is not part of the test contract
         # (finding A-11 F2: a test that knows it can root a safe app at the canary's
         # directory); a real exploit reaches it from the allowed directory. /proc/self/environ
@@ -859,6 +1124,7 @@ def _install_from_env() -> None:
         # environment, and why the static guard also rejects any mention of them.
         os.environ.pop(ENV_EVENTS, None)
         os.environ.pop(ENV_CANARY, None)
+        os.environ.pop(ENV_MARKER, None)
 
 
 # Install on import, not only at configure time: ``-p`` plugins are imported before

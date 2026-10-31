@@ -335,11 +335,11 @@ def sinks(tmp_path_factory):
     ("path_read", "pathlib.Path.read_text", "path_traversal", "canary_read"),
     ("zip_extract", "zipfile.ZipFile.extractall", "archive_extraction_path_traversal", "canary_write"),
     ("tar_extract", "tarfile.open.extractall", "archive_extraction_path_traversal", "canary_write"),
-    ("shell", "subprocess.run", "command_injection", None),
-    ("system", "os.system", "command_injection", None),
-    ("code", "builtins.eval", "code_injection", None),
-    ("unpickle", "pickle.loads", "insecure_deserialization", None),
-    ("unsafe_yaml", "yaml.load", "insecure_deserialization", None),
+    ("shell", "subprocess.run", "command_injection", "canary_exec"),
+    ("system", "os.system", "command_injection", "canary_exec"),
+    ("code", "builtins.eval", "code_injection", "canary_exec"),
+    ("unpickle", "pickle.loads", "insecure_deserialization", "canary_exec"),
+    ("unsafe_yaml", "yaml.load", "insecure_deserialization", "canary_exec"),
     ("fetch", "requests.get", "ssrf", None),
     ("threaded", "os.stat", "path_traversal", "canary_read"),
 ])
@@ -367,7 +367,7 @@ def test_a_joined_path_fed_into_a_sink_is_flagged(sinks):
 def test_every_catalog_rule_is_complete():
     for rule in SINKS:
         assert rule.names and rule.category and rule.vuln_class and rule.note
-        assert rule.effect in (None, "canary_read", "canary_write")
+        assert rule.effect in (None, "canary_read", "canary_write", "canary_exec")
     assert match_sink("requests.codes") is None
     assert match_sink("httpx.Client.post").vuln_class == "ssrf"
 
