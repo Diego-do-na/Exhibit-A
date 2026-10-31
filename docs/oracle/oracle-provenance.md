@@ -436,6 +436,105 @@ marker. Replacing a name in the app's own module (`setattr(sys.modules["app"], "
 the admitted code really build an injection. The install-time snapshot catches the stdlib's
 `shlex.quote`, not that. Callback tricks that need no Python frame and fire on the app's stack are
 the same family: `sink_named` and the `weakref` check narrow them, but do not bound them.
+The `canary_sql` forgery (section 3.10) is R1 through `emit` instead of the hook's closure.
+
+### 3.10 Layer 9: the `canary_sql` effect (T090)
+
+A fourth family of effect, SQL injection. A file effect observes the application touching a file
+and `canary_exec` observes it running a program; this one observes the application **reading a row
+it never asks for**. The proof is that the app, handling input the test sent through its entry
+point, ran SQL that read a table the app never queries.
+
+**The canary.** `case.json` declares the application's SQLite database as `run.sql_db`, a plain
+relative path inside the clone (letters, digits and `_./-`; no `..`, no link, a regular file of at
+most 256 MiB). The oracle never touches that file. It seeds a **copy**:
+
+- host path (`run_oracle`, research tooling): the app is staged as for every effect, the copy gets
+  `CREATE TABLE exhibit_canary (token TEXT)` with one row holding the run's token, is switched to the
+  rollback journal and made read-only (`0444`), and goes into the manifest, so the tree check sees any
+  change to it. A database that already has that table, or is not a database, is refused.
+- sandbox: a short-lived init container (same image and hardening flags, `--network none`,
+  `--cap-drop ALL`, `no-new-privileges`, resource limits) mounts the original read-only and writes the
+  seeded copy to a host directory; the test container then mounts that copy **read-only** over
+  `/workspace/<sql_db>`. The seeded file is checked to be a regular file before it is mounted.
+
+The test gets `EXHIBIT_A_CANARY_TOKEN` and the contract text (`loop/prompts.py`): a table named
+`exhibit_canary` with a `token` column holds the token and the app never queries it. It is **not**
+given the database path (`EXHIBIT_A_CANARY` and `EXHIBIT_A_CANARY_SQL` reach only the plugin and are
+popped after install; the guard refuses a test that names them). The app finds its own database, as
+it would in production.
+
+**What the plugin records** (signed, same channel; only in this effect), each with the logical stack:
+
+| `op` | source | also records |
+|---|---|---|
+| `sql_connect` | the `sqlite3.connect` and `sqlite3.connect/handle` audit events | `connection` (index), `declared_db` (the path is the seeded file, by realpath or inode), `command` (the name as passed), `instrumented`, `patched` |
+| `sql_read` | an authorizer installed on the connection: `SQLITE_READ` of `exhibit_canary` | `table`, `column`, `database` (`main`, `temp` or an alias), `connection`, `declared_db` |
+| `sql_text` | a trace callback, once after a recorded read | the statement |
+| `open`/`rename`/`link`, `target` `db` | as in layer 6, for the database file | |
+
+**Finding (CPython 3.11 and 3.14).** In the `sqlite3.connect/handle` audit event the `Connection` is
+not initialised yet, so `set_authorizer` cannot be called there (`ProgrammingError: Base
+Connection.__init__ not called`). The audit events therefore give provenance (who opened which
+connection, to which file) and a wrapper installed over `sqlite3.connect` (and the copy
+`sqlite3.dbapi2.connect`, which ORMs use) instruments the connection after it is made. The wrapper is
+the caller of the handle event, which is how `instrumented` is known; a connect function that is no
+longer the plugin's wrapper when a connection opens is `patched`. The authorizer always allows the
+operation: it only records, and the app sees nothing different. It runs while a statement is
+prepared, so `sys._getframe(1)` is the frame that called `execute`.
+
+**What the judge requires** (`oracle._judge_sql`). Signed events, the manifest, the tree check and
+admission apply first, unchanged. Then all of:
+
+1. **Authenticated provenance is on.** Without the staged app nothing is proven.
+2. **Every connection of the run was opened by application code**: innermost project frame not a test
+   frame (`sql_from_test`), and `sqlite3.connect` was still the plugin's wrapper (`sql_api_changed`).
+   One connection the test opened refuses the whole run, even beside a genuine one.
+3. **Only application code touched the database file**, and only to read it: an open, rename or link
+   from a test frame is `sql_from_test`; a write by anyone is `canary_tampered`.
+4. **Every read of the canary table**, not just one: from admitted application code (a statement the
+   test ran itself, on its own connection or on one it took from the app, is a test frame:
+   `sql_from_test`), on a connection the judge saw opened, to the app's own file, in its `main`
+   schema (an `ATTACH`ed copy, a temp table or another file is `sql_unplaced`), with valid provenance:
+   outermost app frame a declared entry point called from the test, no link used (`provenance`,
+   `frame_not_admitted`).
+5. **The `token` column was read at least once** (otherwise `no_effect`: the test failed for the wrong
+   reason), and the test failed.
+
+That the token **reached the test through the app** is the assertion the test makes: the oracle checks
+the read, the failing assertion checks the response. A test that copies the token from the environment
+into the response (`ECHO` apps) makes its own assertion fail, but no statement read the table, so
+there is no effect.
+
+**Static guard** (`guard.sql_problem`, this effect only). A test is refused before it runs if it names
+`sqlite3` (import, name, attribute or string), calls or references a method that runs SQL or
+reconfigures a connection (`execute`, `executescript`, `cursor`, `set_authorizer`, `create_function`,
+...), names a database file (`.db`, `.sqlite`, `-journal`, ...), or hands a function it defines, a
+lambda, `partial` or `staticmethod` to an attribute or to `setattr`, which is how an app's query
+builder is swapped. It is a tripwire like the others: every cheat in `tests/test_oracle_sql.py` also
+runs with it off, and the runtime layers alone refuse them.
+
+**What it cannot see.** These are recall costs unless marked otherwise.
+
+- A connection opened at import time or in `App.__init__` is recorded, and is fine when the app opens
+  it. Statements run later on it are attributed to the frame that called `execute`.
+- A driver other than `sqlite3` (SQLAlchemy over another engine, `psycopg2`) is not observed.
+  SQLAlchemy over SQLite should go through `sqlite3.connect` and so be observed, but no test runs it
+  here: designed, not verified.
+- The sink catalog flags a call as a SQL sink only when its statement is not a constant string
+  (`graph/catalog.py`). An unresolved receiver (`cur.execute(q)`) is a weak hit; its arguments are
+  kept for that purpose only.
+- A statement longer than 600 characters is cut in the graph, so a long constant one looks dynamic.
+- The seeded copy is a snapshot. An app whose behaviour depends on data the copy lacks, or that writes
+  to its own database during the run (the file is read-only), cannot be proven.
+
+Residual false proofs: R1 and R5 apply to this effect like the others, and both are pinned
+(`test_r1_*`, `test_r5_*` in `tests/test_oracle_sql.py`, `attack_sql_r1_forge_events` and
+`attack_sql_r5_app_binding` in `spikes/redteam`). With computed names the test finds `emit` in the hook
+module, which holds the signing key, and signs a `sql_connect` and a `sql_read` that name the entry
+point's real frame (R1). It can also replace a name in the app's own module, here the escaping helper
+(`setattr(sys.modules["app"], "quote", str)`), so the admitted code really builds an injected
+statement (R5). Neither is stopped in-process; both are listed in section 7.
 
 ## 4. What each layer defends
 
@@ -503,6 +602,30 @@ that refuses a proof also runs the canary or writes the marker for real, except 
 | `attack_exec_true_pickle` | vulnerable | DETECTED | DETECTED | control |
 | `attack_exec_r1_cell_tamper` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R1) |
 | `attack_exec_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
+
+Results for the `canary_sql` attacks, T090, same command, this session, host path. The vulnerable
+apps are the controls: each is proven (DETECTED) with and without the tripwire.
+
+| PoC | app | guard on | guard off | stopped by |
+|---|---|---|---|---|
+| `attack_sql_test_opens_db` | safe | BLOCKED | BLOCKED | `sql_from_test` (connection opened by the test) |
+| `attack_sql_test_execute` | safe | BLOCKED | BLOCKED | `sql_from_test` (statement run from a test frame on the app's connection) |
+| `attack_sql_injected_connection` | safe | BLOCKED | BLOCKED | `sql_from_test` (connection handed to the app by the test) |
+| `attack_sql_read_db_file` | safe | BLOCKED | BLOCKED | `sql_from_test` (open of the database file) |
+| `attack_sql_monkeypatch_query` | safe | BLOCKED | BLOCKED | `sql_from_test` (the replacement runs in a test frame) |
+| `attack_sql_connect_swap` | safe | BLOCKED | BLOCKED | `sql_from_test` / `sql_api_changed` |
+| `attack_sql_copied_token` | safe | BLOCKED | BLOCKED | `no_effect` (no read of the table) |
+| `attack_sql_internal_helper` | safe | BLOCKED | BLOCKED | `provenance` (entry point not called from the test) |
+| `attack_sql_thread` | safe | BLOCKED | BLOCKED | `provenance` (thread stack holds no entry point) |
+| `attack_sql_true_union` | vulnerable | DETECTED | DETECTED | control |
+| `attack_sql_true_boolean` | vulnerable | DETECTED | DETECTED | control |
+| `attack_sql_true_order_by` | vulnerable | DETECTED | DETECTED | control |
+| `attack_sql_r1_forge_events` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R1) |
+| `attack_sql_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
+
+No new FALSE_PROVEN beyond the two declared residual limits. The sandbox runs the same cheats
+(`tests/test_oracle_sql.py`, docker-marked, with the reason codes asserted); the red-team driver
+itself is host-path only.
 
 ## 6. What is proven by tests, what is only designed
 

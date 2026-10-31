@@ -50,6 +50,12 @@ The `canary_exec` effect
 - The host reads the marker itself after the container exits: no symlinks, a regular file with a single link, at most 1 MiB, each line exactly the run's token. Nothing the container says about it is trusted, and a run that was never checked is not a proof.
 - What it cannot see: a process started by a C extension without an audit event, a shell that never execs the canary (`echo <token> > marker` is real command execution but not this effect), and a command that computes the canary's name. A green result still means "nothing could be proven".
 
+The `canary_sql` effect
+- `SandboxRunner(sql_db="<path in the clone>").run_exploit(..., effect="canary_sql")` proves SQL injection: the application, reached through an entry point, reads a canary row from a table it never queries. Proof rules: `docs/oracle/oracle-provenance.md`, section 3.10. `sql_db` comes from `case.json` `run.sql_db`; without it, or if the file is missing, a link or not a regular file, the run fails closed before any container starts.
+- Seeding happens in a short-lived init container with the same flags as the test container (`--network none`, `--cap-drop ALL`, `no-new-privileges`, memory, pids and time limits). It mounts the original database read-only and writes a seeded copy (the canary table with the run's token) to a temporary host directory; the original is never modified.
+- The test container mounts that copy read-only over `/workspace/<sql_db>`, nested inside the writable `/workspace` copy, and keeps every flag above. The test gets the token, not the database path.
+- What it cannot see: a driver other than `sqlite3`, and an app that needs to write to its own database during the run (the seeded copy is read-only). A green result still means "nothing could be proven".
+
 Wording and guidance
 - Always say "isolated and resource-limited" when summarizing the sandbox guarantees.
 - Never say "100% safe" or imply the sandbox is impenetrable.
