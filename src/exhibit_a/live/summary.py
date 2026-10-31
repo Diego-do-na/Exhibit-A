@@ -17,12 +17,23 @@ from collections.abc import Sequence
 from typing import Any
 
 from ..schemas import Event, VerdictValue
+from ..oracle.oracle import Effect
+from ..report.cwe import get_cwe, severity_from_effect
+from typing import get_args
 
 #: Verdict value counted as "dropped for lack of proof" (SPEC.md section 3).
 DROPPED_VALUE = VerdictValue.DISCARDED_UNPROVEN.value
 
 #: Payload keys that carry sandbox output, checked in order.
 OUTPUT_KEYS = ("stdout", "stderr", "output", "log")
+EFFECT_SCHEMA = tuple(
+    {
+        "value": effect,
+        "label": effect.removeprefix("canary_").replace("_", " ").title(),
+        "color": f"effect-{effect}",
+    }
+    for effect in get_args(Effect)
+)
 
 
 def _text(value: Any) -> str:
@@ -109,6 +120,72 @@ def _test_path_of(payload: dict[str, Any]) -> str:
     return _text(payload.get("test_path"))
 
 
+def _location(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "file": _text(value.get("file")),
+        "line": value.get("line") if isinstance(value.get("line"), int) else 0,
+        "line_source": _text(value.get("line_source")),
+    }
+
+
+def _live_findings(events: Sequence[Event]) -> tuple[list[dict[str, Any]], int]:
+    suspicions: dict[str, dict[str, Any]] = {}
+    verdicts: dict[str, dict[str, Any]] = {}
+    for event in events:
+        payload = event.payload
+        if event.type.value == "suspicion_raised":
+            ref = _suspicion_ref(payload)
+            if ref["suspicion_id"]:
+                suspicions.setdefault(ref["suspicion_id"], ref)
+        elif event.type.value == "verdict":
+            sid = payload.get("suspicion_id")
+            if isinstance(sid, str):
+                verdicts[sid] = payload
+    proven = {sid: payload for sid, payload in verdicts.items() if payload.get("verdict") == VerdictValue.PROVEN.value}
+    primary_ids = set(proven)
+    findings: list[dict[str, Any]] = []
+    for sid, payload in proven.items():
+        facts = payload.get("facts") if isinstance(payload.get("facts"), dict) else {}
+        effect = str(facts.get("effect") or payload.get("effect") or "unknown")
+        observed = _location(facts.get("observed_location") or payload.get("observed_location"))
+        base = suspicions.get(sid, {"file": "", "line": 0, "class": "", "suspicion_id": sid})
+        duplicate_ids = payload.get("duplicates") if isinstance(payload.get("duplicates"), list) else []
+        duplicate_ids += [
+            other_sid for other_sid, other in proven.items()
+            if other.get("duplicate_of") == sid and other_sid not in duplicate_ids
+        ]
+        duplicates = []
+        for duplicate_id in duplicate_ids:
+            duplicate = proven.get(duplicate_id)
+            if duplicate is None:
+                continue
+            duplicate_facts = duplicate.get("facts") if isinstance(duplicate.get("facts"), dict) else {}
+            duplicates.append(
+                {
+                    "suspicion_id": duplicate_id,
+                    "observed_location": _location(duplicate_facts.get("observed_location")),
+                }
+            )
+            primary_ids.discard(duplicate_id)
+        findings.append(
+            {
+                "suspicion_id": sid,
+                "class": base.get("class", ""),
+                "model_location": {"file": base.get("file", ""), "line": base.get("line", 0)},
+                "observed_location": observed,
+                "effect": next((entry for entry in EFFECT_SCHEMA if entry["value"] == effect), {
+                    "value": effect, "label": effect, "color": "effect-unknown",
+                }),
+                "cwe": str(payload.get("cwe") or get_cwe(effect, str(base.get("class", ""))).cwe_id),
+                "severity": str(payload.get("severity") or severity_from_effect(effect, vuln_class=str(base.get("class", "")))),
+                "duplicates": duplicates,
+            }
+        )
+    return [finding for finding in findings if finding["suspicion_id"] in primary_ids], len(proven)
+
+
 def build_summary(events: Sequence[Event]) -> dict[str, Any]:
     """Reduce ordered events to the live view panels.
 
@@ -181,6 +258,7 @@ def build_summary(events: Sequence[Event]) -> dict[str, Any]:
     for event in ordered:
         if event.run_id not in runs:
             runs.append(event.run_id)
+    findings, proven_raw = _live_findings(ordered)
     return {
         "runs": runs,
         "event_count": len(ordered),
@@ -198,4 +276,9 @@ def build_summary(events: Sequence[Event]) -> dict[str, Any]:
         "regression_wall": regression_wall,
         "dropped": verdict_counts.get(DROPPED_VALUE, 0),
         "verdict_counts": verdict_counts,
+        "proven": len(findings),
+        "proven_raw": proven_raw,
+        "duplicates": proven_raw - len(findings),
+        "findings": findings,
+        "effect_schema": list(EFFECT_SCHEMA),
     }

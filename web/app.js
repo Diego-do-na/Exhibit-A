@@ -17,6 +17,21 @@ const state = { events: [], source: null };
 
 const $ = (id) => document.getElementById(id);
 
+function h(tag, props, ...children) {
+  const el = document.createElement(tag);
+  for (const [key, value] of Object.entries(props || {})) {
+    if (value === null || value === undefined) continue;
+    if (key === "text") el.textContent = String(value);
+    else if (key === "class") el.className = String(value);
+    else el.setAttribute(key, String(value));
+  }
+  for (const child of children.flat()) {
+    if (child === null || child === undefined) continue;
+    el.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return el;
+}
+
 function esc(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -178,6 +193,51 @@ function verdictCounts() {
   return { counts, dropped, wall };
 }
 
+function liveFindings() {
+  const suspicions = {};
+  const verdicts = {};
+  for (const ev of state.events) {
+    const p = ev.payload || {};
+    if (ev.type === "suspicion_raised") {
+      const ref = suspicionRef(p);
+      if (ref.suspicion_id) suspicions[ref.suspicion_id] = ref;
+    } else if (ev.type === "verdict" && typeof p.suspicion_id === "string") {
+      verdicts[p.suspicion_id] = p;
+    }
+  }
+  const proven = Object.entries(verdicts).filter(([, p]) => p.verdict === "proven");
+  const primary = new Set(proven.map(([sid]) => sid));
+  const findings = [];
+  for (const [sid, p] of proven) {
+    const facts = p.facts && typeof p.facts === "object" ? p.facts : {};
+    const observed = facts.observed_location && typeof facts.observed_location === "object"
+      ? facts.observed_location : {};
+    const duplicateIds = Array.isArray(p.duplicates) ? p.duplicates : [];
+    for (const [otherSid, other] of proven) {
+      if (other.duplicate_of === sid && !duplicateIds.includes(otherSid)) duplicateIds.push(otherSid);
+    }
+    const duplicates = duplicateIds.map((duplicateId) => {
+      const duplicate = verdicts[duplicateId];
+      if (!duplicate) return null;
+      primary.delete(duplicateId);
+      const duplicateFacts = duplicate.facts && typeof duplicate.facts === "object" ? duplicate.facts : {};
+      const duplicateObserved = duplicateFacts.observed_location && typeof duplicateFacts.observed_location === "object"
+        ? duplicateFacts.observed_location : {};
+      return { suspicion_id: duplicateId, observed_location: duplicateObserved };
+    }).filter(Boolean);
+    findings.push({
+      suspicion_id: sid,
+      model_location: suspicions[sid] || { file: "", line: 0 },
+      observed_location: observed,
+      effect: p.effect || facts.effect || "unknown",
+      cwe: p.cwe || "CWE unknown",
+      severity: p.severity || "severity unknown",
+      duplicates,
+    });
+  }
+  return { findings: findings.filter((item) => primary.has(item.suspicion_id)), raw: proven.length };
+}
+
 /* ---------- rendering ---------- */
 
 function renderDiff() {
@@ -312,12 +372,47 @@ function renderWall() {
   $("verdicts").textContent = breakdown;
 }
 
+function renderFindings() {
+  const { findings, raw } = liveFindings();
+  const box = $("findings");
+  box.replaceChildren();
+  $("finding-count").textContent = findings.length
+    ? `(${findings.length} unique, ${raw} proofs)`
+    : "";
+  if (!findings.length) {
+    box.appendChild(h("p", { class: "muted", text: "No proven finding in these events." }));
+    return;
+  }
+  for (const item of findings) {
+    const model = item.model_location || {};
+    const observed = item.observed_location || {};
+    const card = h("article", { class: "card" },
+      h("strong", { text: item.suspicion_id }),
+      h("span", { class: "muted", text: `${item.cwe} · ${item.severity} · ${item.effect}` }),
+      h("span", { class: "mono small", text: `Model's guess: ${model.file || "?"}:${model.line || 0}` }),
+      observed.file
+        ? h("span", { class: "mono small observed-location", text: `Oracle-observed: ${observed.file}:${observed.line || 0}` })
+        : null);
+    if (item.duplicates.length) {
+      card.appendChild(h("details", {},
+        h("summary", { text: `${item.duplicates.length} duplicate proof${item.duplicates.length === 1 ? "" : "s"}` }),
+        h("ul", {}, item.duplicates.map((duplicate) => h("li", {},
+          h("strong", { text: duplicate.suspicion_id }),
+          duplicate.observed_location && duplicate.observed_location.file
+            ? h("span", { class: "mono small", text: ` oracle-observed ${duplicate.observed_location.file}:${duplicate.observed_location.line || 0}` })
+            : null)))));
+    }
+    box.appendChild(card);
+  }
+}
+
 function renderAll() {
   renderDiff();
   renderTimeline();
   renderSandbox();
   renderRedGreen();
   renderWall();
+  renderFindings();
 }
 
 /* ---------- sources ---------- */

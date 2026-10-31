@@ -46,7 +46,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from ..live.replay import Replayer, format_done, parse_speed, select_events
-from .model import build_graph_view, build_trends, event_view, run_detail, run_row
+from .model import EFFECT_SCHEMA, build_graph_view, build_trends, event_view, run_detail, run_row
 from .sources import RUN_ID_RE, RunSource, SourceError, parse_source
 
 HOST = "127.0.0.1"
@@ -294,7 +294,11 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 return
             query = self._query()
             if route == "/api/info":
-                self._json({"source": state.source.label, "stages_note": "nothing could be proven is not safe"})
+                self._json({
+                    "source": state.source.label,
+                    "stages_note": "nothing could be proven is not safe",
+                    "effect_schema": list(EFFECT_SCHEMA),
+                })
             elif route == "/api/runs":
                 self._runs(query)
             elif route == "/api/trends":
