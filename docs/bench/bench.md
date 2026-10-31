@@ -32,7 +32,7 @@ They hold five calls and cost US$0.0930, under a hard cap of US$3.
 ## Results
 
 <!-- BEGIN GENERATED: python -m bench --compare baseline -->
-Same three targets for every row: the two vulnerable cases and the fixed Starlette tree.
+Paired targets count toward the headline scores; a target with no recording yet is unmeasured (-).
 
 | system | reported | TP | FP | false accusations | precision | recall | discarded | calls | cost (US$) | live spend (US$) | model wall time (s) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -49,16 +49,22 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Naive LLM (reports everything) | archive-extraction-pathtraversal | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 1 | 0.0140 | 0.0140 | 4.7 |
 | Naive LLM (reports everything) | archive-extraction-pathtraversal/fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 0 | 1 | 0.0082 | 0.0082 | 3.2 |
 | Naive LLM (reports everything) | archive-extraction-pathtraversal/fixed_incomplete | incomplete | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 1 | 0.0141 | 0.0141 | 4.9 |
+| Naive LLM (reports everything) | command-injection-shell | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | unsafe-deserialization-pickle | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | starlette-cve-2023-29159 | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.1106 | 0.1106 | 34.2 |
 | Exhibit A, compact profile | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 3 | 4 | 0.1358 | 0.2834 | 60.5 |
 | Exhibit A, compact profile | archive-extraction-pathtraversal | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.0597 | 0.0597 | 65.7 |
 | Exhibit A, compact profile | archive-extraction-pathtraversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | archive-extraction-pathtraversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | command-injection-shell | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | unsafe-deserialization-pickle | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159 | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 1.9052 | 1.9052 | 980.7 |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 7 | 8 | 2.1415 | 2.1415 | 1054.0 |
 | Exhibit A, standard profile (nothing proven live) | archive-extraction-pathtraversal | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 0.7357 | 0.7357 | 339.0 |
 | Exhibit A, standard profile (nothing proven live) | archive-extraction-pathtraversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | archive-extraction-pathtraversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | command-injection-shell | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | unsafe-deserialization-pickle | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 <!-- END GENERATED -->
 
 Columns:
