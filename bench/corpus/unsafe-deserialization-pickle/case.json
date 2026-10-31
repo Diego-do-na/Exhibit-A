@@ -1,0 +1,80 @@
+{
+  "cases": [
+    {
+      "id": "unsafe-deserialization-pickle",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "insecure_deserialization",
+          "file": "vulnerable/app.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "real_world_analog": {
+    "cve": "CVE-2015-7501",
+    "summary": "Remote code execution in Java applications bundling Apache Commons-Collections: deserializing an attacker-crafted object graph runs an arbitrary transformer chain (InvokerTransformer) with the application's permissions. The pattern is the app decoding request bytes with a serializer that executes attacker-controlled callables.",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2015-7501",
+    "advisory": "https://access.redhat.com/security/cve/CVE-2015-7501",
+    "fix": "Upstream disabled deserialization of the dangerous transformer classes; the general fix for the class is to never decode untrusted bytes with an executing serializer (use JSON or another data-only format with a SafeLoader). This case uses an original, equivalent containment (JSON decoding only).",
+    "verification": "CVE number and summary confirmed via web search on 2026-10-31; the app in this case is original synthetic code, not Commons-Collections. Python's own pickle.loads on request bytes is the same pattern: its documentation warns it must never unpickle untrusted data."
+  },
+  "note": "Self-contained oracle case. Unlike the Starlette case it installs no third-party package and is not replay-driven: it is proven directly with effect='canary_exec'. No upstream repo/commit applies because the vulnerable code is original synthetic code written for this case.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_exec",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "app.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_system.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_eval.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_json.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_garbage.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_runs_canary.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_unpickles_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_escape.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_escape.py",
+        "label": "flaky"
+      }
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_eval.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: the eval reduction names no process launcher, so the launcher-name screen misses it and the incomplete fix must not be accepted as fixed."
+    }
+  }
+}
