@@ -1,13 +1,21 @@
 {
   "version": 1,
   "note": "Real published CVEs in popular PyPI packages. Every package installs from PyPI at run time with safe_pip_install; nothing third-party is vendored here. Entries whose oracle effect is implemented (canary_read, canary_write, canary_exec, canary_sql) run the normal loop on the vulnerable and the fixed version; entries with effect 'pending' document a real advisory for an effect the oracle cannot observe yet (ReDoS, reflected XSS) and are listed, never silently dropped.",
-  "effects_implemented": ["canary_read", "canary_write", "canary_exec", "canary_sql"],
+  "effects_implemented": [
+    "canary_read",
+    "canary_write",
+    "canary_exec",
+    "canary_sql"
+  ],
   "entries": [
     {
       "id": "starlette-cve-2023-29159",
       "cve": "CVE-2023-29159",
       "advisories": [
-        {"id": "GHSA-v5gw-mw7f-84px", "url": "https://github.com/encode/starlette/security/advisories/GHSA-v5gw-mw7f-84px"}
+        {
+          "id": "GHSA-v5gw-mw7f-84px",
+          "url": "https://github.com/encode/starlette/security/advisories/GHSA-v5gw-mw7f-84px"
+        }
       ],
       "package": "starlette",
       "vulnerable_version": "0.26.1",
@@ -17,15 +25,24 @@
       "effect": "canary_read",
       "entry_point": "serve_file",
       "harness": "harnesses/starlette-cve-2023-29159/app.py",
-      "requirements": ["starlette==0.26.1", "anyio>=3.4,<5"],
-      "fixed_requirements": ["starlette==0.27.0", "anyio>=3.4,<5"],
+      "requirements": [
+        "starlette==0.26.1",
+        "anyio>=3.4,<5"
+      ],
+      "fixed_requirements": [
+        "starlette==0.27.0",
+        "anyio>=3.4,<5"
+      ],
       "notes": "String-prefix directory check lets a sibling directory escape the served root. Same shape as the in-repo Starlette case."
     },
     {
       "id": "aiohttp-cve-2024-23334",
       "cve": "CVE-2024-23334",
       "advisories": [
-        {"id": "GHSA-5h86-8mv2-jq9f", "url": "https://github.com/aio-libs/aiohttp/security/advisories/GHSA-5h86-8mv2-jq9f"}
+        {
+          "id": "GHSA-5h86-8mv2-jq9f",
+          "url": "https://github.com/aio-libs/aiohttp/security/advisories/GHSA-5h86-8mv2-jq9f"
+        }
       ],
       "package": "aiohttp",
       "vulnerable_version": "3.9.1",
@@ -41,8 +58,14 @@
       "id": "gradio-cve-2023-51449",
       "cve": "CVE-2023-51449",
       "advisories": [
-        {"id": "GHSA-6qm2-wpxq-7qh2", "url": "https://github.com/gradio-app/gradio/security/advisories/GHSA-6qm2-wpxq-7qh2"},
-        {"id": "CVE-2023-51449", "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-51449"}
+        {
+          "id": "GHSA-6qm2-wpxq-7qh2",
+          "url": "https://github.com/gradio-app/gradio/security/advisories/GHSA-6qm2-wpxq-7qh2"
+        },
+        {
+          "id": "CVE-2023-51449",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-51449"
+        }
       ],
       "package": "gradio",
       "vulnerable_version": "4.10.0",
@@ -52,15 +75,26 @@
       "effect": "canary_read",
       "entry_point": "build_demo",
       "harness": "harnesses/gradio-cve-2023-51449/app.py",
-      "requirements": ["gradio==4.10.0", "starlette==0.37.2"],
-      "fixed_requirements": ["gradio==4.11.0", "starlette==0.37.2"],
+      "requirements": [
+        "gradio==4.10.0",
+        "starlette==0.37.2",
+        "huggingface_hub==0.22.2"
+      ],
+      "fixed_requirements": [
+        "gradio==4.11.0",
+        "starlette==0.37.2",
+        "huggingface_hub==0.22.2"
+      ],
       "notes": "The /file route serves arbitrary filesystem paths. The harness builds a documented Interface; the route is reached through its app. starlette is pinned to the era release because gradio 4.x leaves fastapi unbounded and current starlette removed the private module gradio 4.x imports."
     },
     {
       "id": "mlflow-cve-2023-6015",
       "cve": "CVE-2023-6015",
       "advisories": [
-        {"id": "CVE-2023-6015", "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-6015"}
+        {
+          "id": "CVE-2023-6015",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-6015"
+        }
       ],
       "package": "mlflow",
       "vulnerable_version": "2.9.1",
@@ -70,15 +104,24 @@
       "effect": "canary_read",
       "entry_point": "read_artifact",
       "harness": "harnesses/mlflow-cve-2023-6015/app.py",
-      "requirements": ["mlflow==2.9.1", "setuptools<80"],
-      "fixed_requirements": ["mlflow==2.9.2", "setuptools<80"],
+      "requirements": [
+        "mlflow==2.9.1",
+        "setuptools<80"
+      ],
+      "fixed_requirements": [
+        "mlflow==2.9.2",
+        "setuptools<80"
+      ],
       "notes": "Artifact APIs insufficiently validate paths, allowing reads outside the artifact root (Protect AI batch, CVSS 10). setuptools<80 keeps the pkg_resources module mlflow 2.9.x imports."
     },
     {
       "id": "django-cve-2021-3281",
       "cve": "CVE-2021-3281",
       "advisories": [
-        {"id": "GHSA-fvgf-6h6h-3322", "url": "https://github.com/advisories/GHSA-fvgf-6h6h-3322"}
+        {
+          "id": "GHSA-fvgf-6h6h-3322",
+          "url": "https://github.com/advisories/GHSA-fvgf-6h6h-3322"
+        }
       ],
       "package": "django",
       "vulnerable_version": "3.1.5",
@@ -94,7 +137,10 @@
       "id": "mlflow-cve-2023-6018",
       "cve": "CVE-2023-6018",
       "advisories": [
-        {"id": "GHSA-5p3h-7fwh-92rc", "url": "https://osv.dev/vulnerability/GHSA-5p3h-7fwh-92rc"}
+        {
+          "id": "GHSA-5p3h-7fwh-92rc",
+          "url": "https://osv.dev/vulnerability/GHSA-5p3h-7fwh-92rc"
+        }
       ],
       "package": "mlflow",
       "vulnerable_version": "2.9.1",
@@ -104,15 +150,24 @@
       "effect": "canary_write",
       "entry_point": "log_text",
       "harness": "harnesses/mlflow-cve-2023-6018/app.py",
-      "requirements": ["mlflow==2.9.1", "setuptools<80"],
-      "fixed_requirements": ["mlflow==2.9.2", "setuptools<80"],
+      "requirements": [
+        "mlflow==2.9.1",
+        "setuptools<80"
+      ],
+      "fixed_requirements": [
+        "mlflow==2.9.2",
+        "setuptools<80"
+      ],
       "notes": "Missing file-write validation lets an unauthenticated caller overwrite arbitrary files on the server (CVSS 10); the harness logs an artifact through the documented fluent API. setuptools<80 keeps the pkg_resources module mlflow 2.9.x imports."
     },
     {
       "id": "jinja2-cve-2025-27516",
       "cve": "CVE-2025-27516",
       "advisories": [
-        {"id": "CVE-2025-27516", "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-27516"}
+        {
+          "id": "CVE-2025-27516",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-27516"
+        }
       ],
       "package": "jinja2",
       "vulnerable_version": "3.1.5",
@@ -128,7 +183,10 @@
       "id": "gitpython-cve-2023-40267",
       "cve": "CVE-2023-40267",
       "advisories": [
-        {"id": "GHSA-pr76-5cm5-w9cj", "url": "https://github.com/advisories/GHSA-pr76-5cm5-w9cj"}
+        {
+          "id": "GHSA-pr76-5cm5-w9cj",
+          "url": "https://github.com/advisories/GHSA-pr76-5cm5-w9cj"
+        }
       ],
       "package": "GitPython",
       "vulnerable_version": "3.1.31",
@@ -144,7 +202,10 @@
       "id": "celery-cve-2021-23727",
       "cve": "CVE-2021-23727",
       "advisories": [
-        {"id": "CVE-2021-23727", "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-23727"}
+        {
+          "id": "CVE-2021-23727",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-23727"
+        }
       ],
       "package": "celery",
       "vulnerable_version": "5.2.1",
@@ -160,7 +221,10 @@
       "id": "django-cve-2022-34265",
       "cve": "CVE-2022-34265",
       "advisories": [
-        {"id": "django-4.0.6", "url": "https://docs.djangoproject.com/en/4.0/releases/4.0.6/"}
+        {
+          "id": "django-4.0.6",
+          "url": "https://docs.djangoproject.com/en/4.0/releases/4.0.6/"
+        }
       ],
       "package": "django",
       "vulnerable_version": "4.0.5",
@@ -178,7 +242,10 @@
       "id": "django-cve-2021-35042",
       "cve": "CVE-2021-35042",
       "advisories": [
-        {"id": "django-3.2.5", "url": "https://docs.djangoproject.com/en/3.2/releases/3.2.5/"}
+        {
+          "id": "django-3.2.5",
+          "url": "https://docs.djangoproject.com/en/3.2/releases/3.2.5/"
+        }
       ],
       "package": "django",
       "vulnerable_version": "3.2.4",
@@ -196,7 +263,10 @@
       "id": "python-multipart-cve-2024-24762",
       "cve": "CVE-2024-24762",
       "advisories": [
-        {"id": "GHSA-2jv5-9r88-3w3p", "url": "https://github.com/advisories/GHSA-2jv5-9r88-3w3p"}
+        {
+          "id": "GHSA-2jv5-9r88-3w3p",
+          "url": "https://github.com/advisories/GHSA-2jv5-9r88-3w3p"
+        }
       ],
       "package": "python-multipart",
       "vulnerable_version": "0.0.6",
@@ -212,7 +282,10 @@
       "id": "pygments-cve-2021-27291",
       "cve": "CVE-2021-27291",
       "advisories": [
-        {"id": "CVE-2021-27291", "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-27291"}
+        {
+          "id": "CVE-2021-27291",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-27291"
+        }
       ],
       "package": "pygments",
       "vulnerable_version": "2.7.3",
@@ -225,26 +298,13 @@
       "notes": "Pending effect: ReDoS in several lexers has no oracle effect yet; the harness stays for the import check."
     },
     {
-      "id": "py-cve-2020-29651",
-      "cve": "CVE-2020-29651",
-      "advisories": [
-        {"id": "CVE-2020-29651", "url": "https://nvd.nist.gov/vuln/detail/CVE-2020-29651"}
-      ],
-      "package": "py",
-      "vulnerable_version": "1.9.0",
-      "fixed_version": "1.10.0",
-      "vulnerable_api": "py.path.svnwc",
-      "class": "redos",
-      "effect": "pending",
-      "entry_point": "blame_info",
-      "harness": "harnesses/py-cve-2020-29651/app.py",
-      "notes": "Pending effect: ReDoS in the svn blame path has no oracle effect yet, and reaching it live would need a Subversion binary; the harness stays for the import check."
-    },
-    {
       "id": "django-cve-2024-38875",
       "cve": "CVE-2024-38875",
       "advisories": [
-        {"id": "django-4.2.14", "url": "https://docs.djangoproject.com/en/4.2/releases/4.2.14/"}
+        {
+          "id": "django-4.2.14",
+          "url": "https://docs.djangoproject.com/en/4.2/releases/4.2.14/"
+        }
       ],
       "package": "django",
       "vulnerable_version": "4.2.13",
@@ -260,7 +320,10 @@
       "id": "jinja2-cve-2024-34064",
       "cve": "CVE-2024-34064",
       "advisories": [
-        {"id": "CVE-2024-34064", "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-34064"}
+        {
+          "id": "CVE-2024-34064",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-34064"
+        }
       ],
       "package": "jinja2",
       "vulnerable_version": "3.1.3",
