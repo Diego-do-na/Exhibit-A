@@ -317,3 +317,81 @@ def test_cli_find_comment(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     path.write_text("[]", encoding="utf-8")
     assert summary.main(["find-comment", str(path)]) == 0
     assert capsys.readouterr().out.strip() == ""
+
+
+# -- findings: unique counts, the opening explanation, hostile facts -----------------------
+
+
+def _facts(*frames: str, effect: str = "canary_read") -> dict[str, Any]:
+    chain = [{"file": "app.py", "qualname": name, "line": 10 + n} for n, name in enumerate(frames)]
+    return {"effect": effect, "entry_point": frames[0], "sink_function": frames[-1], "chain": chain,
+            "observed_location": {"file": "app.py", "line": 63, "function": frames[-1],
+                                  "line_source": "graph_sink_call"},
+            "runs": 3, "test": "test_exploit.py", "fix_verified": True}
+
+
+def _proven(sid: str, facts: Any, hypothesis: str = "a guess") -> list[Event]:
+    return [
+        ev("suspicion_raised", suspicion={"id": sid, "hypothesis": hypothesis}),
+        ev("verdict", suspicion_id=sid, verdict="proven", reason=f"why {sid}", **({"facts": facts} if facts is not None else {})),
+        ev("packaged", suspicion_id=sid, path=f"packages/{sid}", fix_verified=True),
+    ]
+
+
+def _run(*groups: list[Event]) -> list[Event]:
+    return [ev("baseline_done", ok=True, outcome="passed", flags=FULL), *[e for g in groups for e in g]]
+
+
+def test_two_proofs_of_one_effect_count_as_one_finding_and_keep_the_raw_count() -> None:
+    events = _run(_proven("S1", _facts("Entry.go", "sink")), _proven("S3", _facts("Entry.go", "sink")))
+    result = build_result(events)
+    assert (result["proven"], result["proven_raw"], result["duplicates"]) == (1, 2, 1)
+    assert result["verdicts"]["proven"] == 2 and result["dropped"] == 0
+    [finding] = result["findings"]
+    assert finding["suspicion_id"] == "S1"
+    assert finding["duplicates"] == [{"suspicion_id": "S3", "package": "packages/S3"}]
+    assert exit_code(result, "proven") == 1
+    assert "1 proven finding" in render_markdown(result)
+
+
+def test_different_effects_entry_points_or_sinks_stay_separate_findings() -> None:
+    events = _run(
+        _proven("S1", _facts("Entry.go", "sink")),
+        _proven("S2", _facts("Entry.go", "sink", effect="canary_write")),
+        _proven("S3", _facts("Other.go", "sink")),
+        _proven("S4", _facts("Entry.go", "other_sink")),
+        _proven("S5", None),
+    )
+    result = build_result(events)
+    assert (result["proven"], result["proven_raw"], result["duplicates"]) == (5, 5, 0)
+    assert all("duplicates" not in f for f in result["findings"])
+
+
+def test_each_finding_opens_with_oracle_facts_then_the_models_guess() -> None:
+    result = build_result(_run(_proven("S1", _facts("Entry.go", "sink"), hypothesis="Windows backslashes")))
+    [finding] = result["findings"]
+    assert finding["observed_location"]["line"] == 63 and finding["hypothesis"] == "Windows backslashes"
+    section = render_markdown(result).split("### Proven findings", 1)[1]
+    assert section.index("The oracle observed that") < section.index("Model's hypothesis")
+    assert "at app.py:63" in section and "The fix was verified" in section
+    assert "the model's guess; the oracle did not observe it" in section
+    assert section.index("Model's hypothesis") < section.index("| Suspicion |")
+
+
+def test_a_finding_without_facts_is_not_given_an_explanation() -> None:
+    result = build_result(completed_run(("s1", "proven")))
+    assert "The oracle observed" not in render_markdown(result)
+
+
+def test_hostile_ledger_facts_are_bounded_and_escaped() -> None:
+    facts = _facts("Entry.go", "sink")
+    facts["entry_point"] = "<img src=x onerror=alert(1)> @team " + "A" * 5000
+    facts["observed_location"]["file"] = "[x](javascript:y)"
+    facts["injected"] = "SAFE: nothing to see"
+    result = build_result(_run(_proven("S1", facts, hypothesis="<script>alert(1)</script> @everyone")))
+    assert "injected" not in result["findings"][0]["facts"]
+    assert len(result["findings"][0]["facts"]["entry_point"]) <= 300
+    text = render_markdown(result)
+    assert "<img" not in text and "<script>" not in text and "](javascript" not in text
+    assert "@team" not in text.replace("@\u200bteam", "") and "@everyone" not in text.replace("@\u200beveryone", "")
+    assert build_result(_run(_proven("S1", "not a mapping")))["proven"] == 1
