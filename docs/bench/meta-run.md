@@ -209,6 +209,43 @@ the same bug: S3's exploit is the sibling-prefix request (`out` beside `outside`
 proof is the executed test, not the hypothesis; the report now labels the hypothesis as the
 model's guess, and grouping duplicate proofs of one effect is not implemented yet.
 
+### Repeatability runs, with and without `--slice` (2026-10-30, not recorded)
+
+Same command as above (`--provider meta --model muse-wonder-1.0 --profile compact
+--budget-usd 1`), three runs per case, then three more per case with `--slice`. Output went to
+a scratch directory, so these runs are not in the repository and cannot be replayed; the
+numbers are what the CLI printed. The model is not deterministic, so each run is a fresh sample.
+
+| Case | Mode | Runs proven | False proofs | `invalid_test` per run | Mean input tokens | Mean cost (US$) | Cost range (US$) |
+|---|---|---|---|---|---|---|---|
+| archive-extraction-pathtraversal | compact | 3 / 3, fix verified 3 / 3 | - | 0, 0, 0 | 5,112 | 0.0736 | 0.0656-0.0863 |
+| archive-extraction-pathtraversal | compact + slice | 3 / 3, fix verified 3 / 3 | - | 0, 0, 0 | 4,710 | 0.0548 | 0.0497-0.0601 |
+| starlette-cve-2023-29159 | compact | 3 / 3, fix verified 3 / 3 | - | 2, 0, 1 | 14,015 | 0.1708 | 0.1339-0.2159 |
+| starlette-cve-2023-29159 | compact + slice | 3 / 3, fix verified 3 / 3 | - | 0, 0, 0 | 8,828 | 0.1079 | 0.1028-0.1144 |
+| starlette-cve-2023-29159-fixed (negative control) | compact | - | **0 / 3** | 2, 2, 3 | 8,827 | 0.1325 | 0.1002-0.1887 |
+| starlette-cve-2023-29159-fixed (negative control) | compact + slice | - | **0 / 3** | 0, 1, 0 | 2,330 | 0.0225 | 0.0096-0.0430 |
+
+Eighteen live runs, US$1.53 in total.
+
+What this shows, on this corpus only:
+
+- **Both known vulnerabilities were proven in every run**, twelve out of twelve, each with a
+  verified fix, and the negative control produced no proof in six runs.
+- **`--slice` cut the mean cost by 26 % (archive), 37 % (Starlette) and 83 % (negative
+  control)** without losing a proof. The adversary sees only the functions on the
+  entry-point-to-sink paths (5,340 characters instead of `starlette/staticfiles.py`), and the
+  entry point comes from the graph rather than the model, which is the likely reason the
+  Starlette slice runs had no `invalid_test`.
+- **On the negative control the sliced adversary often raised nothing** (two of three runs had
+  no suspicion at all). That is the right outcome on fixed code, but it also means those runs
+  did not exercise the oracle's rejection path; the unsliced runs did, six rejections out of six.
+- One unsliced Starlette run reported two `proven` packages. Both exploit tests request
+  `/../outside/canary.txt`: one bug proven twice. Grouping duplicate proofs is not implemented.
+
+Limits: three samples per row, two vulnerable cases, both of which the compact contract was
+tuned on (see `docs/bench/bench.md`). These runs say the result is repeatable on these cases,
+not that it generalizes. Cost is at list price without cached-input discounts.
+
 ## Re-running
 
 `--case` limits the run to some cases. `--overwrite` replaces a recording. `--spent-usd` counts
