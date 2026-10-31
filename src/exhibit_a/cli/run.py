@@ -21,6 +21,8 @@ from ..graph import build_graph, find_paths, functions_in, reach_from_diff
 from ..graph.slicer import SlicePlan, make_plan
 from ..ledger import Ledger, append_run
 from ..loop import Roles, SandboxRunner, VerificationLoop
+from ..loop import pipeline as _loop_pipeline
+from ..loop import runner as _loop_runner
 from ..models import BudgetExceeded, CostMeter, ModelError, ModelRole, ReplayProvider, Role
 from ..models.config import RoleConfig, build_roles
 from ..schemas import Event, EventType, RunRecord, VerdictCounts
@@ -324,7 +326,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
                 return 0
             changed = [source for source in changed if source in plans]
         roles = _pr_roles(args) if args.replay else _live_roles(args, _cost_meter(args))
-        runner = SandboxRunner()
+        runner = _sandbox_runner_cls()()
         baseline = "."
         any_proven = False
         incomplete = False
@@ -413,31 +415,13 @@ def _cost_meter(args: argparse.Namespace) -> CostMeter | None:
     return CostMeter(args.budget_usd)
 
 
-def _local_baseline(clone: str, test_path: str, timeout: float) -> dict[str, Any]:
-    """Run the project's own tests in a scrubbed child process on the host."""
-    env = {
-        "PATH": os.environ.get("PATH", ""),
-        "PYTHONPATH": clone,
-        "PYTHONDONTWRITEBYTECODE": "1",
-    }
-    cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", test_path]
-    try:
-        proc = subprocess.run(cmd, cwd=clone, env=env, capture_output=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return {
-            "outcome": "timeout",
-            "exit_code": None,
-            "stdout": "",
-            "stderr": "",
-            "oracle_events": [],
-        }
-    return {
-        "outcome": "passed" if proc.returncode == 0 else "failed",
-        "exit_code": proc.returncode,
-        "stdout": proc.stdout.decode(errors="replace"),
-        "stderr": proc.stderr.decode(errors="replace"),
-        "oracle_events": [],
-    }
+def _sandbox_runner_cls() -> Any:
+    """Return ``SandboxRunner``, honouring test monkeypatches on ``cli.run`` or ``loop.pipeline``."""
+    if SandboxRunner is not _loop_runner.SandboxRunner:
+        return SandboxRunner
+    if _loop_pipeline.SandboxRunner is not _loop_runner.SandboxRunner:
+        return _loop_pipeline.SandboxRunner
+    return SandboxRunner
 
 
 def _install_requirements(target: Path, requirements: list[str]) -> None:
@@ -528,13 +512,6 @@ def _run_case(args: argparse.Namespace) -> int:
                 return 1
         roles = Roles(*(ModelRole(r, provider) for r in (
             Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
-        loop = VerificationLoop(
-            clone, out, ledger, roles, "test_baseline.py",
-            run_id=case_id, baseline_runner=_local_baseline,
-            requirements=requirements,
-            effect=settings.get("effect", "canary_read"),
-            prompt_profile=_profile(args),
-        )
     else:
         try:
             meter = _cost_meter(args)
@@ -546,18 +523,22 @@ def _run_case(args: argparse.Namespace) -> int:
         except ValueError as exc:
             print(f"run: cannot build live roles: {exc}", file=sys.stderr)
             return 1
-        loop = VerificationLoop(
-            clone, out, ledger, roles, "test_baseline.py",
-            run_id=case_id,
-            runner=SandboxRunner(
-                requirements=tuple(settings.get("requirements", ())),
-                sql_db=settings.get("sql_db") or None,
-            ),
-            requirements=tuple(settings.get("requirements", ())),
-            effect=settings.get("effect", "canary_read"),
-            prompt_profile=_profile(args),
-            slice_plan=slice_plan,
-        )
+    req_tuple = tuple(requirements)
+    sql_db = settings.get("sql_db") or None
+    runner_cls = _sandbox_runner_cls()
+    loop = VerificationLoop(
+        clone, out, ledger, roles, "test_baseline.py",
+        run_id=case_id,
+        runner=runner_cls(
+            requirements=req_tuple,
+            sql_db=sql_db,
+        ),
+        requirements=req_tuple,
+        sql_db=sql_db,
+        effect=settings.get("effect", "canary_read"),
+        prompt_profile=_profile(args),
+        slice_plan=slice_plan,
+    )
     try:
         result = loop.run(settings["source_file"])
     except BudgetExceeded as exc:

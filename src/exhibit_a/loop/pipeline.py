@@ -51,7 +51,7 @@ from exhibit_a.graph.slicer import SlicePlan
 from exhibit_a.ledger import Ledger
 from exhibit_a.loop import prompts
 from exhibit_a.models import ModelRole, RoleResult, SchemaValidationError
-from exhibit_a.loop.runner import SandboxRunner, TestRunner
+from exhibit_a.loop.runner import HostRunner, SandboxRunner, TestRunner
 from exhibit_a.oracle import Judgement
 from exhibit_a.schemas import (
     BypassAttempts,
@@ -219,6 +219,7 @@ class VerificationLoop:
         prompt_profile: str = "standard",
         slice_plan: SlicePlan | None = None,
         sql_db: str | None = None,
+        allow_host_execution: bool = False,
     ) -> None:
         if runs < 1:
             raise ValueError("runs must be at least 1")
@@ -231,9 +232,22 @@ class VerificationLoop:
         self.timeout = timeout
         self.run_id = run_id or uuid.uuid4().hex[:12]
         # ``requirements`` and ``sql_db`` (canary_sql: the app's database) only shape the default
-        # runner; an injected one carries its own.
-        self.runner = runner if runner is not None else SandboxRunner(
-            requirements=tuple(requirements), sql_db=sql_db)
+        # runner; an injected one carries its own. Host execution requires the explicit test-only
+        # switch ``allow_host_execution=True`` (never set by the CLI).
+        self.allow_host_execution = bool(allow_host_execution)
+        if runner is not None:
+            self.runner: TestRunner = runner
+        elif self.allow_host_execution:
+            self.runner = HostRunner(
+                allow_host_execution=True,
+                requirements=tuple(requirements),
+                sql_db=sql_db,
+            )
+        else:
+            self.runner = SandboxRunner(
+                requirements=tuple(requirements),
+                sql_db=sql_db,
+            )
         self.baseline_runner = baseline_runner or self.runner.run_baseline
         # The judge is a callable that must accept the `effect` keyword so the loop
         # can call it uniformly as `self.judge(..., effect=self.effect)`.
