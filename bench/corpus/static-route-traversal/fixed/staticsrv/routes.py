@@ -1,4 +1,4 @@
-"""Static routes: a URL prefix served from a directory."""
+"""Static routes: a URL mount point served from a directory."""
 
 import os
 from urllib.parse import unquote
@@ -14,25 +14,25 @@ def inside(path, directory):
 
 
 class StaticRoute:
-    """Serve the files below ``directory`` under the URL ``prefix``.
+    """Serve the files below ``directory`` under the URL ``mount``.
 
     With ``follow_symlinks`` a link inside the directory may point anywhere. Directory
     requests are answered with the ``index`` file when there is one.
     """
 
-    def __init__(self, prefix, directory, follow_symlinks=False, index="index.html"):
-        self.prefix = "/" + prefix.strip("/")
+    def __init__(self, mount, directory, follow_symlinks=False, index="index.html"):
+        self.mount = "/" + mount.strip("/")
         self.directory = os.path.realpath(directory)
         self.follow_symlinks = follow_symlinks
         self.index = index
 
     def matches(self, path):
         """Whether a request path belongs to this route."""
-        return path == self.prefix or path.startswith(self.prefix + "/")
+        return path == self.mount or path.startswith(self.mount + "/")
 
     def relative_name(self, path):
         """The file name a request path asks for, relative to the route's directory."""
-        return unquote(path[len(self.prefix) + 1:])
+        return unquote(path[len(self.mount) + 1:])
 
     def resolve(self, name):
         """The real path of the file ``name`` stands for, or None when it may not be served."""
