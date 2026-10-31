@@ -57,6 +57,10 @@ CASES = (
     "unsafe-deserialization-pickle",
     "sql-injection-login",
     "sql-injection-search",
+    "static-route-traversal",
+    "upload-filename-traversal",
+    "sql-trunc-kind-injection",
+    "docsuite-large-command-injection",
 )
 DEFAULT_MODEL = "muse-wonder-1.0"
 CASE_BUDGET_USD = 2.0

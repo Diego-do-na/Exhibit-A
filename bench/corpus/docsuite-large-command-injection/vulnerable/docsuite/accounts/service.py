@@ -36,3 +36,4 @@ class AccountService:
     def directory(self):
         """The public view of every active account."""
         return [account.public() for account in self.repository.all()
+                if account.active]

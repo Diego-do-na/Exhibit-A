@@ -6,6 +6,8 @@ REQUIRED = {
     "documents.read": "viewer",
     "documents.write": "editor",
     "exports.create": "viewer",
+    "notifications.read": "viewer",
+    "notifications.write": "viewer",
     "admin.read": "admin",
     "admin.write": "admin",
 }
