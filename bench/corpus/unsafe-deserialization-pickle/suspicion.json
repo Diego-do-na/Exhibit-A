@@ -1,0 +1,11 @@
+{
+  "class": "insecure_deserialization",
+  "entry_point": "App.handle_request",
+  "hypothesis": "The intake decoder unpickles the request blob, so a blob carrying a pickled job with an attacker-controlled reduction executes an arbitrary command during decoding (unsafe deserialization of untrusted data).",
+  "id": "unsafe-deserialization-pickle-blob",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 15
+  },
+  "source": "manual (case author); real-world analog CVE-2015-7501"
+}
