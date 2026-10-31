@@ -10,10 +10,41 @@ Isolation flags and what they guarantee
 - `--tmpfs /tmp:rw,size=64m,mode=1777`: gives a small writable temporary filesystem, limiting data an exploit can persist in-memory/disk.
 - `--network none`: no network access from the test runtime; prevents remote exfiltration and external callbacks during the run.
 - `--cap-drop ALL` and `--security-opt no-new-privileges`: removes Linux capabilities and blocks privilege escalation inside the container.
-- `--user uid:gid` (map to invoking user): avoids running as root inside the container, reducing attack surface and accidental host-level file access.
-- `--pids-limit`, `--memory`, `--cpus`: caps processes, RAM and CPU usage to bound resource consumption and reduce DoS risk.
-- Not mounting the Docker socket or host systems: the runner never mounts `/var/run/docker.sock` or arbitrary host directories; only a temporary copy of the repository is mounted into the container.
+- `--security-opt seccomp=<src/exhibit_a/sandbox/seccomp.json>`: applies a restrictive allowlist seccomp profile (`defaultAction: SCMP_ACT_ERRNO`) by default on every sandbox container (including the SQL seed container). Only syscalls required by the Python test runner are permitted; privilege-changing, mount, namespace, tracing, kernel-module, eBPF, `io_uring`, keyring, and file-handle syscalls (`ptrace`, `unshare`, `setns`, `mount`, `umount2`, `pivot_root`, `chroot`, `setuid`, `setgid`, `setgroups`, `capset`, `chown`, `bpf`, `perf_event_open`, `io_uring_setup`, `userfaultfd`, `keyctl`, `init_module`, `finit_module`, `kexec_load`, `open_by_handle_at`, etc.) fail with `EPERM`.
+- `--user uid:gid` (non-root user): maps to the invoking non-root user (or falls back to `65534:65534` if the host orchestrator runs as UID 0), never running as root inside the container.
+- `--pids-limit 64`, `--memory 512m`, `--memory-swap 512m`, `--cpus 0.5`: caps processes, RAM (with swap disabled so swap cannot extend the memory limit), and CPU usage to bound resource consumption and reduce DoS risk.
+- Optional runtime (`EXHIBIT_A_DOCKER_RUNTIME=runsc`): when `EXHIBIT_A_DOCKER_RUNTIME` is set (for example `runsc` for gVisor), the runner verifies that the runtime is registered in Docker and passes `--runtime <name>`. If the requested runtime is not installed or invalid, the run fails closed with `outcome="env_failure"` and a clear message, and never silently falls back to the default runtime.
+- Audited mounts only (`DECLARED_MOUNTS` and `_verify_declared_mounts`): the runner never mounts `/var/run/docker.sock` or arbitrary host directories; every bind mount source must reside inside the per-run temporary directory (`~/.cache/exhibit-a/sandbox/exhibit_a_sandbox_<id>/`), and any undeclared mount flag fails closed before `docker run`.
 - Committed run image with `--network none`: builder phase (with network) is separate from run phase; the runtime image is committed after installing required tooling so the actual test run can be executed offline.
+
+Audited container mounts (`DECLARED_MOUNTS`)
+
+Every container mount is audited before execution. No host directory outside the per-run temporary directory is ever mounted:
+
+| Container target | Kind | Mode | Scope | Source |
+|---|---|---|---|---|
+| `/workspace` | bind | `rw` | all test runs | `<tmpdir>/workspace` (staged copy of `clone_path`) |
+| `/tmp` | tmpfs | `rw,size=64m,mode=1777` | all runs | in-memory tmpfs (64 MiB cap) |
+| `/opt/exhibit_a_plugin/exhibit_a_oracle_plugin.py` | bind | `ro` | oracle active | `<tmpdir>/exhibit_a_oracle_plugin.py` (per-run copy of `plugin.py`) |
+| `/oracle/events.jsonl` | bind | `rw` | oracle active | `<tmpdir>/events.jsonl` (HMAC-signed event sink) |
+| `/oracle/canary` (or `/tmp/<work>/<dir>/<file>`) | bind | `ro` | `canary_read`, `canary_exec` | `<tmpdir>/canary` (per-run copy of `canary_path`) |
+| `/tmp/<work>` | tmpfs | `rw,size=16m,mode=1777` | custom `canary_mount` | in-memory tmpfs (16 MiB cap) |
+| `/tmp/<work>/<dir>` | bind | `rw` | `canary_exec` | `<tmpdir>/outside` (per-run directory for `canary_ran` marker) |
+| `/oracle/outside.json` | bind | `rw` | `canary_write` | `<tmpdir>/outside.json` (post-run tmpfs listing) |
+| `/workspace/<sql_db>` | bind | `ro` | `canary_sql` | `<tmpdir>/seed/seeded.db` (seeded SQLite database copy) |
+| `/seed/original.db` | bind | `ro` | `canary_sql` seed container | `<tmpdir>/workspace/<sql_db>` (staged SQLite database) |
+| `/seed/out` | bind | `rw` | `canary_sql` seed container | `<tmpdir>/seed` (per-run seed output directory) |
+
+Self-check (`exhibit-a doctor`)
+- `exhibit-a doctor` (and `exhibit-a doctor --json`, implemented in `src/exhibit_a/cli/ext/doctor.py`) starts an ephemeral probe container with the sandbox's isolation flags and inspects the effective isolation from inside the container:
+  - **runtime**: effective and configured runtime (`EXHIBIT_A_DOCKER_RUNTIME` or default `runc`) and available runtimes from `docker info`.
+  - **network**: only `lo` present in `/proc/net/dev` and external connections blocked.
+  - **capabilities**: `CapInh`, `CapPrm`, `CapEff`, `CapBnd`, `CapAmb` all `0000000000000000` and `NoNewPrivs=1` in `/proc/self/status`.
+  - **seccomp**: `Seccomp=2` (`SECCOMP_MODE_FILTER`), `defaultAction=SCMP_ACT_ERRNO`, live syscall probes (`ptrace`, `unshare`, `mount`, `chroot`, `setuid`, `chown`) returning `EPERM`, plus the full allowed syscall list from `src/exhibit_a/sandbox/seccomp.json`.
+  - **user**: non-root `uid`, `euid`, `gid`, `egid` (`> 0`).
+  - **filesystem**: read-only rootfs, writable `/tmp` tmpfs, no `/var/run/docker.sock`.
+  - **limits**: cgroup memory (`536870912` bytes / `512m`), swap (`0`), PIDs (`64`), and CPU (`50000 100000` / `0.5` CPUs).
+- If any check is weaker than documented, `exhibit-a doctor` prints `FAIL` for that check and exits non-zero (`1`).
 
 What these flags do not guarantee
 - The sandbox shares the host kernel. Kernel-level vulnerabilities, misconfigured container runtimes, or host-level bugs can still be exploited. For this reason we use the honest phrasing "isolated and resource-limited" rather than "100% safe".
