@@ -26,6 +26,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from ..findings import clean_facts, explain, group_findings, model_guess, where
 from ..ledger import Ledger
 from ..schemas import Event, EventType, VerdictValue
 
@@ -92,19 +93,45 @@ def build_result(
     verdict_events = _latest_by_suspicion(own, EventType.VERDICT)
     packaged = _latest_by_suspicion(own, EventType.PACKAGED)
 
+    suspicions: dict[str, Mapping[str, Any]] = {}
+    for event in own:
+        if event.type == EventType.SUSPICION_RAISED:
+            raised_one = event.payload.get("suspicion")
+            if isinstance(raised_one, Mapping) and isinstance(raised_one.get("id"), str):
+                suspicions.setdefault(raised_one["id"], raised_one)
+
     counts: dict[str, int] = {value.value: 0 for value in VerdictValue}
-    findings: list[dict[str, Any]] = []
+    proofs: dict[str, dict[str, Any]] = {}
     for sid, event in verdict_events.items():
         label = str(event.payload.get("verdict", "unknown"))
         counts[label] = counts.get(label, 0) + 1
         if label == VerdictValue.PROVEN.value:
             pkg = packaged.get(sid)
-            findings.append({
+            proofs[sid] = {
                 "suspicion_id": sid,
                 "reason": str(event.payload.get("reason", "")),
                 "fix_verified": bool(pkg and pkg.payload.get("fix_verified")),
                 "package": str(pkg.payload.get("path", "")) if pkg else "",
-            })
+            }
+    # Duplicate proofs of one effect (same entry point, same application frames to the sink,
+    # judged from the oracle's own frames) are one finding: the first proven is the primary.
+    facts = {sid: clean_facts(verdict_events[sid].payload.get("facts")) for sid in proofs}
+    findings: list[dict[str, Any]] = []
+    for group in group_findings((sid, facts[sid]) for sid in proofs):
+        finding = proofs[group.primary]
+        if facts[group.primary]:
+            finding["facts"] = facts[group.primary]
+            finding["observed_location"] = facts[group.primary].get("observed_location")
+            if finding["observed_location"] is None:
+                del finding["observed_location"]
+        hypothesis = suspicions.get(group.primary, {}).get("hypothesis")
+        if isinstance(hypothesis, str) and hypothesis:
+            finding["hypothesis"] = " ".join(hypothesis.split())[:600]  # the model's text
+        if group.duplicates:
+            finding["duplicates"] = [
+                {"suspicion_id": sid, "package": proofs[sid]["package"]} for sid in group.duplicates
+            ]
+        findings.append(finding)
 
     raised = sum(1 for e in own if e.type == EventType.SUSPICION_RAISED)
     baselines = [
@@ -132,7 +159,9 @@ def build_result(
         "status": status,
         "skipped_reason": skipped_reason,
         "engine_exit": engine_exit,
-        "proven": counts[VerdictValue.PROVEN.value],
+        "proven": len(findings),  # unique findings: duplicate proofs of one effect grouped
+        "proven_raw": counts[VerdictValue.PROVEN.value],  # proven verdicts before grouping
+        "duplicates": counts[VerdictValue.PROVEN.value] - len(findings),
         "verdicts": counts,
         "suspicions_raised": raised,
         "dropped": sum(counts.values()) - counts[VerdictValue.PROVEN.value],
@@ -202,6 +231,32 @@ def _headline(result: Mapping[str, Any]) -> str:
     return f"{icon} {_HEADLINES[result['status']]}"
 
 
+def _finding_block(finding: Mapping[str, Any]) -> list[str]:
+    """Lines that open one proven finding: the oracle's facts first, then the model's guess.
+
+    The explanation is a fixed template over facts the oracle observed and the loop checked
+    (``exhibit_a.findings.explain``); the model's hypothesis follows under a label that says it
+    is the model's guess. Nothing here comes from the model's text except that labelled line.
+    """
+    text = explain(finding.get("facts"))
+    guess = model_guess(finding.get("hypothesis"))
+    duplicates = finding.get("duplicates") or []
+    if not (text or guess or duplicates):
+        return []
+    lines = [f"**{_escape(finding['suspicion_id'], 120)}**"]
+    if text:
+        lines += ["", _escape(text, 1500)]
+    if guess:
+        lines += ["", f"_{_escape(guess, 700)}_"]
+    if duplicates:
+        names = ", ".join(_escape(d.get("suspicion_id", "?"), 120) for d in duplicates[:10])
+        lines += [
+            "",
+            f"Also proven, same effect through the same entry point and sink frames (grouped as one finding): {names}.",
+        ]
+    return lines + [""]
+
+
 def render_markdown(result: Mapping[str, Any]) -> str:
     """Markdown for ``$GITHUB_STEP_SUMMARY``."""
     lines = [f"## Exhibit A: {_headline(result)}", ""]
@@ -215,6 +270,12 @@ def render_markdown(result: Mapping[str, Any]) -> str:
         f"- Suspicions raised: {result['suspicions_raised']}, proven: "
         f"{result['proven']}, dropped without proof: {result['dropped']}",
     ]
+    if result.get("duplicates"):
+        lines.append(
+            f"- Proofs: {result['proven_raw']}, grouped into {result['proven']} unique "
+            f"{'finding' if result['proven'] == 1 else 'findings'} "
+            f"({result['duplicates']} duplicate of an effect already proven)"
+        )
     if result.get("risk"):
         lines.append(f"- Risk gate: `{_escape(result['risk'].get('risk', '?'))}`")
     if result.get("ablated"):
@@ -228,12 +289,16 @@ def render_markdown(result: Mapping[str, Any]) -> str:
         f"cost: ${float(result['cost_usd']):.4f}"
     )
     lines += ["", "| Verdict | Count |", "|---|---|"]
-    lines += [f"| {_escape(k)} | {v} |" for k, v in sorted(result["verdicts"].items())]
+    shown = dict(result["verdicts"])
+    if result.get("duplicates"):
+        shown["proven"] = result["proven"]  # unique findings; the duplicates get their own row
+        shown["duplicate_proof"] = result["duplicates"]
+    lines += [f"| {_escape(k)} | {v} |" for k, v in sorted(shown.items())]
     if result["findings"]:
+        lines += ["", "### Proven findings", ""]
+        for finding in result["findings"]:
+            lines += _finding_block(finding)
         lines += [
-            "",
-            "### Proven findings",
-            "",
             "| Suspicion | Fix verified | Oracle reason |",
             "|---|---|---|",
         ]
