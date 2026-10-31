@@ -75,6 +75,8 @@ Security design and its reasons: [github-action-security.md](github-action-secur
 | `replay` | `false` | Replay recorded model calls (with `case`). |
 | `risk-gate` | `true` | `false` runs exploits even for docs/tests-only PRs. |
 | `comment` | `false` | Post/update the PR comment (needs `pull-requests: write`). |
+| `suggest-fixes` | `true` | Post verified fix hunks as review suggestions (needs `pull-requests: write`); disabled for fork PRs. |
+| `open-fix-pr` | `false` | Push `exhibit-a/fix-<pr>-<finding>` and open a fix PR (needs `contents: write`); never runs for fork PRs. |
 | `comment-author` | `github-actions[bot]` | Only this author's marker comment is updated. |
 | `github-token` | `github.token` | Used only by the comment step. |
 | `sarif` | `true` | Upload proven findings to GitHub Code Scanning as SARIF (needs `security-events: write`). |
