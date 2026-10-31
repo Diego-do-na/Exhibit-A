@@ -1,0 +1,11 @@
+{
+  "class": "sql_injection",
+  "entry_point": "App.handle_request",
+  "hypothesis": "find_by_login and find_by_id build their SQL by string formatting from the request: the username is placed inside quotes and the account id is placed bare, so a crafted value changes the statement (for example a UNION that reads a table the app never queries) and the response carries rows that were never meant to be returned (SQL injection).",
+  "id": "sql-injection-login-query",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 32
+  },
+  "source": "manual (case author)"
+}
