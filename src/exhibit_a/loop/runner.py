@@ -34,13 +34,16 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import ValidationError
 
 from exhibit_a.oracle import Judgement, OracleEvent
-from exhibit_a.oracle.guard import channel_problem
+from exhibit_a.oracle.guard import channel_problem, exec_problem
 from exhibit_a.oracle.oracle import (
     ENV_ALLOWED_DIR,
     ENV_CANARY_TOKEN,
+    EXEC_CANARY_NAME,
+    EXEC_MARKER_NAME,
     REASON_CHANNEL_TRIPWIRE,
     TestOutcome,
     _judge,
+    exec_canary_script,
 )
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest
 
@@ -50,6 +53,8 @@ _SCRATCH = "/tmp/exhibit_a_oracle"
 
 # The canary is a real file (not a symlink), so apps that canonicalise paths resolve to it.
 _CANARY_MOUNT = f"{_SCRATCH}/outside/canary.txt"
+_EXEC_CANARY_MOUNT = f"{_SCRATCH}/outside/{EXEC_CANARY_NAME}"
+_EXEC_MARKER = f"{_SCRATCH}/outside/{EXEC_MARKER_NAME}"
 
 # Written next to the exploit. It runs inside the container before the test: it makes the app
 # importable and fills the allowed directory beside the mounted canary.
@@ -113,6 +118,8 @@ class SandboxRunner:
         from exhibit_a.sandbox import run
 
         problem = channel_problem(Path(test_path))
+        if problem is None and effect == "canary_exec":
+            problem = exec_problem(Path(test_path))
         if problem is not None:
             # Not run at all, as on the host path: the loop classifies "error" as invalid_test.
             return Judgement(
@@ -133,6 +140,8 @@ class SandboxRunner:
             # effect it must be absent so the app creates it during the run.
             if effect == "canary_read":
                 canary.write_text(token + "\n", encoding="utf-8")
+            elif effect == "canary_exec":
+                canary.write_text(exec_canary_script(_EXEC_MARKER, token), encoding="utf-8")
             # The stage is never mounted (the sandbox copies it), so it stays the host's
             # untouched copy of what the plugin's manifest describes.
             try:
@@ -145,8 +154,8 @@ class SandboxRunner:
                 timeout,
                 requirements=list(self.requirements),
                 image=self.image,
-                canary_path=str(canary) if effect == "canary_read" else None,
-                canary_mount=_CANARY_MOUNT,
+                canary_path=str(canary) if effect in ("canary_read", "canary_exec") else None,
+                canary_mount=_EXEC_CANARY_MOUNT if effect == "canary_exec" else _CANARY_MOUNT,
                 events_path=str(Path(tmp) / "events.jsonl"),
                 env={ENV_CANARY_TOKEN: token, ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed"},
                 manifest=manifest,
@@ -169,6 +178,8 @@ class SandboxRunner:
                 # Read: nothing to check after the run. Write: the sandbox's post-run dump of the
                 # outside/ tmpfs must confirm a regular file with the token; absent means False.
                 canary_written=bool(result.get("canary_written", False)) if effect == "canary_write" else None,
+                # Exec: the host's own read of the marker; a missing answer stays unverified.
+                canary_ran=result.get("canary_ran") is True if effect == "canary_exec" else None,
             )
 
 

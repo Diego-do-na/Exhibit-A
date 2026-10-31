@@ -27,23 +27,27 @@ code requested; one that neither starts inside the allowed directory nor names t
 exactly is refused (``canary_not_via_allowed_dir``). Access comes from the open flags, not the
 mode string (F4), and a write effect also needs the canary to exist with the token after the
 run (F5). See docs/oracle/oracle-provenance.md, section 3.7.
+
+The ``canary_exec`` effect (command execution, unsafe deserialization) plants an executable
+instead; ``_judge_exec`` and section 3.9 of that document say what proves it.
 """
 
 from __future__ import annotations
 
 import os
 import secrets
+import shlex
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 from collections.abc import Collection
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Literal
 
-from exhibit_a.oracle.guard import channel_problem
-from exhibit_a.oracle.plugin import ENV_CANARY, ENV_EVENTS, KEY_BYTES, key_message, verify_lines
+from exhibit_a.oracle.guard import channel_problem, exec_problem
+from exhibit_a.oracle.plugin import ENV_CANARY, ENV_EVENTS, ENV_MARKER, KEY_BYTES, key_message, verify_lines
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest, tree_changes
 from exhibit_a.schemas.base import StrictModel
 
@@ -56,12 +60,17 @@ TestOutcome = Literal["passed", "failed", "error", "timeout"]
 # path-traversal style effect (the app leaks a file outside the allowed directory);
 # "canary_write" is the archive-extraction / zip-slip style effect (the app creates a file
 # outside the allowed directory). Both are observed through the same signed events; only the
-# access the event carries differs. See docs/oracle/second-class.md.
-Effect = Literal["canary_read", "canary_write"]
+# access the event carries differs. See docs/oracle/second-class.md. "canary_exec" is command
+# execution: the app runs an executable outside the allowed directory, which leaves the token in
+# a marker file beside it; it has its own judge (_judge_exec).
+Effect = Literal["canary_read", "canary_write", "canary_exec"]
 # Which accesses count for each effect: "r+" or O_RDWR is both a read and a write.
 _ACCEPTED_ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}
 # A write effect reads at most this much of the canary after the run to find the token.
 _MAX_CANARY_READ = 1 << 20
+# canary_exec: the executable and the marker it leaves, side by side under outside/.
+EXEC_CANARY_NAME = "canary"
+EXEC_MARKER_NAME = "canary_ran"
 _PLUGIN_MODULE = "exhibit_a_oracle_plugin"
 _PLUGIN_SOURCE = Path(__file__).resolve().parent / "plugin.py"
 
@@ -86,6 +95,9 @@ REASON_NO_EFFECT = "no_effect"
 REASON_PROVENANCE = "provenance"
 REASON_MANIFEST_FAILED = "manifest_failed"
 REASON_NOT_VIA_ALLOWED_DIR = "canary_not_via_allowed_dir"
+REASON_CANARY_TAMPERED = "canary_tampered"
+REASON_FROM_TEST = "process_from_test"
+REASON_PROCESS_API_CHANGED = "process_api_changed"
 
 
 class Frame(StrictModel):
@@ -110,9 +122,9 @@ class OracleEvent(StrictModel):
     stack: list[Frame]
     # How the canary was reached and what the operation could do (see plugin.access_of).
     # Missing in events from older plugins, which classify as "unknown": never a proof.
-    op: Literal["open", "rename", "link"] = "open"
+    op: Literal["open", "rename", "link", "process", "native", "env", "chdir", "codegen"] = "open"
     flags: int | None = None
-    access: Literal["read", "write", "read_write", "unknown"] | None = None
+    access: Literal["read", "write", "read_write", "unknown", "exec"] | None = None
     # The path as the code asked for it, absolute but not resolved; None if unknown.
     requested: str | None = None
     # Set when the opened path went through a symlink created during the run; such a read
@@ -120,6 +132,14 @@ class OracleEvent(StrictModel):
     via_symlink: bool = False
     symlink: str | None = None
     symlink_target: str | None = None
+    # canary_exec only: which file an open reached, the command a process event started, whether
+    # it names the canary, whether the innermost app frame names a sink, and what changed since
+    # install (a watched API or sensitive variable) when the process started.
+    target: Literal["canary", "marker"] = "canary"
+    command: str | None = None
+    names_canary: bool = False
+    sink_named: bool = False
+    patched: str | None = None
 
 
 class Judgement(StrictModel):
@@ -156,14 +176,17 @@ def run_oracle(
     the allowed directory) or ``"canary_write"`` (the app creates a file outside it, as in an
     archive-extraction / zip-slip escape). For a write effect the canary file is not planted:
     the proof is that the app itself opens the canary path for writing, so it must not exist
-    beforehand.
+    beforehand. ``"canary_exec"`` plants an executable at ``outside/canary``: the app must run it
+    (see ``_judge_exec``).
     """
-    if effect not in ("canary_read", "canary_write"):
+    if effect not in ("canary_read", "canary_write", "canary_exec"):
         raise ValueError(f"unknown effect {effect!r}")
     app_root = Path(app_root).resolve()
     test_path = Path(test_path).resolve()
 
     problem = channel_problem(test_path)
+    if problem is None and effect == "canary_exec":
+        problem = exec_problem(test_path)
     if problem is not None:
         # Not run at all: an "error" outcome, which the loop classifies as invalid_test.
         return Judgement(
@@ -195,10 +218,15 @@ def run_oracle(
         outside.mkdir()
         (allowed / "public.txt").write_text("public file\n", encoding="utf-8")
         token = "CANARY-" + secrets.token_hex(16)
-        canary = outside / "canary.txt"
+        canary = outside / (EXEC_CANARY_NAME if effect == "canary_exec" else "canary.txt")
+        marker = outside / EXEC_MARKER_NAME
+        script = exec_canary_script(marker, token)
         if effect == "canary_read":
             # Read effect: the canary must exist for the app to leak it.
             canary.write_text(token + "\n", encoding="utf-8")
+        elif effect == "canary_exec":
+            canary.write_text(script, encoding="utf-8")
+            canary.chmod(0o555)
         # Write effect: leave the canary absent; the app proves the escape by creating it.
         events_path = work / "events.jsonl"
         ini = work / "pytest.ini"
@@ -206,10 +234,13 @@ def run_oracle(
 
         outcome = _run_test(
             app_root, test_path, work, ini, allowed, canary, token, events_path, timeout, key=key,
-            manifest=manifest,
+            manifest=manifest, marker=marker if effect == "canary_exec" else None,
         )
         events, forged, forged_reason = _read_events(events_path, key)
         written = canary_written(canary, token) if effect == "canary_write" else None
+        ran = None
+        if effect == "canary_exec":
+            ran = marker_holds_token(marker, token) and _file_is(canary, script)
     changes = tree_changes(app_root, manifest, exclude)
 
     # On this path the app root is also the source of truth for the host-side re-check; any
@@ -218,7 +249,7 @@ def run_oracle(
         outcome, events, app_root, test_path, set(entry_points),
         effect=effect, forged_events=forged, forged_reason=forged_reason,
         app_tree=AppTree(str(app_root), app_root, manifest), app_tree_changes=changes,
-        allowed_dir=str(allowed), canary_written=written,
+        allowed_dir=str(allowed), canary_written=written, canary_ran=ran,
     )
 
 
@@ -239,6 +270,42 @@ def canary_written(canary: Path, token: str) -> bool:
     return token.encode("utf-8") in content
 
 
+def exec_canary_script(marker: PurePath | str, token: str) -> str:
+    """The canary executable: it appends the run's token to the marker, with shell builtins only."""
+    return f"#!/bin/sh\nprintf '%s\\n' {shlex.quote(token)} >> {shlex.quote(str(marker))}\n"
+
+
+def marker_holds_token(marker: Path, token: str) -> bool:
+    """Whether the run left a regular, single-link marker holding only the token, line by line.
+
+    Each run of the canary appends one line. The container can write this file, so it is untrusted:
+    a link, a FIFO, an oversized file or any other content is not a proof, and neither is an error.
+    """
+    try:
+        fd = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return False
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_size > _MAX_CANARY_READ:
+            return False
+        content = os.read(fd, _MAX_CANARY_READ)
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+    lines = content.decode("utf-8", "replace").splitlines()
+    return bool(lines) and all(line == token for line in lines)
+
+
+def _file_is(path: Path, content: str) -> bool:
+    """Whether ``path`` is a regular file with exactly this content (the canary was not replaced)."""
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode) and path.read_text(encoding="utf-8") == content
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def _run_test(
     app_root: Path,
     test_path: Path,
@@ -252,6 +319,7 @@ def _run_test(
     *,
     key: bytes | None,
     manifest: dict[str, str] | None = None,
+    marker: Path | None = None,
 ) -> TestOutcome:
     """Run the test with the plugin; ``key`` goes to the plugin on stdin, never elsewhere.
 
@@ -277,6 +345,8 @@ def _run_test(
         ENV_CANARY_TOKEN: token,
         ENV_EVENTS: str(events_path),
     }
+    if marker is not None:
+        env[ENV_MARKER] = str(marker)
     cmd = [
         sys.executable,
         "-m",
@@ -359,6 +429,7 @@ def _judge(
     app_tree_changes: list[str] | None = None,
     allowed_dir: str | None = None,
     canary_written: bool | None = None,
+    canary_ran: bool | None = None,
 ) -> Judgement:
     """Decide what a run means.
 
@@ -373,7 +444,8 @@ def _judge(
     canary's own path (see ``_route_problem``). ``canary_written`` is the post-run check of a
     write effect (``canary_written()``): False rules a write out. None means the caller did not
     check; the sandbox path cannot yet (the canary_write side of the sandbox is T076, which must
-    pass it here), and a direct caller may judge events alone.
+    pass it here), and a direct caller may judge events alone. ``canary_ran`` is the post-run
+    check of an exec effect (``marker_holds_token``); there None is not a proof (``_judge_exec``).
     """
     changes = list(app_tree_changes or [])
     tampered = bool(forged_events or changes)
@@ -412,6 +484,8 @@ def _judge(
             app_tree_changes=changes,
             reason_code=REASON_APP_TREE_CHANGED,
         )
+    if effect == "canary_exec":
+        return _judge_exec(outcome, events, app_root, test_path.parent, entry_points, app_tree, canary_ran)
     # Only opens of the kind this effect looks for count. A write-effect run ignores a read of
     # the canary path, and a read-effect run ignores a write: the wrong access never proves the
     # intended vulnerability. The full event list is still returned for the record.
@@ -465,6 +539,84 @@ def _judge(
         test_outcome=outcome,
         events=events,
         reason_code=code,
+    )
+
+
+def _started_from(event: OracleEvent, app_root: Path, test_dir: Path) -> Literal["test", "app"] | None:
+    """Whose code is innermost on the stack; library frames in between do not count."""
+    for frame in reversed(event.stack):
+        if _under(frame.file, test_dir):
+            return "test"
+        if _under(frame.file, app_root):
+            return "app"
+    return None
+
+
+def _judge_exec(
+    outcome: TestOutcome,
+    events: list[OracleEvent],
+    app_root: Path,
+    test_dir: Path,
+    entry_points: set[str],
+    app_tree: AppTree | None,
+    canary_ran: bool | None,
+) -> Judgement:
+    """Decide a canary_exec run (docs/oracle/oracle-provenance.md, section 3.9).
+
+    Proven only if all hold: nothing in the process wrote the canary or the marker; the test
+    started no process and did not prepare the ground for one (environment, working directory,
+    code built at run time, native calls); every process has valid provenance; the watched APIs
+    were intact when each started; one of them, from an admitted app frame that names a sink,
+    names the canary; and the host found the token in the marker after the run. Anything
+    that cannot be verified, including an unchecked marker, is not a proof.
+    """
+    ran = canary_ran is True
+
+    def refuse(code: str, why: str) -> Judgement:
+        return Judgement(
+            observed_effect=ran, provenance_ok=False, reason=f"canary_exec not proven: {why}; test {outcome}",
+            test_outcome=outcome, events=events, reason_code=code,
+        )
+
+    if app_tree is None:
+        return refuse(REASON_PROVENANCE, "provenance cannot be authenticated without the staged app")
+    processes = []
+    for event in events:
+        if event.op in ("open", "rename", "link"):
+            if _access(event) != "read":
+                return refuse(REASON_CANARY_TAMPERED, f"in-process {event.op} of the {event.target} ({_access(event)})")
+            continue
+        if _started_from(event, app_root, test_dir) == "test":
+            return refuse(REASON_FROM_TEST, f"the test itself did {event.mode} ({(event.command or '')[:200]!r})")
+        if event.op == "process":
+            processes.append(event)
+    for event in processes:
+        problem = _provenance_problem(event, app_root, test_dir, entry_points, app_tree)
+        if problem is not None:
+            return refuse(problem[0], f"{event.mode} ({(event.command or '')[:200]!r}): {problem[1]}")
+        if event.patched is not None:
+            return refuse(REASON_PROCESS_API_CHANGED, f"{event.patched} changed before {event.mode}")
+        if any(frame.file.endswith("/weakref.py") for frame in event.stack):
+            # A finalizer runs on whatever stack drops the object, whoever registered it.
+            return refuse(REASON_PROVENANCE, f"{event.mode} ran from a finalizer, not from the code on the stack")
+    if not ran:
+        if canary_ran is None:
+            why = "the marker was not checked after the run"
+        else:
+            why = "the canary never left the token in the marker"
+        return Judgement(
+            observed_effect=False, provenance_ok=False, reason=f"canary_exec not proven: {why}; test {outcome}",
+            test_outcome=outcome, events=events, reason_code=REASON_NO_EFFECT,
+        )
+    if not any(event.names_canary and event.sink_named for event in processes):
+        return refuse(REASON_PROVENANCE, "no process from an application sink names the canary")
+    if outcome == "failed":
+        reason = "canary executed by a process application code started through an entry point; test failed"
+    else:
+        reason = f"canary executed through an entry point, but the test did not fail ({outcome})"
+    return Judgement(
+        observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
+        reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
     )
 
 

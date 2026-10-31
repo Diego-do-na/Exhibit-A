@@ -231,6 +231,18 @@ def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> 
             "file. Assert the token is NOT in the application's response so the test FAILS on "
             "vulnerable code."
         )
+    elif effect == "canary_exec":
+        directory = "os.path.dirname(os.environ['EXHIBIT_A_ALLOWED_DIR'])"
+        marker = f"os.path.join({directory}, 'outside', 'canary_ran')"
+        goal = (
+            f"The canary executable is os.path.join({directory}, 'outside', 'canary'). When run, it "
+            f"writes the token to the marker file {marker}, which does not exist before the test. "
+            "The flaw is proven only if the APPLICATION, handling input the test sends through its "
+            "entry point, starts a process whose command line names the canary's path, such as a "
+            "shell command or a deserialized payload. The test itself must not start any process; a "
+            "pickle payload may name os.system in __reduce__ without calling it. End with assert not "
+            "os.path.exists(<marker path>) so the test FAILS on vulnerable code."
+        )
     else:
         raise ValueError(f"unknown oracle effect {effect!r}")
     allowed = ", ".join(packages) if packages else "nothing beyond the application itself"

@@ -23,7 +23,9 @@ Returns:
         "app_tree_changes": list
     }
     plus, for effect="canary_write" only: "canary_written": bool and "outside_listing": list
-    (what the run left in the writable outside/ tmpfs; see docs/reference/sandbox-write-effect.md).
+    (what the run left in the writable outside/ tmpfs; see docs/reference/sandbox-write-effect.md),
+    and for effect="canary_exec" only: "canary_ran": bool (the host's own check of the marker the
+    canary executable left; see docs/reference/sandbox.md).
 
 Oracle events are signed by the plugin with a key generated here per run and written to the
 container's stdin (``docker run -i``), never to its environment, command line or a mount.
@@ -53,7 +55,8 @@ from pathlib import Path, PurePosixPath
 from typing import Dict, Any, Mapping
 
 from .image import build_image
-from exhibit_a.oracle.plugin import KEY_BYTES, key_message, verify_lines
+from exhibit_a.oracle.oracle import marker_holds_token
+from exhibit_a.oracle.plugin import ENV_MARKER, KEY_BYTES, key_message, verify_lines
 from exhibit_a.oracle.provenance import ManifestError, app_manifest, staging_exclude, tree_changes
 
 PYTEST_VERSION = "pytest==7.3.2"
@@ -66,6 +69,8 @@ _CANARY_MOUNT = "/oracle/canary"
 _EVENTS_MOUNT = "/oracle/events.jsonl"
 _ENV_PREFIX = "EXHIBIT_A_"
 _WORKSPACE = "/workspace"
+_MARKER_NAME = "canary_ran"
+_TOKEN_ENV = "EXHIBIT_A_CANARY_TOKEN"
 
 
 def _env_failure(stderr: str) -> Dict[str, Any]:
@@ -237,17 +242,21 @@ def run(
         ):
             return _env_failure(f"invalid canary_mount: {canary_mount!r}")
 
-        if effect not in ("canary_read", "canary_write"):
+        if effect not in ("canary_read", "canary_write", "canary_exec"):
             return _env_failure(f"unknown oracle effect: {effect}")
         if effect == "canary_write":
             if canary_path is not None:
                 return _env_failure("a write effect mounts no canary file: canary_path must be None")
             if not custom_mount:
                 return _env_failure("a write effect needs a canary_mount of the shape /tmp/<work>/<dir>/<file>")
+        if effect == "canary_exec" and (canary_path is None or not custom_mount or _TOKEN_ENV not in extra_env):
+            return _env_failure("an exec effect needs the canary, a canary_mount of the shape "
+                                f"/tmp/<work>/<dir>/<file> and {_TOKEN_ENV}")
         observe = canary_path is not None or events_path is not None or effect == "canary_write"
         oracle_key = secrets.token_bytes(KEY_BYTES)
         events_file = os.path.join(tmpdir, "events.jsonl")
         outside_file = os.path.join(tmpdir, "outside.json")
+        outside_dir = os.path.join(tmpdir, "outside")
         extra_args: list[str] = []
         plugin_args: list[str] = []
         exclude = staging_exclude(PurePosixPath(rel_test).as_posix())
@@ -278,6 +287,17 @@ def run(
                     # symlinks next to them; the oracle plugin flags reads through links created
                     # during the run (via_symlink) instead of relying on a read-only mount.
                     extra_args += ["--tmpfs", f"{canary_work}:rw,size=16m,mode=1777"]
+                if effect == "canary_exec":
+                    # The canary stays a read-only file, now executable. The directory around it is
+                    # a bind mount, because a tmpfs is noexec and the mount point of a file inside it
+                    # would leave outside/ owned by root: the marker lands here and the host reads
+                    # it itself after the run, trusting nothing the container says about it.
+                    os.chmod(canary_copy, 0o555)
+                    os.mkdir(outside_dir)
+                    os.chmod(outside_dir, 0o777)
+                    Path(outside_dir, mount.name).touch(mode=0o444)
+                    marker = mount.parent / _MARKER_NAME
+                    extra_args += ["-v", f"{outside_dir}:{mount.parent}:rw", "-e", f"{ENV_MARKER}={marker}"]
                 extra_args += ["-v", f"{canary_copy}:{mount}:ro", "-e", f"EXHIBIT_A_CANARY={mount}"]
             elif effect == "canary_write":
                 # Write effect: NO canary file is mounted. The scratch directory is a small
@@ -313,6 +333,9 @@ def run(
                 written, listing = _read_outside(outside_file)
                 payload["canary_written"] = written
                 payload["outside_listing"] = listing
+            if effect == "canary_exec":
+                payload["canary_ran"] = marker_holds_token(
+                    Path(outside_dir, _MARKER_NAME), extra_env[_TOKEN_ENV])
             return payload
 
         # 1) Resolve the prebuilt image (built once with network, reused across runs).

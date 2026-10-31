@@ -342,6 +342,101 @@ the canary (section 3.5). Tests: `test_a_link_to_the_canary_created_by_the_test_
 `test_a_hard_link_to_the_canary_is_never_a_proof`, `test_an_unrelated_symlink_does_not_taint_a_real_traversal`,
 and the replay of the recorded run, `test_replaying_the_negative_control_proves_nothing`.
 
+### 3.9 Layer 8: the `canary_exec` effect (T085)
+
+A third family of effect, code or command execution: shell injection, unsafe deserialization,
+`eval` of input. The read and write effects observe the application touching a file. This one
+observes the application running a program, so it needs a fact from outside the Python process
+as well as the stack inside it.
+
+**The canary.** `<work>/outside/canary` is a tiny `/bin/sh` script, read-only and executable, that
+appends the run's token to `<work>/outside/canary_ran` using shell builtins only. The marker does
+not exist before the run. The test still gets only `EXHIBIT_A_ALLOWED_DIR` and
+`EXHIBIT_A_CANARY_TOKEN`, and reaches both files from the allowed directory, as for the other effects.
+`EXHIBIT_A_CANARY_MARKER` tells the plugin the marker's path and turns the observation on; it is
+popped after install like `EXHIBIT_A_CANARY`, and the guard refuses a test that mentions it.
+
+**What the plugin records** (signed, same channel; only in this effect), each with the logical stack:
+
+| `op` | audit event | also records |
+|---|---|---|
+| `process` | `subprocess.Popen`, `os.system`, `os.exec`, `os.posix_spawn`, `os.spawn`, `os.fork`, `os.forkpty`, `pty.spawn`, and a wrapper's event for a direct `_posixsubprocess.fork_exec` call | `command`, `names_canary`, `sink_named`, `patched` |
+| `native` | `ctypes.dlsym`, `ctypes.dlsym/handle`, `ctypes.call_function` | the symbol |
+| `env` | `os.putenv`/`os.unsetenv` of `PATH`, `IFS`, `ENV`, `BASH_ENV`, `CDPATH`, `SHELL`, `GLOBIGNORE`, `LD_*`, `DYLD_*`, `PYTHON*`, `BASH_FUNC_*` | the name |
+| `chdir` | `os.chdir` (also raised by `os.fchdir`) | |
+| `codegen` | `compile`, unless called from the import system, the stdlib or a dependency | |
+| `open`/`rename`/`link`, `target` `marker` | as in layer 6, for the marker; a rename of `outside/` or a directory above it counts too | |
+
+- `names_canary`: a word of the command resolves to the canary. Shell text is split on whitespace
+  and punctuation, not parsed. A relative word counts if it resolves from the working directory or
+  ends in `outside/canary` (the shell may `cd` first).
+- `sink_named`: the code object of the innermost staged-app frame names a sink (`run`, `Popen`,
+  `system`, `loads`, `load`, `eval`, ...). A frame that only calls a method of its input,
+  `stream.read()`, did not ask for a process, whatever the input does.
+- `patched`: the first watched API (`subprocess`, `os`, `shlex`, `pickle`, `builtins`) or sensitive
+  environment variable that is no longer what it was at install when the process started.
+
+A forked child inherits the hook. Its events share the sequence counter (anonymous shared memory)
+and a pipe-based mutex with its parent, so a fork followed by `os.exec` is recorded without
+tripping the replay check of `verify_lines`.
+
+**What the judge requires** (`oracle._judge_exec`). Signed events, the manifest, the tree check and
+admission apply first, unchanged. Then, in this order, all of:
+
+1. **Authenticated provenance is on.** Without the staged app nothing is proven.
+2. **No in-process write to the canary or the marker**, from anyone: `canary_tampered`.
+3. **Nothing was done from test frames.** For every `process`, `native`, `env`, `chdir` and
+   `codegen` event, the innermost project frame on the logical stack must not be test code:
+   `process_from_test`. Library frames in between do not count, so a test callback the app calls, a
+   thread, a timer or a pool task the test started all count as the test.
+4. **Every process has valid provenance**, not just one: admitted app code, outermost app frame a
+   declared entry point, called from the test, no link to the canary created during the run. So a
+   harmless entry-point call does not launder a sink the test calls directly next to it. A process
+   with no project frame at all (an `atexit` callback) fails too, as does one run by a `weakref`
+   finalizer, which fires on whatever stack drops the object.
+5. **No watched API or variable changed** before any process started: `process_api_changed`.
+6. **The marker holds the token.** The host or sandbox runner checks this itself after the run
+   (`marker_holds_token`): a regular file with one link, at most 1 MiB, every line exactly the token.
+   On the host path the canary must also still be the same regular file. Unchecked is not a proof.
+7. **One process from an application sink names the canary** (`names_canary` and `sink_named`).
+
+The test must also fail, as for every effect. On the sandbox path `outside/` is a bind mount the host
+reads directly, so nothing the container reports about the marker is trusted (`docs/reference/sandbox.md`).
+
+**Static guard** (`guard.exec_problem`, this effect only). A call of a process API, or one passed to
+another call as a callable (`partial(os.system, x)`, `Thread(target=subprocess.run)`), is rule
+`process_call`; `eval`/`exec`/`compile` called from the test is `exec_codegen`. Naming an API as
+data stays allowed: a pickle payload's `__reduce__` returns `(os.system, (command,))`. Before this
+task the guard had no rule against `subprocess` in a test, only the prompt text forbade it; the
+read and write effects stay as they were. It is a tripwire: every cheat in
+`tests/test_oracle_exec.py` also runs with it off.
+
+**What it cannot see.** These are recall costs unless marked otherwise.
+
+- A process started by a C extension without an audit event. In-process, this is a false-proof risk
+  like R1: `ctypes` raises events and is refused from test frames, but a shared object the test
+  loads itself is not observed. The sandbox has no compiler, so it would have to ship the bytes.
+- A shell that never execs the canary: `echo <token> > <marker>` from a real injection is command
+  execution, but it is not this effect and is not proven.
+- A command that computes the canary's name (`$(printf ...)`, `${c}ary`, a glob) does not name it.
+- A process whose sink the innermost app frame does not name: `self.runner(cmd)`, an import alias
+  (`from subprocess import run as r`), or a dependency that starts the process for the app.
+- A payload that calls a test-defined function (`__reduce__` returning a function in the test
+  file): the test frame is innermost, so it counts as started by the test.
+- A process at import time, or from `App.__init__`, anywhere in the run: its outermost app frame is
+  not an entry point, so the whole run is refused. So is a test that uses `os.chdir`, or an app or
+  dependency whose import starts a process.
+- Shims in a directory already on `PATH`. In the sandbox those directories are read-only. On the
+  host path, which is research tooling and not isolated, they are not.
+
+Residual false proofs: R1 and R5 apply to this effect like the others, and both are pinned
+(`test_r1_*`, `test_r5_*` in `tests/test_oracle_exec.py`, `attack_exec_r1_cell_tamper` and
+`attack_exec_r5_app_binding` in `spikes/redteam`). Rewriting the hook's closure stops it watching the
+marker. Replacing a name in the app's own module (`setattr(sys.modules["app"], "quote", str)`) makes
+the admitted code really build an injection. The install-time snapshot catches the stdlib's
+`shlex.quote`, not that. Callback tricks that need no Python frame and fire on the app's stack are
+the same family: `sink_named` and the `weakref` check narrow them, but do not bound them.
+
 ## 4. What each layer defends
 
 | attack | L1 manifest | L2 admission | L3 tree check | L4 tripwire | L5 dir_fd |
@@ -386,6 +481,28 @@ The sandbox twin of `attack_write_app_module`
 The expected result is BLOCKED twice: `channel_tripwire` with the guard on, and
 `app_tree_changed` with it off. The fake-docker tests exercise the same sandbox code path
 without a container.
+
+Results for the `canary_exec` attacks, T085, same command, this session, host path. Every attack
+that refuses a proof also runs the canary or writes the marker for real, except where noted.
+
+| PoC | app | guard on | guard off | stopped by |
+|---|---|---|---|---|
+| `attack_exec_canary_from_test` | safe | BLOCKED | BLOCKED | `process_from_test` |
+| `attack_exec_test_thread` | safe | BLOCKED | BLOCKED | `process_from_test` (logical stack) |
+| `attack_exec_marker_write` | safe | BLOCKED | BLOCKED | `canary_tampered` |
+| `attack_exec_outside_swap` | safe | BLOCKED | BLOCKED | `canary_tampered` (rename of `outside/`) |
+| `attack_exec_path_shim` | safe | BLOCKED | BLOCKED | `process_from_test` (`os.putenv`); the sandbox tmpfs is also noexec |
+| `attack_exec_native_system` | safe | BLOCKED | BLOCKED | `process_from_test` (`ctypes.dlsym`) |
+| `attack_exec_raw_fork_exec` | safe | BLOCKED | BLOCKED | `process_from_test` (wrapper event; the call itself fails on 3.14) |
+| `attack_exec_at_exit` | safe | BLOCKED | BLOCKED | no project frame on the stack |
+| `attack_exec_finalizer` | safe | BLOCKED | BLOCKED | finalizer, or the test frame that dropped the object |
+| `attack_exec_stdlib_patch` | safe | BLOCKED | BLOCKED | `process_api_changed` |
+| `attack_exec_frameless_callable` | safe | BLOCKED | BLOCKED | `sink_named` |
+| `attack_exec_copied_canary` | safe | BLOCKED | BLOCKED | the command does not name the canary |
+| `attack_exec_true_injection` | vulnerable | DETECTED | DETECTED | control |
+| `attack_exec_true_pickle` | vulnerable | DETECTED | DETECTED | control |
+| `attack_exec_r1_cell_tamper` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R1) |
+| `attack_exec_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
 
 ## 6. What is proven by tests, what is only designed
 

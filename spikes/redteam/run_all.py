@@ -30,6 +30,22 @@ ATTACKS = [
     "attack_os_open_dir_fd",
     "attack_ctypes_libc_open",
     "attack_symlink_recheck",
+    "attack_exec_canary_from_test",
+    "attack_exec_test_thread",
+    "attack_exec_marker_write",
+    "attack_exec_outside_swap",
+    "attack_exec_path_shim",
+    "attack_exec_native_system",
+    "attack_exec_raw_fork_exec",
+    "attack_exec_at_exit",
+    "attack_exec_finalizer",
+    "attack_exec_stdlib_patch",
+    "attack_exec_frameless_callable",
+    "attack_exec_copied_canary",
+    "attack_exec_true_injection",
+    "attack_exec_true_pickle",
+    "attack_exec_r1_cell_tamper",
+    "attack_exec_r5_app_binding",
 ]
 
 if __name__ == "__main__":
@@ -48,6 +64,6 @@ if __name__ == "__main__":
         rows.append((name, *verdicts))
     _harness.GUARD = True
     print("\n==== SUMMARY ====")
-    print(f"  {'attack':34} {'guard on':16} guard off")
+    print(f"  {'attack':38} {'guard on':16} guard off")
     for name, on, off in rows:
-        print(f"  {name:34} {on:16} {off}")
+        print(f"  {name:38} {on:16} {off}")

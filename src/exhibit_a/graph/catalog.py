@@ -7,10 +7,10 @@ graph resolved: ``builtins.open``, ``os.path.realpath``, ``subprocess.run``,
 reaches first: an ASGI/WSGI callable, a route handler, a CLI main, or a name declared by
 the case (``case.json`` ``run.entry_points``), which always wins over detection.
 
-Only two classes can be proven by the oracle today (SPEC section 7): path traversal through
-a read (``canary_read``) and through a write (``canary_write``). The other sinks are listed
-so a reach report can say what a path leads to; their ``effect`` is None, so the loop never
-pretends it can prove them.
+Three families can be proven by the oracle today (SPEC section 7): path traversal through
+a read (``canary_read``) and through a write (``canary_write``), and code or command execution
+(``canary_exec``). The other sinks are listed so a reach report can say what a path leads to;
+their ``effect`` is None, so the loop never pretends it can prove them.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from exhibit_a.schemas.graph import CodeGraph, EntryPoint, GraphEdge, GraphNode,
 
 from .build import MAIN_GUARD
 
-READ, WRITE = "canary_read", "canary_write"
+READ, WRITE, EXEC = "canary_read", "canary_write", "canary_exec"
 
 
 @dataclass(frozen=True)
@@ -71,14 +71,17 @@ SINKS: tuple[SinkRule, ...] = (
               "subprocess.getstatusoutput", "os.system", "os.popen", "os.execv", "os.execve",
               "os.execvp", "os.execl", "os.spawnv", "os.spawnl", "asyncio.create_subprocess_shell",
               "asyncio.create_subprocess_exec"),
-             "process", "command_injection", None, "exec", "runs a process"),
-    SinkRule(("builtins.eval", "builtins.exec", "builtins.compile", "builtins.__import__",
-              "importlib.import_module"),
-             "dynamic_code", "code_injection", None, "code", "runs or loads code"),
-    SinkRule(("pickle.loads", "pickle.load", "pickle.Unpickler", "marshal.loads", "shelve.open",
+             "process", "command_injection", EXEC, "exec", "runs a process"),
+    SinkRule(("builtins.eval", "builtins.exec"),
+             "dynamic_code", "code_injection", EXEC, "code", "runs code"),
+    SinkRule(("builtins.compile", "builtins.__import__", "importlib.import_module"),
+             "dynamic_code", "code_injection", None, "code", "builds or loads code"),
+    SinkRule(("pickle.loads", "pickle.load", "pickle.Unpickler", "shelve.open",
               "dill.loads", "yaml.unsafe_load", "yaml.full_load"),
-             "deserialization", "insecure_deserialization", None, "code", "unsafe deserialisation"),
-    SinkRule(("yaml.load",), "deserialization", "insecure_deserialization", None, "code",
+             "deserialization", "insecure_deserialization", EXEC, "code", "unsafe deserialisation"),
+    SinkRule(("marshal.loads",), "deserialization", "insecure_deserialization", None, "code",
+             "unmarshals code objects without running them"),
+    SinkRule(("yaml.load",), "deserialization", "insecure_deserialization", EXEC, "code",
              "yaml.load without a SafeLoader",
              safe_arg=(1, "Loader", ("SafeLoader", "CSafeLoader", "BaseLoader"))),
     SinkRule(("urllib.request.urlopen", "urllib.request.urlretrieve", "http.client.HTTPConnection",
