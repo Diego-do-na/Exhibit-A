@@ -19,7 +19,7 @@ from typing import Any, Callable, Iterator
 
 from exhibit_a.install import safe_pip_install
 from exhibit_a.ledger import Ledger
-from exhibit_a.loop import Roles, SandboxRunner, VerificationLoop
+from exhibit_a.loop import HostRunner, Roles, SandboxRunner, VerificationLoop
 from exhibit_a.models import Completion, ModelRole, Role
 from exhibit_a.models.cost import Pricing
 from exhibit_a.schemas import Event, EventType
@@ -248,13 +248,19 @@ class CaseMaterialsProvider:
         )
 
 
-def make_pipeline(providers: Any, *, runner: Any = None) -> Pipeline:
+def make_pipeline(
+    providers: Any,
+    *,
+    runner: Any = None,
+    allow_host_execution: bool = False,
+) -> Pipeline:
     """Return a pipeline that runs the real VerificationLoop for one Case.
 
     ``providers`` is either a single provider used for every case or a mapping
     of case id to provider. ``runner`` (a TestRunner) may be injected for
     tests to avoid the Docker-backed SandboxRunner; without it each case gets
-    a SandboxRunner built from its own ``run.requirements``.
+    a SandboxRunner built from its own ``run.requirements`` unless the explicit
+    test-only switch ``allow_host_execution=True`` is set.
     """
 
     def provider_for(case: Case) -> Any:
@@ -278,11 +284,19 @@ def make_pipeline(providers: Any, *, runner: Any = None) -> Pipeline:
 
         try:
             out_dir = ledger.path.parent / "out"
-            effective_runner = (
-                runner
-                if runner is not None
-                else SandboxRunner(requirements=tuple(case.requirements), sql_db=case.sql_db or None)
-            )
+            if runner is not None:
+                effective_runner = runner
+            elif allow_host_execution:
+                effective_runner = HostRunner(
+                    allow_host_execution=True,
+                    requirements=tuple(case.requirements),
+                    sql_db=case.sql_db or None,
+                )
+            else:
+                effective_runner = SandboxRunner(
+                    requirements=tuple(case.requirements),
+                    sql_db=case.sql_db or None,
+                )
             if not _runner_supports_effect(effective_runner, case.effect):
                 # Fail closed before anything executes: the runner cannot
                 # judge this case's effect, and exploit tests must never run
