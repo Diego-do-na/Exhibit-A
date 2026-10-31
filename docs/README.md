@@ -51,3 +51,4 @@ One line per document. Paths are relative to the repository root.
 - [reference/sandbox-write-effect.md](reference/sandbox-write-effect.md) — write-effect sandbox plumbing: no canary file, tmpfs `outside/` dir, post-run dump.
 - [reference/demo.md](reference/demo.md) — demo storyboard: red-to-green in 2-3 minutes via `scripts/demo.sh --offline` or `--live`.
 - [reference/sprint2-acceptance.md](reference/sprint2-acceptance.md) — sprint 2 acceptance criteria and verification status.
+- [reference/proof-bundles.md](reference/proof-bundles.md) — re-verifiable proof bundles: offline `verify` and sandbox `reproduce` with no model call.
