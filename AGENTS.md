@@ -33,7 +33,7 @@ Run the exact project test command:
 ~/Desktop/Proyects/Exhibit-A/.venv/bin/python -m pytest
 ```
 
-Docker or Colima must be running for sandbox tests.
+Docker or Colima must be running for sandbox tests. Agents run only the declared and directly affected tests; the full command above is for the owner's checkpoints.
 
 ## Hard rules
 
@@ -46,4 +46,4 @@ Docker or Colima must be running for sandbox tests.
 - Sandbox tests need Docker. If `docker info` fails, STOP and report it; never skip, ignore or --ignore tests/test_sandbox*.py, and never treat skipped sandbox tests as passing.
 - Commit all your work on the task branch before ending the session. Do not push and do not merge: Cauce's finish step does that.
 - Keep commits small and clear; do not rewrite history.
-- Green tests are required before finishing.
+- Green tests are required before finishing: the task's declared tests plus the test files that cover the modules you changed. Do not run the full suite; the owner runs it at checkpoints, so state in your report what you ran and what you did not.
