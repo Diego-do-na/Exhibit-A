@@ -90,6 +90,33 @@ Columns:
   loop proved nothing, including on both cases that are known to be vulnerable. The cause is in
   `docs/bench/meta-run.md`.
 
+## What each dollar buys
+
+Cost per run is the wrong unit when the two systems deliver different things. The naive reporter
+sells a claim; Exhibit A sells a claim that has already been checked, plus a fix that has already
+been checked. Counted per deliverable, on the compact row above:
+
+| | Naive LLM | Exhibit A, compact |
+|---|---|---|
+| What a report contains | a sentence saying where a bug might be | an exploit test that fails on the vulnerable code for the oracle-observed reason, a fix, and the check that the fix stops the exploit while the project's own tests still pass |
+| Reports a maintainer must still triage | 3 (2 real, 1 false accusation) | 0 unverified; 2 already proven |
+| Exploit tests written for the maintainer | 0 | 2 |
+| Fixes written and verified | 0 | 2 |
+| Cost per report | US$0.0236 | US$0.1531 |
+| Cost per verified fix | n/a (none produced) | US$0.1531 |
+| Extra spend over the naive reporter | - | US$0.2353 for the three targets, about US$0.08 per target |
+
+Read the last row against the human work the naive output still needs. For each naive report
+someone has to decide whether it is real, write a test that shows it, write a fix and check the
+fix. The false accusation costs that triage and produces nothing. At an illustrative engineering
+cost of US$60 an hour (US$1 a minute; an assumption, not a measurement), the extra US$0.08 per
+target pays for itself if it saves about five seconds of that work. No human time was measured
+here, so this is a break-even line, not a result.
+
+This does not change the honest reading of the table: on this corpus the naive model found the
+same two bugs, and Exhibit A cost about four times more per run. The case for the extra cost is
+what comes with each report and the false accusation it did not make, not better recall.
+
 ## The negative control had a false proof
 
 The live compact run of `starlette-cve-2023-29159-fixed` ended with S3 `proven`. **That was a false
@@ -140,6 +167,7 @@ No live run of the negative control has been made since the oracle fix.
   and bypass checks, and the naive cost buys a list.
 - **The proof standard has declared limits.** The oracle is isolated and resource-limited and still
   has open false-proof limits (`docs/oracle/oracle-provenance.md`, `docs/security/THREAT_MODEL.md`).
-- **Costs are not taken from ledger totals.** The loop stamps the adversary's one call on every
-  `suspicion_raised` event, so ledger totals charge it once per suspicion. The comparison counts
-  actual model calls instead, and these match the recordings.
+- **Costs are counted from model calls, not ledger totals.** Ledgers written before commit
+  d8b68f2 stamped the adversary's one call on every `suspicion_raised` event and so charged it
+  once per suspicion; the loop now charges it once. The comparison counts actual model calls
+  either way, and these match the recordings.
