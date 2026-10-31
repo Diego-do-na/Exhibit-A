@@ -233,7 +233,7 @@ Every module sits behind a flag so it can be ablated.
 
 - loop: implemented (BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY → PACKAGE).
 - clone sandbox: implemented (hardened Docker runner with image build); tests require Docker.
-- baseline check: implemented (local/host baseline runner present; some corpus cases still run baseline as a host child process).
+- baseline check: implemented (runs inside the isolated, resource-limited sandbox via `SandboxRunner`).
 - oracle with provenance: implemented (canary + stack-provenance checks).
 - differential gating & repeated runs: implemented in the loop (N runs; since A-22/T078 the exploit passing on the fixed code and the fixed baseline passing gate every `proven`, section 4).
 - vulnerability classes: path traversal (read) and archive extraction (write, synthetic case) realised; broken authorization and the warm-up class are not, and SSRF is not a v1 class.
@@ -241,7 +241,7 @@ Every module sits behind a flag so it can be ablated.
 - ledger: implemented (append-only JSONL).
 - benchmark with ablations: bench corpus and probe tooling present; replay-driven cases work.
 - minimal live view: minimal replay-backed live pieces implemented.
-- CLI: `run` takes a benchmark case (`--replay` or live) or `--pr-diff`, with `--provider`/`--model`; `scan` is still a placeholder. The `--case` baseline still runs as a host child process.
+- CLI: `run` takes a benchmark case (`--replay` or live) or `--pr-diff`, with `--provider`/`--model`; every CLI mode runs baseline and exploit tests in the sandbox (`SandboxRunner`).
 
 **Should**: CVE reachability, attack-surface map, open-weight models for adversary and test
 writer, GitHub Action, replay mode, defender bypass, cost meter, oracle evaluation set.
