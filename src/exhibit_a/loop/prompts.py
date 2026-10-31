@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
+from exhibit_a.oracle.oracle import SQL_CANARY_COLUMN, SQL_CANARY_TABLE
 from exhibit_a.schemas import Suspicion
 
 _STR = {"type": "string"}
@@ -242,6 +243,25 @@ def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> 
             "shell command or a deserialized payload. The test itself must not start any process; a "
             "pickle payload may name os.system in __reduce__ without calling it. End with assert not "
             "os.path.exists(<marker path>) so the test FAILS on vulnerable code."
+        )
+    elif effect == "canary_sql":
+        # Its own text from start to end: the file-path advice of the shared tail ("root the
+        # application at EXHIBIT_A_ALLOWED_DIR") does not apply to a database.
+        allowed = ", ".join(packages) if packages else "nothing beyond the application itself"
+        return (
+            f"PROOF CONTRACT: The application's own database holds a table named {SQL_CANARY_TABLE} with one "
+            f"TEXT column, {SQL_CANARY_COLUMN}, and one row: the run's token, which the test reads as {token}. The "
+            "application never queries that table. The flaw (SQL injection) is proven only if the APPLICATION, handling input the "
+            "test sends through its entry point, runs SQL that reads that table, and the token comes back "
+            "in the application's response or return value. Construct the application the way its own code "
+            "does by default; you are not given the database path and must not look for it. The test must "
+            "FAIL on vulnerable code: assert the token is NOT in the response. The test must PASS once the "
+            "flaw is fixed: if the application refuses the input by raising an exception or answering with an "
+            "error, catch that and treat it as safe, so that only that assertion can fail. Never import "
+            "sqlite3, and never connect to, open, query or read the database or its file; never call execute, "
+            "executemany, executescript or cursor on anything; never monkeypatch, replace or edit application "
+            "code, modules or attributes; never use ctypes, subprocess, eval, exec or importlib tricks. "
+            f"Imports: the Python standard library, pytest, the application, and the installed packages: {allowed}."
         )
     else:
         raise ValueError(f"unknown oracle effect {effect!r}")
