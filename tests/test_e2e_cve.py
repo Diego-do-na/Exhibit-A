@@ -60,7 +60,7 @@ def test_cli_closes_the_cycle(cycle, capsys):
 def test_package_contents_and_verdict(cycle):
     _, out = cycle
     pkg = out / "packages" / SUSPICION
-    assert {p.name for p in pkg.iterdir()} == {"test_exploit.py", "fix.patch", "verdict.json", "evidence.json"}
+    assert {p.name for p in pkg.iterdir()} == {"test_exploit.py", "fix.patch", "verdict.json", "evidence.json", "manifest.json"}
     verdict = json.loads((pkg / "verdict.json").read_text())
     assert verdict["verdict"] == "proven"
     assert verdict["evidence"]["fails_on"] == "vulnerable"
