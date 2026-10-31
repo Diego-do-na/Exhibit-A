@@ -498,6 +498,24 @@ def test_exploit():
     assert shape(host(tmp_path, source, test_source)) != PROVEN
 
 
+def test_a_test_callback_the_app_calls_runs_in_a_test_frame(tmp_path, unguarded):
+    source = app('''\
+    class App:
+        def __init__(self):
+            self.conn = sqlite3.connect(DB)
+
+        def handle_request(self, callback):
+            return callback(self.conn)
+    ''')
+    test_source = PRELUDE + '''
+def test_exploit():
+    rows = App().handle_request(lambda conn: conn.execute("SELECT token FROM exhibit_canary").fetchall())
+    assert TOKEN not in str(rows)
+'''
+    j = host(tmp_path, source, test_source)
+    assert shape(j) != PROVEN and j.reason_code == "sql_from_test", j.reason
+
+
 def test_a_connection_to_another_database_is_not_the_apps(tmp_path, unguarded):
     source = app('''\
     class App:
@@ -1028,6 +1046,34 @@ def test_the_sandbox_refuses_a_sql_run_it_could_not_set_up(tmp_path, monkeypatch
     missing_db = run(str(clone), "test_x.py", 5, env=env, sql_db="data/app.db", **kwargs)
     no_token = run(str(clone), "test_x.py", 5, sql_db="data/app.db", **kwargs)
     assert {r["outcome"] for r in (no_db, bad_db, missing_db, no_token)} == {"env_failure"}
+
+
+def _case(tmp_path, run):
+    from bench.corpus import load_corpus
+
+    case = {"id": "sql-1", "kind": "vulnerable", "repo": "", "commit": "", "ground_truth": []}
+    spec = {"cases": [case], "run": {"tree": "vulnerable", "baseline_test": "test_baseline.py",
+                                     "source_file": "app.py", **run}}
+    (tmp_path / "case.json").write_text(json.dumps(spec), encoding="utf-8")
+    return load_corpus(tmp_path / "case.json")[0]
+
+
+def test_a_case_declares_its_database(tmp_path):
+    case = _case(tmp_path, {"effect": "canary_sql", "sql_db": DB_REL})
+    assert (case.effect, case.sql_db) == ("canary_sql", DB_REL)
+
+
+@pytest.mark.parametrize("run", [
+    {"effect": "canary_sql"}, {"effect": "canary_sql", "sql_db": "../x.db"},
+    {"effect": "canary_sql", "sql_db": "/x.db"}, {"effect": "canary_read", "sql_db": DB_REL},
+])
+def test_a_case_with_a_missing_or_misplaced_database_is_refused(tmp_path, run):
+    with pytest.raises(ValueError, match="sql_db"):
+        _case(tmp_path, run)
+
+
+def test_other_cases_have_no_database(tmp_path):
+    assert _case(tmp_path, {"effect": "canary_exec"}).sql_db == ""
 
 
 # -- residual limits, pinned -------------------------------------------------------------------
