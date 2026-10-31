@@ -113,6 +113,8 @@ Only `proven` changes the check colour. If you also want `aborted`,
   "skipped_reason": "",
   "engine_exit": 1,
   "proven": 1,
+  "proven_raw": 1,
+  "duplicates": 0,
   "verdicts": {"proven": 1, "discarded_unproven": 2, "invalid_test": 0, "flaky": 0, "env_failure": 0},
   "suspicions_raised": 3,
   "dropped": 2,
@@ -125,7 +127,16 @@ Only `proven` changes the check colour. If you also want `aborted`,
 ```
 
 Only `verdict` ledger events count; text in other events that says "proven" is
-ignored. The latest verdict per suspicion wins. `ablated: true` means the run
+ignored. The latest verdict per suspicion wins.
+
+`proven` counts unique findings: proven suspicions that show the same effect through the same
+entry point and the same application frames down to the sink caller (as the oracle admitted them)
+are one finding, the first proven being the primary. `proven_raw` is the number of proven
+verdicts before grouping and `duplicates` the difference; `verdicts` stays raw. A finding may also
+carry `facts` (what the oracle observed and the loop checked), `observed_location`, the model's
+`hypothesis` and its `duplicates`; the step summary opens each finding with a fixed explanation
+built from the facts only, followed by the model's hypothesis labelled as the model's guess.
+Findings that differ in effect, entry point or any sink frame are never merged. `ablated: true` means the run
 used benchmark ablation flags and does not meet the full proof standard.
 
 ## Risk gate

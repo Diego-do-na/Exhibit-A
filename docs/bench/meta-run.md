@@ -207,7 +207,8 @@ above): nothing was proven on code that is not vulnerable. On the vulnerable tre
 the same bug: S3's exploit is the sibling-prefix request (`out` beside `outside`,
 `/../outside/canary.txt`), while S3's hypothesis text guessed a Windows backslash variant. The
 proof is the executed test, not the hypothesis; the report now labels the hypothesis as the
-model's guess, and grouping duplicate proofs of one effect is not implemented yet.
+model's guess; since T088 duplicate proofs of one effect (same entry point, same application
+frames to the sink) are grouped into one finding, with the others listed as its duplicates.
 
 ### Repeatability runs, with and without `--slice` (2026-10-30, not recorded)
 
@@ -240,7 +241,7 @@ What this shows, on this corpus only:
   no suspicion at all). That is the right outcome on fixed code, but it also means those runs
   did not exercise the oracle's rejection path; the unsliced runs did, and rejected all nine suspicions they raised.
 - One unsliced Starlette run reported two `proven` packages. Both exploit tests request
-  `/../outside/canary.txt`: one bug proven twice. Grouping duplicate proofs is not implemented.
+  `/../outside/canary.txt`: one bug proven twice. Since T088 such proofs are grouped into one finding (see docs/ci/github-action.md).
 
 Limits: three samples per row, two vulnerable cases, both of which the compact contract was
 tuned on (see `docs/bench/bench.md`). These runs say the result is repeatable on these cases,
