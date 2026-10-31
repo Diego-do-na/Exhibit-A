@@ -34,7 +34,7 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import ValidationError
 
 from exhibit_a.oracle import Judgement, OracleEvent
-from exhibit_a.oracle.guard import channel_problem, exec_problem
+from exhibit_a.oracle.guard import channel_problem, exec_problem, sql_problem
 from exhibit_a.oracle.oracle import (
     ENV_ALLOWED_DIR,
     ENV_CANARY_TOKEN,
@@ -44,6 +44,7 @@ from exhibit_a.oracle.oracle import (
     TestOutcome,
     _judge,
     exec_canary_script,
+    sql_db_problem,
 )
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest
 
@@ -99,6 +100,9 @@ class SandboxRunner:
 
     requirements: Sequence[str] = ()
     image: str | None = None
+    # canary_sql only: the application's SQLite database, as a path relative to the app tree
+    # (case.json run.sql_db). The container sees a copy of it with the canary table added.
+    sql_db: str | None = None
 
     def run_baseline(self, clone_path: str, test_path: str, timeout: float) -> dict[str, Any]:
         from exhibit_a.sandbox import run
@@ -120,6 +124,8 @@ class SandboxRunner:
         problem = channel_problem(Path(test_path))
         if problem is None and effect == "canary_exec":
             problem = exec_problem(Path(test_path))
+        if problem is None and effect == "canary_sql":
+            problem = sql_problem(Path(test_path))
         if problem is not None:
             # Not run at all, as on the host path: the loop classifies "error" as invalid_test.
             return Judgement(
@@ -142,6 +148,11 @@ class SandboxRunner:
                 canary.write_text(token + "\n", encoding="utf-8")
             elif effect == "canary_exec":
                 canary.write_text(exec_canary_script(_EXEC_MARKER, token), encoding="utf-8")
+            if effect == "canary_sql":
+                # The database must be where the case says; the sandbox seeds a copy of it.
+                problem = sql_db_problem(stage, self.sql_db)
+                if problem is not None:
+                    raise OSError(f"sandbox could not run the exploit: {problem}")
             # The stage is never mounted (the sandbox copies it), so it stays the host's
             # untouched copy of what the plugin's manifest describes.
             try:
@@ -160,6 +171,7 @@ class SandboxRunner:
                 env={ENV_CANARY_TOKEN: token, ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed"},
                 manifest=manifest,
                 effect=effect,
+                sql_db=self.sql_db if effect == "canary_sql" else None,
             )
             if result["outcome"] == "env_failure":
                 raise OSError(f"sandbox could not run the exploit: {result['stderr']}")
