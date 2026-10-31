@@ -169,16 +169,33 @@ def _by_id(cases):
     return {case.id: case for case in cases}
 
 
-def test_load_corpus_accepts_directory_with_all_five_cases():
+def test_load_corpus_accepts_directory_with_all_seven_cases():
     cases = load_corpus(CORPUS_DIR)
     assert [c.id for c in cases] == [
         "archive-extraction-pathtraversal",
         "command-injection-shell",
+        "sql-injection-login",
+        "sql-injection-search",
         "starlette-cve-2023-29159",
         "starlette-cve-2023-29159-fixed",
         "unsafe-deserialization-pickle",
     ]
     by_id = _by_id(cases)
+
+    for case_id, source_file, truth_file in (
+        ("sql-injection-login", "app.py", "vulnerable/app.py"),
+        ("sql-injection-search", "shop/repository.py", "vulnerable/shop/repository.py"),
+    ):
+        sql = by_id[case_id]
+        assert sql.kind == "vulnerable"
+        assert sql.tree == "vulnerable"
+        assert sql.baseline_test == "baseline_test.py"
+        assert sql.effect == "canary_sql"
+        assert sql.sql_db == "data/app.db"
+        assert sql.recording == ""
+        assert sql.requirements == ()
+        assert sql.source_file == source_file
+        assert sql.ground_truth == ({"class": "sql_injection", "file": truth_file},)
 
     command = by_id["command-injection-shell"]
     assert command.kind == "vulnerable"

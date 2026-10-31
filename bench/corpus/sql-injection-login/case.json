@@ -1,0 +1,85 @@
+{
+  "cases": [
+    {
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "sql_injection",
+          "file": "vulnerable/app.py"
+        }
+      ],
+      "id": "sql-injection-login",
+      "kind": "vulnerable",
+      "repo": ""
+    }
+  ],
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "note": "Self-contained oracle case. It installs no third-party package and is not replay-driven: it is proven directly with effect='canary_sql' against the SQLite database run.sql_db declares (a copy of it is seeded with the canary table; the original is never touched). No upstream repo/commit applies because the vulnerable code is original synthetic code written for this case.",
+  "real_world_analog": {
+    "advisory": "https://nvd.nist.gov/vuln/detail/CVE-2004-1737",
+    "cve": "CVE-2004-1737",
+    "fix": "Build the statement with bound parameters instead of string formatting, and convert numeric ids to integers. This case uses an original, equivalent containment (parameters plus int()).",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2004-1737",
+    "summary": "SQL injection in auth_login.php of Cacti 0.8.5a: the username and password parameters reached the login statement, allowing arbitrary SQL and authentication bypass. The pattern is request input reaching a login statement by string building.",
+    "verification": "CVE number and summary confirmed via web search (NVD entry) on 2026-10-31; the app in this case is original synthetic code, not Cacti."
+  },
+  "run": {
+    "baseline_test": "baseline_test.py",
+    "bypass": {
+      "expectation": "proven against fixed_incomplete: the account id is placed in the statement without quotes, so an escape that only doubles single quotes does not stop a quote-free UNION; the incomplete fix must not be accepted as fixed.",
+      "exploit": "exploits/exploit_true_numeric_lookup.py",
+      "incomplete_fix": "fixed_incomplete"
+    },
+    "effect": "canary_sql",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_union_login.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_numeric_lookup.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_boolean_login.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_valid_login.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_unknown_user.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_query_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_reads_database.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_leak.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_leak.py",
+        "label": "flaky"
+      }
+    ],
+    "oracle_entry_point": "App.handle_request",
+    "source_file": "app.py",
+    "sql_db": "data/app.db",
+    "trees": {
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete",
+      "vulnerable": "vulnerable"
+    }
+  },
+  "synthetic": true
+}

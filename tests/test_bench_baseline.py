@@ -62,6 +62,18 @@ def test_other_classes_do_not_become_traversal(name):
     assert canonical_class(name) != "path_traversal"
 
 
+@pytest.mark.parametrize("name", [
+    "sql_injection", "SQL Injection", "Blind SQL Injection", "sql injection via ORDER BY", "union_sql_read",
+])
+def test_sql_injection_wordings_share_one_class(name):
+    assert canonical_class(name) == "sql_injection"
+
+
+@pytest.mark.parametrize("name", ["command_injection", "path_traversal", "sqlite_path_escape", "XSS"])
+def test_other_classes_do_not_become_sql_injection(name):
+    assert canonical_class(name) != "sql_injection"
+
+
 def test_file_is_compared_relative_to_the_tree():
     assert canonical_file("vulnerable/archive.py", "vulnerable") == "archive.py"
     assert canonical_file("./archive.py", "vulnerable") == "archive.py"
