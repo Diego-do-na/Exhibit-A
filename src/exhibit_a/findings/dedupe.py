@@ -26,7 +26,7 @@ from exhibit_a.schemas.graph import CodeGraph
 
 #: Which observed accesses count for each effect that watches the canary file.
 _ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}
-EFFECTS = ("canary_read", "canary_write", "canary_exec")
+EFFECTS = ("canary_read", "canary_write", "canary_exec", "canary_sql")
 
 #: Where the observed line comes from.
 FUNCTION_START = "function_start"  # the line the sink caller starts on, as the oracle saw it
@@ -106,6 +106,9 @@ def _relevant(event: Mapping[str, Any], effect: str) -> bool:
         return False
     if effect == "canary_exec":
         return event.get("op") == "process" and bool(event.get("names_canary")) and bool(event.get("sink_named"))
+    if effect == "canary_sql":
+        return (event.get("op") == "sql_read" and event.get("column") == "token"
+                and bool(event.get("declared_db")) and event.get("database") == "main")
     return event.get("access") in _ACCESS.get(effect, ())
 
 

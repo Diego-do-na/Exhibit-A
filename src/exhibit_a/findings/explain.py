@@ -19,6 +19,7 @@ _EFFECTS = {
     "canary_read": "the application read a file outside the allowed directory (the canary file)",
     "canary_write": "the application created or wrote a file outside the allowed directory (the canary file)",
     "canary_exec": "the application ran a program outside the allowed directory (the canary program)",
+    "canary_sql": "the application read a row of a database table it never queries (the canary table), through SQL built from input",
 }
 _LINE_SOURCES = {
     "graph_sink_call": "the line of the sink call, found by the static call graph inside the function the oracle saw",
