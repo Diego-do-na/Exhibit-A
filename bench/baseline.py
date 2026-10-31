@@ -110,6 +110,8 @@ TARGETS = (
     Target("archive-extraction-pathtraversal", INCOMPLETE, "fixed_incomplete", paired=False),
     Target("command-injection-shell", VULNERABLE),
     Target("unsafe-deserialization-pickle", VULNERABLE),
+    Target("sql-injection-login", VULNERABLE),
+    Target("sql-injection-search", VULNERABLE),
 )
 
 #: Ground-truth classes, each with the wordings that mean it. Matching stays literal on purpose:
@@ -117,12 +119,14 @@ TARGETS = (
 _TRAVERSAL = "path_traversal"
 _COMMAND_INJECTION = "command_injection"
 _INSECURE_DESERIALIZATION = "insecure_deserialization"
+_SQL_INJECTION = "sql_injection"
 _CLASS_MEMBERS = {
     _TRAVERSAL: ("traversal", "zip_slip", "zipslip", "tar_slip"),
     _COMMAND_INJECTION: ("command_injection", "shell_injection", "command_execution", "os_command"),
     _INSECURE_DESERIALIZATION: (
         "insecure_deserialization", "unsafe_deserialization", "deserialization", "pickle", "yaml",
     ),
+    _SQL_INJECTION: ("sql_injection", "blind_sql", "union_sql"),
 }
 
 

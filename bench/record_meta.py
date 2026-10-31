@@ -55,6 +55,8 @@ CASES = (
     "archive-extraction-pathtraversal",
     "command-injection-shell",
     "unsafe-deserialization-pickle",
+    "sql-injection-login",
+    "sql-injection-search",
 )
 DEFAULT_MODEL = "muse-wonder-1.0"
 CASE_BUDGET_USD = 2.0
@@ -151,7 +153,7 @@ def run_case(
     loop = VerificationLoop(
         clone, out_dir, ledger, roles, STAGED_BASELINE,
         run_id=case.id,
-        runner=SandboxRunner(requirements=tuple(case.requirements)),
+        runner=SandboxRunner(requirements=tuple(case.requirements), sql_db=case.sql_db or None),
         requirements=tuple(case.requirements),
         effect=case.effect,
         prompt_profile=profile,
