@@ -23,7 +23,7 @@ Supporting directories include `web/` for the plain HTML/JavaScript live view an
 
 ## Current state
 
-Exploit, fixed-code and bypass runs go through the sandbox (`SandboxRunner`, including the write effect). Two paths still run on the host: the project baseline of `exhibit-a run --case ... --replay` (`_local_baseline`) and the host-path oracle `run_oracle`, used by tests and research tooling (audit F8, docs/security/THREAT_MODEL.md). Do not assume they are sandboxed.
+Baseline, exploit, fixed-code and bypass runs go through the sandbox (`SandboxRunner`, including read, write, exec, and SQL effects) across every CLI and benchmark mode. A host execution path (`HostRunner` and `run_oracle`) is kept only behind an explicit, documented, test-only switch (`allow_host_execution=True`) that the CLI never sets.
 
 ## Testing
 
