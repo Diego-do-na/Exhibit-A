@@ -7,21 +7,22 @@ graph resolved: ``builtins.open``, ``os.path.realpath``, ``subprocess.run``,
 reaches first: an ASGI/WSGI callable, a route handler, a CLI main, or a name declared by
 the case (``case.json`` ``run.entry_points``), which always wins over detection.
 
-Three families can be proven by the oracle today (SPEC section 7): path traversal through
-a read (``canary_read``) and through a write (``canary_write``), and code or command execution
-(``canary_exec``). The other sinks are listed so a reach report can say what a path leads to;
-their ``effect`` is None, so the loop never pretends it can prove them.
+Four families can be proven by the oracle today (SPEC section 7): path traversal through
+a read (``canary_read``) and through a write (``canary_write``), code or command execution
+(``canary_exec``) and SQL injection (``canary_sql``). The other sinks are listed so a reach report
+can say what a path leads to; their ``effect`` is None, so the loop never pretends it can prove them.
 """
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 
 from exhibit_a.schemas.graph import CodeGraph, EntryPoint, GraphEdge, GraphNode, SinkHit
 
-from .build import MAIN_GUARD
+from .build import MAIN_GUARD, SQL_RUN_METHODS
 
-READ, WRITE, EXEC = "canary_read", "canary_write", "canary_exec"
+READ, WRITE, EXEC, SQL = "canary_read", "canary_write", "canary_exec", "canary_sql"
 
 
 @dataclass(frozen=True)
@@ -40,10 +41,28 @@ class SinkRule:
     #: Where a loader takes its safety argument, and the markers that make the call safe
     #: (yaml.load with a SafeLoader is not a sink).
     safe_arg: tuple[int, str, tuple[str, ...]] | None = None
+    #: Where a query-running call takes its statement: (position, keyword names). The call is a
+    #: sink only when that argument is not a constant string (``dynamic_query``): a constant
+    #: statement, however it is run, cannot carry input.
+    query_arg: tuple[int, tuple[str, ...]] | None = None
 
 
 #: Write-side class and effect for open-like sinks called with a write mode.
 WRITE_CLASS = ("path_traversal_write", WRITE)
+
+#: Calls that run a raw SQL statement. The graph names the result of ``sqlite3.connect(...)`` by
+#: that call, so ``conn.execute`` and ``conn.cursor().execute`` resolve to the first two forms; the
+#: type names cover an annotated ``conn: sqlite3.Connection`` or ``cur: sqlite3.Cursor``.
+SQL_QUERY_CALLS: tuple[str, ...] = (
+    *(f"sqlite3.connect.{m}" for m in ("execute", "executemany", "executescript")),
+    *(f"sqlite3.connect.cursor.{m}" for m in ("execute", "executemany", "executescript")),
+    *(f"sqlite3.{t}.{m}" for t in ("Connection", "Cursor") for m in ("execute", "executemany", "executescript")),
+    "sqlalchemy.text", "sqlalchemy.create_engine.execute", "sqlalchemy.create_engine.connect.execute",
+    "sqlalchemy.create_engine.connect.exec_driver_sql", "sqlalchemy.engine.Connection.execute",
+    "sqlalchemy.engine.Connection.exec_driver_sql", "sqlalchemy.engine.Engine.execute",
+    "sqlalchemy.orm.Session.execute",
+    "pandas.read_sql", "pandas.read_sql_query",
+)
 
 SINKS: tuple[SinkRule, ...] = (
     SinkRule(("builtins.open", "io.open", "codecs.open", "os.open", "anyio.open_file",
@@ -84,12 +103,16 @@ SINKS: tuple[SinkRule, ...] = (
     SinkRule(("yaml.load",), "deserialization", "insecure_deserialization", EXEC, "code",
              "yaml.load without a SafeLoader",
              safe_arg=(1, "Loader", ("SafeLoader", "CSafeLoader", "BaseLoader"))),
+    SinkRule(SQL_QUERY_CALLS, "database", "sql_injection", SQL, "query",
+             "runs SQL; a statement that is not a constant string can carry input", query_arg=(0, ("sql", "query", "statement"))),
     SinkRule(("urllib.request.urlopen", "urllib.request.urlretrieve", "http.client.HTTPConnection",
               "http.client.HTTPSConnection", "requests.*", "httpx.*", "aiohttp.ClientSession.get",
               "aiohttp.ClientSession.post", "aiohttp.ClientSession.request"),
              "outbound_request", "ssrf", None, "network",
              "outbound request (SSRF is not a v1 class: the sandbox has no network)"),
 )
+
+_SQL_RULE = next(rule for rule in SINKS if rule.query_arg is not None)
 
 #: Method names that are sinks whatever the receiver, used only when nothing resolved the
 #: receiver; such a hit is weak and counts as one unresolved hop.
@@ -147,6 +170,44 @@ def _is_write(rule: SinkRule, edge: GraphEdge) -> bool:
     return any(ch in value[1:-1] for ch in "wax+")
 
 
+def _constant_text(text: str) -> bool:
+    """Whether the source text of an argument is a string whose value is fixed by the code alone.
+
+    Literals (also joined by implicit concatenation or ``+``) and f-strings without a replacement
+    field are constants. Anything that does not parse, such as text cut at the graph's cap, is not.
+    """
+    try:
+        node = ast.parse(text.strip(), mode="eval").body
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return False
+
+    def fixed(n: ast.AST) -> bool:
+        if isinstance(n, ast.Constant):
+            return isinstance(n.value, str)
+        if isinstance(n, ast.JoinedStr):
+            return all(isinstance(v, ast.Constant) for v in n.values)
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Add):
+            return fixed(n.left) and fixed(n.right)
+        return False
+
+    return fixed(node)
+
+
+def _dynamic_query(rule: SinkRule, edge: GraphEdge) -> bool:
+    """Whether a query-running call may carry input: its statement is not a constant string.
+
+    A call with no statement argument runs nothing; one whose statement the graph did not keep
+    (``*args``, ``**kwargs``) counts as dynamic, because it cannot be shown to be constant.
+    """
+    assert rule.query_arg is not None
+    position, keywords = rule.query_arg
+    value = edge.args[position] if len(edge.args) > position else next(
+        (edge.kwargs[k] for k in keywords if k in edge.kwargs), None)
+    if value is None:
+        return bool(edge.args or edge.kwargs)
+    return not _constant_text(value)
+
+
 def sink_hits(graph: CodeGraph) -> dict[str, list[SinkHit]]:
     """Every sink call in the graph, by the repository function that makes it."""
     hits: dict[str, list[SinkHit]] = {}
@@ -170,6 +231,8 @@ def _edge_hit(edge: GraphEdge) -> SinkHit | None:
             value = _arg(edge, (position, keyword)) or ""
             if any(marker in value for marker in markers):
                 return None
+        if rule.query_arg is not None and (edge.ref or not _dynamic_query(rule, edge)):
+            return None
         vuln_class, effect, access = rule.vuln_class, rule.effect, rule.access
         if not edge.ref and _is_write(rule, edge):
             (vuln_class, effect), access = WRITE_CLASS, "write"
@@ -177,6 +240,13 @@ def _edge_hit(edge: GraphEdge) -> SinkHit | None:
                        vuln_class=vuln_class, effect=effect, access=access, joined_path=joined)
     if edge.kind == "unresolved" and "." in edge.text:
         method = edge.text.rsplit(".", 1)[1]
+        if method in SQL_RUN_METHODS:
+            # The receiver's type is unknown, so this is a weak hit, but a statement that is a
+            # constant string still carries nothing.
+            if _dynamic_query(_SQL_RULE, edge):
+                return SinkHit(node=edge.src, target=edge.text, line=edge.line, category=_SQL_RULE.category,
+                               vuln_class=_SQL_RULE.vuln_class, effect=SQL, access=_SQL_RULE.access, weak=True)
+            return None
         weak = WEAK_METHOD_SINKS.get(method)
         if weak is not None:
             category, vuln_class, effect, access = weak
