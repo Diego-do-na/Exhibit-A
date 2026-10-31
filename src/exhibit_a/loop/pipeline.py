@@ -44,6 +44,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from exhibit_a import attest
+from exhibit_a.findings import FindingGroup, group_findings, proof_facts, refine_with_graph, summarize_patch
+from exhibit_a.graph import build_graph
 from exhibit_a.graph.reach import render
 from exhibit_a.graph.slicer import SlicePlan
 from exhibit_a.ledger import Ledger
@@ -69,6 +71,8 @@ _MAX_FIX_FILES = 1_000
 _MAX_FIX_FILE_BYTES = 1_000_000
 _MAX_FIX_TOTAL_BYTES = 10_000_000
 _MAX_FIX_EDITS = 10
+#: Where the sandbox mounts the staged app; oracle frames carry paths below it.
+_SANDBOX_APP_ROOT = "/workspace"
 
 
 class LoopFlags(Protocol):
@@ -124,6 +128,12 @@ class SuspicionResult:
     # A bypass variant still proves the flaw against the fixed code. The verdict
     # stays `proven` (SPEC section 4 condition 5: the surviving one is reported).
     fix_incomplete: bool = False
+    # What the oracle observed for a proven result (effect, entry point, sink frames, observed
+    # location) plus what the loop checked, or None when the oracle's frames cannot say.
+    facts: dict[str, Any] | None = None
+    # Duplicate proofs of one effect: a primary lists the others, a duplicate names its primary.
+    duplicates: list[str] = field(default_factory=list)
+    duplicate_of: str | None = None
 
 
 @dataclass
@@ -134,6 +144,7 @@ class LoopResult:
     aborted: str = ""
     naive: bool = False
     suspicions: list[Suspicion] = field(default_factory=list)  # every valid one raised
+    groups: list[FindingGroup] = field(default_factory=list)  # proven results, grouped
 
     @property
     def reported(self) -> list[Suspicion]:
@@ -145,6 +156,16 @@ class LoopResult:
     @property
     def proven(self) -> list[SuspicionResult]:
         return [r for r in self.results if r.verdict.verdict == VerdictValue.PROVEN]
+
+    @property
+    def findings(self) -> list[SuspicionResult]:
+        """Unique proven findings: one per group of duplicate proofs, the first proven."""
+        return [r for r in self.proven if r.duplicate_of is None]
+
+    @property
+    def duplicate_proofs(self) -> int:
+        """Proven results absorbed into another finding."""
+        return len(self.proven) - len(self.findings)
 
     @property
     def dropped(self) -> int:
@@ -227,6 +248,9 @@ class VerificationLoop:
         self.requirements = tuple(requirements)
         # SLICE (opt-in): the graph's paths for the source file, or None for the whole file.
         self.slice_plan = slice_plan
+        # The static graph of the clone, built once and only for a proven finding (None: not
+        # built yet, False: it could not be built).
+        self._graph: Any = None
 
     def _classify(self, judgement: Judgement) -> VerdictValue:
         return classify(judgement, oracle=self.flags.oracle)
@@ -313,7 +337,95 @@ class VerificationLoop:
         if charge is not None:
             # No usable suspicion: the adversary call still cost money and must be on the record.
             self._emit(EventType.SCAN_DONE, charge, status="no_suspicions", source_file=source_file)
+        self._group(result)
         return result
+
+    # -- grouping duplicate proofs ------------------------------------------------------
+
+    def _group(self, result: LoopResult) -> None:
+        """Group proven results that show one effect through the same entry point and sink frames.
+
+        The first proven result of a group is the primary; the others are listed as its
+        duplicates in its ``verdict.json`` and ``evidence.json`` and in one ``scan_done`` event
+        (status ``findings_grouped``). Verdict events are not rewritten: a verdict is emitted
+        once, and counting them stays exact. Nothing is merged unless the oracle's own frames
+        agree (see ``exhibit_a.findings``); a result without usable frames stays a finding.
+        """
+        proven = result.proven
+        result.groups = group_findings((r.suspicion.id, r.facts) for r in proven)
+        by_id = {r.suspicion.id: r for r in proven}
+        merged = [g for g in result.groups if g.duplicates]
+        for group in merged:
+            primary = by_id[group.primary]
+            primary.duplicates = list(group.duplicates)
+            primary.verdict.duplicates = list(group.duplicates)
+            details = []
+            for sid in group.duplicates:
+                dup = by_id[sid]
+                dup.duplicate_of = group.primary
+                dup.verdict.duplicate_of = group.primary
+                self._annotate(dup, {"duplicate_of": group.primary}, {"duplicate_of": group.primary})
+                details.append({
+                    "suspicion_id": sid,
+                    "package": f"packages/{_slug(sid)}",
+                    "model_location": dup.suspicion.location.model_dump(),
+                    "model_entry_point": dup.suspicion.entry_point,
+                    "model_hypothesis": dup.suspicion.hypothesis,
+                    "observed_location": (dup.facts or {}).get("observed_location"),
+                    "fix_verified": dup.fix_verified,
+                })
+            self._annotate(primary, {"duplicates": list(group.duplicates)}, {"duplicates": details})
+        if merged:
+            self._emit(
+                EventType.SCAN_DONE,
+                status="findings_grouped",
+                reason=f"{len(proven)} proofs are {len(result.findings)} finding(s): duplicates of one effect "
+                       "through the same entry point and sink frames were grouped",
+                groups=[
+                    {
+                        "primary": g.primary,
+                        "duplicates": list(g.duplicates),
+                        "effect": (by_id[g.primary].facts or {}).get("effect"),
+                        "entry_point": (by_id[g.primary].facts or {}).get("entry_point"),
+                        "sink_function": (by_id[g.primary].facts or {}).get("sink_function"),
+                    }
+                    for g in merged
+                ],
+            )
+
+    def _annotate(self, outcome: SuspicionResult, verdict: dict[str, Any], evidence: dict[str, Any]) -> None:
+        """Add keys to the package files already written for a proven result."""
+        if outcome.package_dir is None:
+            return
+        for name, updates in (("verdict.json", verdict), ("evidence.json", evidence)):
+            path = outcome.package_dir / name
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict):
+                data.update(_portable(updates, [str(self.out), str(self.clone)]))
+                path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    # -- where the oracle saw the effect ----------------------------------------------------
+
+    def _observe(self, judgement: Judgement, entry_points: Collection[str]) -> Any:
+        """The oracle's facts for a proof, with the observed line placed by the graph if possible."""
+        if not self.flags.oracle:
+            return None  # the oracle was ablated: its frames were not checked, so nothing is observed
+        proof = proof_facts(
+            {"oracle": {"effect": self.effect, "events": [e.model_dump() for e in judgement.events]}},
+            roots=[str(self.clone), _SANDBOX_APP_ROOT],
+            entry_points=entry_points,
+        )
+        if proof is None:
+            return None
+        if self._graph is None:
+            try:
+                self._graph = build_graph(self.clone)
+            except Exception:  # noqa: BLE001 - the graph only refines a line; it must never stop a proof
+                self._graph = False
+        return refine_with_graph(proof, self._graph) if self._graph else proof
 
     def _process(self, suspicion: Suspicion) -> SuspicionResult:
         work = self.out / "work" / _slug(suspicion.id)
@@ -342,6 +454,7 @@ class VerificationLoop:
             tried: int = 0,
             succeeded: int = 0,
             fix_detail: str = "",
+            facts: dict[str, Any] | None = None,
         ) -> SuspicionResult:
             verdict = Verdict(
                 suspicion_id=suspicion.id,
@@ -359,9 +472,10 @@ class VerificationLoop:
                 fix_verified=fix_verified,
                 fix_incomplete=fix_incomplete,
                 fix_detail=fix_detail,
+                **({"facts": facts} if facts else {}),
             )
             return SuspicionResult(suspicion, verdict, reason, fix_verified=fix_verified,
-                                   fix_incomplete=fix_incomplete)
+                                   fix_incomplete=fix_incomplete, facts=facts)
 
         # EXPLOIT
         try:
@@ -403,6 +517,7 @@ class VerificationLoop:
                         reason_code=bad.reason_code)
 
         first = judgements[0]
+        proof = self._observe(first, entry_points)
         evidence = Evidence(
             test_path=str(exploit),
             fails_on="vulnerable",
@@ -419,6 +534,7 @@ class VerificationLoop:
                 "ok": first.provenance_ok,
                 "checked": self.flags.oracle,
                 "entry_point": suspicion.entry_point,
+                **({"observed_location": proof.observed_location()} if proof else {}),
             },
         )
 
@@ -443,6 +559,17 @@ class VerificationLoop:
                 succeeded=succeeded,
                 fix_detail=fix_detail,
             )
+        facts = None
+        if proof is not None:
+            facts = {
+                **proof.to_dict(),
+                "runs": self.runs,
+                "test": "test_exploit.py",
+                "fix_verified": fix_verified,
+                "bypass_tried": tried,
+                "bypass_succeeded": succeeded,
+                **summarize_patch(patch_text),
+            }
         outcome = done(
             VerdictValue.PROVEN,
             first.reason,
@@ -453,6 +580,7 @@ class VerificationLoop:
             tried=tried,
             succeeded=succeeded,
             fix_detail=fix_detail,
+            facts=facts,
         )
         outcome.package_dir = self._package(outcome, exploit, patch_text)
         return outcome
@@ -689,6 +817,21 @@ class VerificationLoop:
             self._emit(EventType.BYPASS_RESULT, suspicion_id=suspicion.id, name=variant["name"], bypassed=bypassed)
         return tried, succeeded
 
+    def _read_clone_file(self, rel: str) -> str | None:
+        """Source of a regular file of the clone named by an oracle frame, or None."""
+        path = Path(rel)
+        if path.is_absolute() or ".." in path.parts:
+            return None
+        target = self.clone / path
+        try:
+            if any((self.clone.joinpath(*path.parts[: i + 1])).is_symlink() for i in range(len(path.parts))):
+                return None
+            if not target.is_file() or target.stat().st_size > _MAX_FIX_FILE_BYTES:
+                return None
+            return target.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+
     def _package(self, outcome: SuspicionResult, exploit: Path, patch_text: str) -> Path:
         verdict = outcome.verdict
         pkg = self.out / "packages" / _slug(outcome.suspicion.id)
@@ -723,6 +866,16 @@ class VerificationLoop:
             ),
             "usage": self.ledger.totals(self.run_id),
         }
+        if outcome.facts:
+            # Next to the model's `suspicion.location`: where the oracle saw the effect. The
+            # observed file's source is included when it is not the file the model pointed at.
+            evidence["observed_location"] = outcome.facts["observed_location"]
+            evidence["facts"] = outcome.facts
+            observed_file = outcome.facts["observed_location"]["file"]
+            if observed_file != outcome.suspicion.location.file:
+                content = self._read_clone_file(observed_file)
+                if content is not None:
+                    evidence["observed_code"] = {"file": observed_file, "content": content}
         (pkg / "evidence.json").write_text(json.dumps(_portable(evidence, roots), indent=2), encoding="utf-8")
         supporting = [
             {"index": index, "type": event.type.value}
