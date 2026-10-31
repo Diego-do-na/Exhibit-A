@@ -27,7 +27,8 @@ class RunRecord(StrictModel):
     commit: str
     ts: datetime  # timezone-aware, UTC
     status: Literal["completed", "aborted", "error"]
-    verdict_counts: VerdictCounts
+    verdict_counts: VerdictCounts  # proven counts unique findings (duplicate proofs grouped)
+    proven_raw: int | None = Field(default=None, ge=0)  # proven verdicts before grouping; None = not recorded
     severity: Literal["low", "medium", "high", "critical"] | None = None  # highest proven
     discarded_suspicions: int = Field(ge=0)
     tokens_in: int = Field(ge=0)

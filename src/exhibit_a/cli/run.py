@@ -170,8 +170,9 @@ def _append_run_index(out: Path, result: dict[str, Any], repo: Path, head: str, 
         run_id=result["run_id"], repo=str(repo), commit=head,
         ts=datetime.now(timezone.utc),
         status=status,
+        proven_raw=int(result.get("proven_raw", verdicts.get("proven", 0))),
         verdict_counts=VerdictCounts(
-            proven=int(verdicts.get("proven", 0)),
+            proven=int(result["proven"]),  # unique findings: duplicate proofs of one effect grouped
             discarded_unproven=int(verdicts.get("discarded_unproven", 0)),
             invalid_test=int(verdicts.get("invalid_test", 0)),
             flaky=int(verdicts.get("flaky", 0)),
@@ -571,11 +572,15 @@ def _run_case(args: argparse.Namespace) -> int:
         return 1
 
     print(f"run {result.run_id}: {json.dumps(result.counts())} dropped={result.dropped}")
+    if result.duplicate_proofs:
+        print(f"run {result.run_id}: {len(result.proven)} proofs are {len(result.findings)} unique "
+              f"finding(s); {result.duplicate_proofs} duplicate(s) of an effect already proven")
     totals = ledger.totals(result.run_id)
     print(f"run {result.run_id} totals: {json.dumps(totals, sort_keys=True)}")
     packaged = [r for r in result.proven if r.package_dir is not None]
     for r in packaged:
-        print(f"PACKAGE {r.package_dir} fix_verified={r.fix_verified}")
+        print(f"PACKAGE {r.package_dir} fix_verified={r.fix_verified}"
+              + (f" duplicate_of={r.duplicate_of}" if r.duplicate_of else ""))
     print(f"ledger {out / 'ledger.jsonl'}")
     return 0 if any(r.fix_verified for r in packaged) else 1
 
