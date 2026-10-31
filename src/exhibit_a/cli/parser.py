@@ -89,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--effect",
-        choices=("canary_read", "canary_write"),
+        choices=("canary_read", "canary_write", "canary_exec"),
         default="canary_read",
         help="Oracle effect to prove in PR-diff mode (default: canary_read).",
     )
