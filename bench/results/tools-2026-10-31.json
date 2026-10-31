@@ -1,0 +1,326 @@
+{
+  "exhibit_a": [
+    {
+      "false_accusations": 0,
+      "false_positives": 0,
+      "precision": null,
+      "recall": null,
+      "reported": 0,
+      "status": "measured",
+      "tool": "Bandit",
+      "true_positives": 0
+    },
+    {
+      "false_accusations": 0,
+      "false_positives": 0,
+      "precision": null,
+      "recall": null,
+      "reported": 0,
+      "status": "measured",
+      "tool": "CodeQL",
+      "true_positives": 0
+    },
+    {
+      "false_accusations": 0,
+      "false_positives": 0,
+      "precision": null,
+      "recall": null,
+      "reported": 0,
+      "status": "measured",
+      "tool": "Semgrep",
+      "true_positives": 0
+    }
+  ],
+  "rows": [
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "archive-extraction-pathtraversal/vulnerable",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "archive-extraction-pathtraversal/vulnerable",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "archive-extraction-pathtraversal/vulnerable",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "archive-extraction-pathtraversal/fixed",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "archive-extraction-pathtraversal/fixed",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "archive-extraction-pathtraversal/fixed",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "incomplete",
+      "status": "not run",
+      "target": "archive-extraction-pathtraversal/fixed_incomplete",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "incomplete",
+      "status": "not run",
+      "target": "archive-extraction-pathtraversal/fixed_incomplete",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "incomplete",
+      "status": "not run",
+      "target": "archive-extraction-pathtraversal/fixed_incomplete",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "command-injection-shell/fixed",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "command-injection-shell/fixed",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "command-injection-shell/fixed",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "incomplete",
+      "status": "not run",
+      "target": "command-injection-shell/fixed_incomplete",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "incomplete",
+      "status": "not run",
+      "target": "command-injection-shell/fixed_incomplete",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "incomplete",
+      "status": "not run",
+      "target": "command-injection-shell/fixed_incomplete",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "command-injection-shell/vulnerable",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "command-injection-shell/vulnerable",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "command-injection-shell/vulnerable",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "starlette-cve-2023-29159",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "starlette-cve-2023-29159",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "starlette-cve-2023-29159",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "starlette-cve-2023-29159-fixed",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "starlette-cve-2023-29159-fixed",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "starlette-cve-2023-29159-fixed",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "unsafe-deserialization-pickle/vulnerable",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "unsafe-deserialization-pickle/vulnerable",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "vulnerable",
+      "status": "not run",
+      "target": "unsafe-deserialization-pickle/vulnerable",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "unsafe-deserialization-pickle/fixed",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "unsafe-deserialization-pickle/fixed",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "fixed",
+      "status": "not run",
+      "target": "unsafe-deserialization-pickle/fixed",
+      "tool": "CodeQL",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "incomplete",
+      "status": "not run",
+      "target": "unsafe-deserialization-pickle/fixed_incomplete",
+      "tool": "Bandit",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "incomplete",
+      "status": "not run",
+      "target": "unsafe-deserialization-pickle/fixed_incomplete",
+      "tool": "Semgrep",
+      "version": null
+    },
+    {
+      "error": "executable not found",
+      "role": "incomplete",
+      "status": "not run",
+      "target": "unsafe-deserialization-pickle/fixed_incomplete",
+      "tool": "CodeQL",
+      "version": null
+    }
+  ],
+  "systems": {
+    "Bandit": {
+      "false_accusations": 0,
+      "false_positives": 0,
+      "precision": null,
+      "recall": null,
+      "reported": 0,
+      "true_positives": 0
+    },
+    "CodeQL": {
+      "false_accusations": 0,
+      "false_positives": 0,
+      "precision": null,
+      "recall": null,
+      "reported": 0,
+      "true_positives": 0
+    },
+    "Semgrep": {
+      "false_accusations": 0,
+      "false_positives": 0,
+      "precision": null,
+      "recall": null,
+      "reported": 0,
+      "true_positives": 0
+    }
+  }
+}

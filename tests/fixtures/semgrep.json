@@ -1,0 +1,1 @@
+{"results":[{"check_id":"python.lang.security.audit subprocess-shell-true","path":"app.py","start":{"line":4},"extra":{"message":"Detected shell execution","metadata":{"cwe":["CWE-78: OS Command Injection"]}}}]}
