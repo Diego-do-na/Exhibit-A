@@ -54,6 +54,10 @@ class Case:
     # canary_sql only: the application's SQLite database, a path inside the source tree that the
     # sandbox copies, seeds with the canary table and mounts read-only at that path ("" otherwise).
     sql_db: str = ""
+    # True for a case nobody tuned on: written after the compact profile and the oracle were
+    # frozen, from a public advisory (case.json ``held_out``). Docs and tables use it to keep
+    # held-out results apart from the tuned ones.
+    held_out: bool = False
 
 
 def _check_common(raw: dict, seen: set[str]) -> None:
@@ -77,7 +81,15 @@ def _case_from_legacy(raw: dict) -> Case:
     )
 
 
-def _case_from_real(case_dir: Path, raw: dict, run: dict) -> Case:
+def _held_out(raw: dict, top: dict) -> bool:
+    """The ``held_out`` flag of a case: on its entry, else at the top of case.json; default False."""
+    value = raw.get("held_out", top.get("held_out", False))
+    if not isinstance(value, bool):
+        raise ValueError(f"case {raw.get('id')}: held_out must be true or false, not {value!r}")
+    return value
+
+
+def _case_from_real(case_dir: Path, raw: dict, run: dict, top: dict | None = None) -> Case:
     """Build a Case from one entry of a real case.json ``cases`` list."""
     effect = run.get("effect") or _profile_effect(case_dir) or "canary_read"
     if effect not in EFFECTS:
@@ -109,6 +121,7 @@ def _case_from_real(case_dir: Path, raw: dict, run: dict) -> Case:
         effect=effect,
         source_file=str(run.get("source_file", "")),
         sql_db=sql_db,
+        held_out=_held_out(raw, top or {}),
     )
 
 
@@ -136,7 +149,7 @@ def _load_case_file(case_file: Path) -> list[Case]:
     for raw in data["cases"]:
         _check_common(raw, seen)
         if run:
-            cases.append(_case_from_real(case_file.parent, raw, run))
+            cases.append(_case_from_real(case_file.parent, raw, run, data))
         else:
             cases.append(_case_from_legacy(raw))
     return cases

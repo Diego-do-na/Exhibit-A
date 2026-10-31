@@ -1,0 +1,11 @@
+{
+  "class": "sql_injection",
+  "entry_point": "App.handle_request",
+  "hypothesis": "revenue_by_period and orders_by_part concatenate the request's unit and part into the statement: the unit goes inside the quoted modifier of date(), and a part name that is not a known one is used as the strftime format as it is, so a value that closes the quote and the call changes the statement (for example a UNION that reads a table the app never queries).",
+  "id": "sql-trunc-kind-injection-unit-and-part",
+  "location": {
+    "file": "vulnerable/salesreport/reports.py",
+    "line": 8
+  },
+  "source": "manual (case author); advisory CVE-2022-34265"
+}

@@ -1,0 +1,11 @@
+{
+  "class": "path_traversal_write",
+  "entry_point": "App.handle_request",
+  "hypothesis": "sanitize() only strips what precedes the last backslash of a client-supplied file name, so a name with forward-slash components ('../..' or an absolute path) reaches FileStorage.save unchanged and is joined onto the storage root, creating a file outside the storage directory.",
+  "id": "upload-filename-traversal-sanitize",
+  "location": {
+    "file": "vulnerable/uploadsvc/uploaded.py",
+    "line": 13
+  },
+  "source": "manual (case author); advisory CVE-2021-31542"
+}

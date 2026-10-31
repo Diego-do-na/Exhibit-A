@@ -121,6 +121,72 @@
       "target": "sql-injection-search"
     },
     {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "static-route-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "static-route-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "static-route-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "upload-filename-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "upload-filename-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "upload-filename-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "sql-trunc-kind-injection"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "sql-trunc-kind-injection/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "sql-trunc-kind-injection/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "docsuite-large-command-injection"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "docsuite-large-command-injection/fixed"
+    },
+    {
       "calls": 4,
       "cost_usd": 0.110592,
       "discarded": 0,
@@ -214,6 +280,72 @@
       "target": "sql-injection-search"
     },
     {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "static-route-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "static-route-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "static-route-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "upload-filename-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "upload-filename-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "upload-filename-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "sql-trunc-kind-injection"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "sql-trunc-kind-injection/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "sql-trunc-kind-injection/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "docsuite-large-command-injection"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "docsuite-large-command-injection/fixed"
+    },
+    {
       "calls": 6,
       "cost_usd": 1.905204,
       "discarded": 5,
@@ -305,6 +437,72 @@
       "role": "vulnerable",
       "system": "Exhibit A, standard profile (nothing proven live)",
       "target": "sql-injection-search"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "static-route-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "static-route-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "static-route-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "upload-filename-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "upload-filename-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "upload-filename-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "sql-trunc-kind-injection"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "sql-trunc-kind-injection/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "sql-trunc-kind-injection/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "docsuite-large-command-injection"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "docsuite-large-command-injection/fixed"
     }
   ],
   "reasoning_effort_naive": "minimal",
@@ -356,7 +554,7 @@
     }
   },
   "volatile": {
-    "replay_wall_s_compact": 11.418,
-    "replay_wall_s_standard": 9.594
+    "replay_wall_s_compact": 11.976,
+    "replay_wall_s_standard": 10.687
   }
 }

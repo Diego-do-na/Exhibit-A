@@ -1,0 +1,87 @@
+{
+  "cases": [
+    {
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "sql_injection",
+          "file": "vulnerable/salesreport/reports.py"
+        }
+      ],
+      "id": "sql-trunc-kind-injection",
+      "kind": "vulnerable",
+      "repo": ""
+    }
+  ],
+  "held_out": true,
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "note": "Self-contained oracle case over a small reporting app. It installs no third-party package and is not replay-driven: it is proven directly with effect='canary_sql' against the SQLite database run.sql_db declares (a copy of it is seeded with the canary table; the original is never touched). Held out: written after the compact profile and the oracle were frozen, from the public Django advisory CVE-2022-34265 (Trunc(kind) and Extract(lookup_name)). No upstream repo/commit applies: the code is an original reimplementation of the vulnerable pattern, not Django.",
+  "real_world_analog": {
+    "advisory": "https://www.djangoproject.com/weblog/2022/jul/04/security-releases/",
+    "cve": "CVE-2022-34265",
+    "fix": "Django 4.0.6 and 3.2.14 validate the kind / lookup_name value before it reaches the SQL (commit 0dc9c016fadb71a067e5a42be30164e3f96c0492), and later releases pass it as a parameter. The fixed tree checks the value against the known units and date parts.",
+    "ghsa": "GHSA-p64x-8rxx-wf6q",
+    "reference": "https://github.com/advisories/GHSA-p64x-8rxx-wf6q",
+    "summary": "SQL injection in Django's Trunc() and Extract() database functions when untrusted data is used as the kind / lookup_name value. Affected Django 3.2 before 3.2.14 and 4.0 before 4.0.6; applications that restrict the value to a known safe list are unaffected.",
+    "verification": "CVE number, affected versions, fix commit and summary confirmed via web search (Django weblog, release notes, GitHub advisory database) on 2026-10-31; the app in this case is original code written from that description, not Django."
+  },
+  "run": {
+    "baseline_test": "baseline_test.py",
+    "bypass": {
+      "expectation": "proven against fixed_incomplete: the unit starts with a real unit name, so a screen that only matches the beginning of the value accepts it and the rest of the value is still placed in the statement; the incomplete fix must not be accepted as fixed.",
+      "exploit": "exploits/exploit_true_prefixed_union_unit.py",
+      "incomplete_fix": "fixed_incomplete"
+    },
+    "effect": "canary_sql",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_union_unit.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_prefixed_union_unit.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_union_part.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_monthly_report.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_unknown_route.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_query_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_reads_database.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_leak.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_leak.py",
+        "label": "flaky"
+      }
+    ],
+    "oracle_entry_point": "App.handle_request",
+    "source_file": "salesreport/reports.py",
+    "sql_db": "data/app.db",
+    "trees": {
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete",
+      "vulnerable": "vulnerable"
+    }
+  },
+  "synthetic": true
+}

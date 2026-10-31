@@ -1,0 +1,11 @@
+{
+  "class": "command_injection",
+  "entry_point": "App.handle_request",
+  "hypothesis": "The retention cleanup builds a shell command line from the cleanup target and runs it with shell=True to inventory the directory for its audit line, so a target carrying a shell metacharacter (for example ';' or a newline) breaks out of the file operand and executes an attacker command (OS command injection).",
+  "id": "docsuite-cleanup-command",
+  "location": {
+    "file": "vulnerable/docsuite/maintenance/archives.py",
+    "line": 8
+  },
+  "source": "manual (case author); real-world analog CVE-2021-22205"
+}
