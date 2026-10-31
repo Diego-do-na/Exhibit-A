@@ -1,0 +1,86 @@
+{
+  "cases": [
+    {
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "path_traversal",
+          "file": "vulnerable/staticsrv/routes.py"
+        }
+      ],
+      "id": "static-route-traversal",
+      "kind": "vulnerable",
+      "repo": ""
+    }
+  ],
+  "held_out": true,
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "note": "Self-contained oracle case (stdlib only, not replay-driven), proven directly with effect='canary_read'. Held out: written after the compact profile and the oracle were frozen, from the public advisory GHSA-5h86-8mv2-jq9f / CVE-2024-23334 (aiohttp static routes). No upstream repo/commit applies: the code is an original reimplementation of the vulnerable pattern, not aiohttp.",
+  "real_world_analog": {
+    "advisory": "https://github.com/aio-libs/aiohttp/security/advisories/GHSA-5h86-8mv2-jq9f",
+    "cve": "CVE-2024-23334",
+    "fix": "aiohttp 3.9.2 (pull request 8079) validates the requested path against the static root after normalizing it and before symlinks are resolved. The fixed tree does the same with an original os.path.normpath containment check.",
+    "ghsa": "GHSA-5h86-8mv2-jq9f",
+    "reference": "https://nvd.nist.gov/vuln/detail/cve-2024-23334",
+    "summary": "Directory traversal in aiohttp static routes registered with follow_symlinks=True: the requested path was resolved with no check that it stayed inside the static root, so '..' segments (and absolute names) read arbitrary files. Affected 1.0.5 up to 3.9.2.",
+    "verification": "Advisory id, affected range, fix version and summary confirmed via web search (GitHub advisory, NVD) on 2026-10-31; the app in this case is original code written from that description, not aiohttp."
+  },
+  "run": {
+    "baseline_test": "baseline_test.py",
+    "bypass": {
+      "expectation": "proven against fixed_incomplete: the dots are percent-encoded, so the screen on the raw request path sees no '..' segment and the name is decoded and resolved afterwards; the incomplete fix must not be accepted as fixed.",
+      "exploit": "exploits/exploit_true_encoded_dotdot.py",
+      "incomplete_fix": "fixed_incomplete"
+    },
+    "effect": "canary_read",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_dotdot.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_absolute.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_encoded_dotdot.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_public_file.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_bad_method.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_sink_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_opens_canary.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_leak.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_leak.py",
+        "label": "flaky"
+      }
+    ],
+    "oracle_entry_point": "App.handle_request",
+    "source_file": "staticsrv/routes.py",
+    "trees": {
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete",
+      "vulnerable": "vulnerable"
+    }
+  },
+  "synthetic": true
+}

@@ -1,0 +1,11 @@
+{
+  "class": "path_traversal",
+  "entry_point": "App.handle_request",
+  "hypothesis": "StaticRoute.resolve joins the decoded request name onto the served directory and resolves it with realpath; on a route that follows symlinks it never checks that the result is still inside the directory, so a name with '..' segments (plain or percent-encoded) or an absolute name makes the route serve a file outside it.",
+  "id": "static-route-traversal-resolve",
+  "location": {
+    "file": "vulnerable/staticsrv/routes.py",
+    "line": 39
+  },
+  "source": "manual (case author); advisory CVE-2024-23334"
+}
