@@ -186,7 +186,16 @@ def _append_run_index(out: Path, result: dict[str, Any], repo: Path, head: str, 
     append_run(out / "runs.jsonl", record)
 
 
-# -- SLICE (opt-in with --slice) ----------------------------------------------------------
+# -- SLICE (on by default with --profile compact) ----------------------------------------
+
+
+def _slice(args: argparse.Namespace) -> bool:
+    """Whether to slice: --slice / --no-slice win; otherwise on exactly for the compact profile."""
+    explicit = getattr(args, "slice", None)
+    if explicit is not None:
+        return bool(explicit)
+    return _profile(args) == "compact"
+
 
 NOTHING_REACHABLE = "nothing_reachable"
 
@@ -299,7 +308,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
             _append_run_index(out, result, repo, head, started)
             return 0
         plans: dict[str, SlicePlan] = {}
-        if getattr(args, "slice", False):
+        if _slice(args):
             from .scan import git_unified_diff
 
             effect = args.effect
@@ -486,7 +495,7 @@ def _run_case(args: argparse.Namespace) -> int:
 
     ledger = Ledger(out / "ledger.jsonl")
     slice_plan: SlicePlan | None = None
-    if getattr(args, "slice", False):
+    if _slice(args):
         effect = settings.get("effect", "canary_read")
         source_file = settings["source_file"]
         graph, report, plans, seconds = _slice_plans(
@@ -579,7 +588,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         print("run: --profile compact cannot be combined with --replay "
               "(the recordings were made with the standard profile)", file=sys.stderr)
         return 2
-    if getattr(args, "slice", False) and getattr(args, "replay", False):
+    if _slice(args) and getattr(args, "replay", False):
         # Same reason: the adversary prompt carries the slice, so no recorded key matches.
         print("run: --slice cannot be combined with --replay "
               "(the recordings were made without slicing)", file=sys.stderr)

@@ -61,3 +61,15 @@ Not yet measured:
 - whether the compact profile proves the same cases. A cheaper run that stops proving things
   is not cheaper. Compare verdicts and cost per case against `docs/bench/meta-run.md` before
   making any claim.
+
+## Slicing is on by default with the compact profile
+
+`--profile compact` now builds the code graph and sends the adversary only the functions on
+entry-point-to-sink paths, as if `--slice` were given; the entry point the oracle accepts comes
+from the graph, never from the model. When no changed function is on such a path the run makes
+no model call at all. `--no-slice` turns it off; the standard profile is unchanged (no slice
+unless `--slice`). Measured on the three corpus cases, three live runs each: same proofs, mean
+cost 26-83 % lower (`docs/bench/meta-run.md`, "Repeatability runs"). The trade-off: a sink the
+graph cannot see (dynamic dispatch, `getattr`, framework magic recorded as `unresolved`) is not
+sliced to, so use `--no-slice` when the graph reports no path but you still want the model to
+look.
