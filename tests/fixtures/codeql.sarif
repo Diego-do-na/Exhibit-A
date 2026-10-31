@@ -1,0 +1,1 @@
+{"runs":[{"tool":{"driver":{"rules":[{"id":"py/path-injection","properties":{"tags":["external/cwe/cwe-022"]}}]}},"results":[{"ruleId":"py/path-injection","message":{"text":"Path injection"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"archive.py"},"region":{"startLine":8}}}]}]}]}

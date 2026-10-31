@@ -1,0 +1,1 @@
+{"results":[{"filename":"/tmp/tree/app.py","test_id":"B602","issue_text":"subprocess call with shell=True","line_number":4,"issue_cwe":{"id":78,"name":"OS Command Injection"}}]}
