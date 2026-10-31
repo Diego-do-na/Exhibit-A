@@ -258,6 +258,42 @@ def test_load_corpus_accepts_directory_with_all_eleven_cases():
     assert fixed.requirements == ("starlette==0.27.0", "anyio>=3.4,<5")
     assert fixed.recording == "replay.jsonl"
     assert fixed.effect == "canary_read"
+    assert fixed.held_out is False
+    assert vuln.held_out is False
+    assert archive.held_out is False
+
+    held = by_id["static-route-traversal"]
+    assert held.held_out is True
+    assert held.effect == "canary_read"
+    assert held.source_file == "staticsrv/routes.py"
+    assert held.recording == ""
+    upload = by_id["upload-filename-traversal"]
+    assert upload.held_out is True
+    assert upload.effect == "canary_write"
+    assert upload.source_file == "uploadsvc/uploaded.py"
+    trunc = by_id["sql-trunc-kind-injection"]
+    assert trunc.held_out is True
+    assert trunc.effect == "canary_sql"
+    assert trunc.sql_db == "data/app.db"
+    assert trunc.source_file == "salesreport/reports.py"
+    large = by_id["docsuite-large-command-injection"]
+    assert large.held_out is True
+    assert large.effect == "canary_exec"
+    assert large.source_file == "docsuite/maintenance/archives.py"
+
+
+def test_held_out_defaults_to_false_and_rejects_a_non_boolean(tmp_path):
+    payload = {
+        "cases": [{"id": "x", "kind": "vulnerable", "commit": "", "repo": "", "ground_truth": []}],
+        "run": {"effect": "canary_read", "tree": "vulnerable"},
+    }
+    path = tmp_path / "case.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_corpus(path)[0].held_out is False
+    payload["held_out"] = "yes"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="held_out"):
+        load_corpus(path)
 
 
 def test_load_corpus_accepts_single_case_json_files():

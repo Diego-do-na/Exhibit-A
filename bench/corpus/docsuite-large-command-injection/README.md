@@ -3,7 +3,7 @@
 Held-out `canary_exec` case: written after the compact profile and the oracle were frozen,
 so nothing in Exhibit A was tuned on it. Unlike the single-file cases it is a realistic
 multi-package application where slicing matters: 74 modules and about 3,000 lines across
-seven packages (`accounts`, `documents`, `exports`, `http`, `maintenance`,
+nine packages (`accounts`, `documents`, `exports`, `http`, `maintenance`,
 `notifications`, `reports`, `storage`, `util`), with 23 request routes, harmless file use
 throughout (JSON document stores, blob stores, file outbox, bundle writer, all confined
 below the data directory) and harmless subprocess use elsewhere (`maintenance/vacuum.py`
