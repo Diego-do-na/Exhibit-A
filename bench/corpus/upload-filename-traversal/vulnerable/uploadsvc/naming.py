@@ -4,7 +4,7 @@ import os
 
 
 def available_name(root, name):
-    """``name``, or ``name`` with a numeric suffix when ``root`` already holds a file by that name."""
+    """``name``, or ``name`` with a counter appended when ``root`` already holds a file by that name."""
     stem, ext = os.path.splitext(name)
     candidate = name
     counter = 0
