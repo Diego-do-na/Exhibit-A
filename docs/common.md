@@ -112,3 +112,4 @@ Protocol:
 - T101 assistant: added whole-repo audit (graph rank by effect/length/exposure, sink groups, VerificationLoop+SlicePlan reuse, shared CostMeter, audit.json/md, audit CLI ext with --list-only, weekly workflow, docs/ci/audit.md, tests/test_audit.py); pending: live-model cost/recall and Docker sandbox runs (no Docker here)
 - T100 Copilot: added offline fix review suggestions, fork-safe optional fix PR payloads, regression-test packaging, Action inputs, docs, and replay coverage; pending: none
 - T102 Muse: added Baseten provider (baseten.py with required explicit pricing, registry entry, 18 fake-HTTP tests green) and docs/reference/providers.md; pending: owner fills BASENTEN_PRICING rates and runs the live multi-model comparison, Docker-gated suites not run here
+- T111 Copilot: added offline Bandit, Semgrep, and optional CodeQL corpus comparison with fixture-backed parsing/scoring and generated docs/results; pending: rerun with pinned tools installed
