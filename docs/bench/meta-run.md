@@ -225,7 +225,7 @@ numbers are what the CLI printed. The model is not deterministic, so each run is
 | starlette-cve-2023-29159-fixed (negative control) | compact | - | **0 / 3** | 2, 2, 3 | 8,827 | 0.1325 | 0.1002-0.1887 |
 | starlette-cve-2023-29159-fixed (negative control) | compact + slice | - | **0 / 3** | 0, 1, 0 | 2,330 | 0.0225 | 0.0096-0.0430 |
 
-Eighteen live runs, US$1.53 in total.
+Eighteen live runs, US$1.69 in total (US$1.13 unsliced, US$0.56 sliced).
 
 What this shows, on this corpus only:
 
@@ -238,7 +238,7 @@ What this shows, on this corpus only:
   Starlette slice runs had no `invalid_test`.
 - **On the negative control the sliced adversary often raised nothing** (two of three runs had
   no suspicion at all). That is the right outcome on fixed code, but it also means those runs
-  did not exercise the oracle's rejection path; the unsliced runs did, six rejections out of six.
+  did not exercise the oracle's rejection path; the unsliced runs did, and rejected all nine suspicions they raised.
 - One unsliced Starlette run reported two `proven` packages. Both exploit tests request
   `/../outside/canary.txt`: one bug proven twice. Grouping duplicate proofs is not implemented.
 
