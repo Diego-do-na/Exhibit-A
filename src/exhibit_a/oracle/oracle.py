@@ -1226,10 +1226,10 @@ def _judge(
     check of an exec effect (``marker_holds_token``); there None is not a proof (``_judge_exec``).
 
     ``witness`` is the in-container OS supervisor's report (sandbox path only). For effects
-    in ``WITNESS_EFFECTS``, a proof requires the plugin and the supervisor to agree on the
-    fact of the effect. ``status != "ok"`` fails closed (``witness_unavailable``).
-    Disagreement is never a proof (``witness_mismatch``). Host-path callers pass None and
-    keep the in-process standard. dos/redirect/access are not in ``WITNESS_EFFECTS``.
+    in ``WITNESS_EFFECTS``, agreement is applied last and only to an otherwise-proven
+    in-process verdict: both witnesses must have seen the effect, or that proof becomes
+    ``witness_unavailable`` / ``witness_mismatch``. A more specific in-process refusal is
+    kept. Host-path callers pass None. dos/redirect/access are not in ``WITNESS_EFFECTS``.
     """
     changes = list(app_tree_changes or [])
     tampered = bool(forged_events or changes)
@@ -1352,21 +1352,30 @@ def _judge(
     return _apply_witness(judgement, effect, witness)
 
 
+def _is_proof(judgement: Judgement) -> bool:
+    """Whether the in-process judge already accepted a proof (empty reason_code)."""
+    return (
+        judgement.observed_effect
+        and judgement.provenance_ok
+        and judgement.reason_code == ""
+        and judgement.test_outcome == "failed"
+    )
+
+
 def _apply_witness(judgement: Judgement, effect: str, witness: Mapping[str, Any] | None) -> Judgement:
-    """Require plugin and OS-supervisor agreement for effects the supervisor can see.
+    """Last step: confirm an otherwise-proven result with the OS supervisor.
 
     ``witness is None`` is the host path (no supervisor): keep the in-process standard.
-    A missing or tampered supervisor log fails closed. Disagreement is never a proof.
+    Agreement runs only when the in-process verdict is already a proof. A missing or
+    tampered supervisor log then fails closed; OS silence is ``witness_mismatch``.
+    Any more specific in-process refusal is returned unchanged.
     """
     if effect not in WITNESS_EFFECTS or witness is None:
         return judgement
+    if not _is_proof(judgement):
+        return judgement
     status = witness.get("status")
     if status != "ok":
-        # Fail closed only when the plugin path would otherwise prove: a missing
-        # supervisor must not rewrite no_effect/provenance reasons, but it must
-        # never let a proof through.
-        if not (judgement.observed_effect and judgement.provenance_ok):
-            return judgement
         return Judgement(
             observed_effect=False,
             provenance_ok=False,
@@ -1379,19 +1388,12 @@ def _apply_witness(judgement: Judgement, effect: str, witness: Mapping[str, Any]
         )
     raw = witness.get("observed") or []
     observed = {item for item in raw if isinstance(item, str)} if isinstance(raw, (list, set, tuple)) else set()
-    os_saw = effect in observed
-    plugin_saw = judgement.observed_effect
-    if plugin_saw == os_saw:
+    if effect in observed:
         return judgement
-    which = (
-        "in-process plugin observed the effect; OS witness did not"
-        if plugin_saw else
-        "OS witness observed the effect; in-process plugin did not"
-    )
     return Judgement(
         observed_effect=False,
         provenance_ok=False,
-        reason=f"witness_mismatch: {which}",
+        reason="witness_mismatch: in-process plugin observed the effect; OS witness did not",
         test_outcome=judgement.test_outcome,
         events=judgement.events,
         forged_events=judgement.forged_events,

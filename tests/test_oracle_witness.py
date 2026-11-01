@@ -20,6 +20,8 @@ import exhibit_a.sandbox.runner as runner_mod
 from exhibit_a.loop.runner import SandboxRunner
 from exhibit_a.oracle import OracleEvent
 from exhibit_a.oracle.oracle import (
+    REASON_NO_EFFECT,
+    REASON_PROVENANCE,
     REASON_WITNESS_MISMATCH,
     REASON_WITNESS_UNAVAILABLE,
     WITNESS_EFFECTS,
@@ -83,8 +85,22 @@ def test_mismatch_is_never_proven_when_the_os_saw_a_read_the_plugin_did_not():
         witness={"status": "ok", "observed": ["canary_read"]},
     )
     assert not result.observed_effect and not result.provenance_ok
-    assert result.reason_code == REASON_WITNESS_MISMATCH
-    assert "OS witness observed" in result.reason
+    # Not an in-process proof, so the OS observation must not rewrite no_effect.
+    assert result.reason_code == REASON_NO_EFFECT
+
+
+def test_a_specific_cheat_refusal_is_never_downgraded_to_witness_mismatch():
+    """sql_from_test / provenance / canary_tampered stay; witness only rewrites a proof."""
+    test_only = _event(stack=[
+        {"file": "/repo/tests/test_x.py", "function": "test_x", "qualname": "test_x"},
+    ])
+    result = _judge(
+        "failed", [test_only], Path("/repo/app"), Path("/repo/tests/test_x.py"), ENTRY_POINTS,
+        witness={"status": "ok", "observed": ["canary_read"]},
+    )
+    assert result.reason_code == REASON_PROVENANCE, result.reason
+    assert result.reason_code != REASON_WITNESS_MISMATCH
+    assert "no application code on the stack" in result.reason
 
 
 def test_witness_unavailable_fails_closed_even_with_a_perfect_plugin_event():

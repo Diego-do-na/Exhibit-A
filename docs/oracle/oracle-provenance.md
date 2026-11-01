@@ -954,13 +954,13 @@ HMAC key, unlinks that file, then watches:
 - `canary_connect`: the loopback listener itself (the supervisor *is* the process
   that `accept()`s; a forged `connect.jsonl` line is not an observation).
 
-Signed observations go to `/oracle/witness.jsonl`. Unsigned or badly signed lines
-fail closed (`witness_unavailable`). The judge (`_apply_witness`) then requires
-agreement: an effect in `WITNESS_EFFECTS` is proven only if the plugin's
-`observed_effect` and the supervisor's `access`/`accept` lines both saw it.
-Disagreement is `witness_mismatch` and is never a proof. A missing start line is
-`witness_unavailable` (fails closed). The host path (`run_oracle`) passes no
-witness payload and keeps the in-process standard.
+Signed observations go to `/oracle/witness.jsonl`. The judge (`_apply_witness`)
+applies agreement last, and only when the in-process verdict is already a proof:
+both witnesses must have seen the effect, or that proof becomes `witness_mismatch`
+(plugin saw, OS did not) or `witness_unavailable` (missing or tampered log). A
+more specific in-process refusal (`sql_from_test`, `no_effect`, `canary_tampered`,
+provenance, …) is kept. The host path (`run_oracle`) passes no witness payload
+and keeps the in-process standard.
 
 **What it cannot observe.** `canary_dos` (CPU), `canary_redirect` and
 `canary_access` (in-process response objects) have no OS-level canary the
