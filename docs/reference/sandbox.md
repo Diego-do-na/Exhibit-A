@@ -62,6 +62,19 @@ Image / requirements mechanism
   - The runner copies the repository into a temporary workspace directory (under the user's home cache) and mounts that copy read-only (except the workspace mount).
   - The run image therefore contains only what the builder installed; no build context files are sent during build (the implementation sends a Dockerfile on stdin), and no host files other than the workspace copy are exposed.
 
+Node sandbox image (`image_node.py`)
+- Base: pinned official Node LTS slim base image (`node:22.23.4-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da`) pinning both exact version tag and sha256 digest.
+- TypeScript support: pinned loader `tsx` (`tsx@4.19.2`) installed as a dev dependency inside the image into `/opt/sandbox`.
+- Pins & lockfile: npm packages are installed using exact pins (`npm install --save-exact --ignore-scripts`) into the fixed directory (`/opt/sandbox`), writing an audited `package-lock.json` and `package.json`.
+- `--ignore-scripts`: all package installations strictly enforce `--ignore-scripts` to prevent arbitrary code execution during image build time via npm lifecycle scripts (`preinstall`, `install`, `postinstall`).
+- No network at run time: Node and TypeScript test runs execute inside an isolated, resource-limited container with `--network none`, ensuring no external communication or exfiltration during test execution. Build requires the network to fetch dependencies; run does not.
+- How it is audited:
+  - Package inputs are strictly validated and normalized (`_normalize_packages`): newlines, carriage returns, leading dashes (option injection), URL specs (`http://`, `https://`, `file:`), and git specs (`git://`, `git+`, `git@`, `github:`, `.git`) are rejected.
+  - Image tags are deterministic (`exhibit-a-sandbox-node:<16-char-hash>` derived from SHA-256 of the pinned base plus sorted normalized package specs).
+  - Docker builds use stdin context with no host context files exposed.
+  - Runtime execution enforces the same isolation flags: `--read-only` rootfs, `--tmpfs /tmp:rw,size=64m,mode=1777`, `--network none`, `--cap-drop ALL`, `--security-opt no-new-privileges`, non-root user (`--user uid:gid`), and resource limits.
+
+
 Colima on macOS
 - On macOS we require a Docker-compatible runtime that reliably bind-mounts host paths under the user's home. Colima is the recommended runtime for macOS in development and CI for this project because it shares `$HOME` with the host in a predictable way; the runner creates temporary workspaces under `$HOME` (e.g. `~/.cache/exhibit-a/sandbox`) so mounts succeed under Colima.
 - Docker Desktop may work, but users must ensure the container engine is configured to allow the temporary workspace bind-mounts; if bind-mounts fail tests will report `env_failure`.
@@ -103,5 +116,5 @@ Wording and guidance
 - Never say "100% safe" or imply the sandbox is impenetrable.
 
 References
-- Implementation: `src/exhibit_a/sandbox/runner.py` and `src/exhibit_a/sandbox/image.py`.
+- Implementation: `src/exhibit_a/sandbox/runner.py`, `src/exhibit_a/sandbox/image.py`, and `src/exhibit_a/sandbox/image_node.py`.
 

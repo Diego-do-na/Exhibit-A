@@ -73,3 +73,20 @@ def build_image(requirements: list[str]) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"docker build failed for {tag}: {result.stderr[-2000:]}")
     return tag
+
+
+normalize = _normalize
+shell_quote = _shell_quote
+image_exists = _image_exists
+
+__all__ = [
+    "BASE_IMAGE",
+    "BUILD_TIMEOUT",
+    "TAG_REPOSITORY",
+    "build_image",
+    "image_exists",
+    "image_tag",
+    "normalize",
+    "shell_quote",
+]
+
