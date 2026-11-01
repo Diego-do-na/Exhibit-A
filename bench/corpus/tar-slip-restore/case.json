@@ -1,0 +1,83 @@
+{
+  "cases": [
+    {
+      "id": "tar-slip-restore",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "archive_extraction_path_traversal",
+          "file": "vulnerable/app.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "cwe": {
+    "cwe_id": "CWE-22",
+    "cwe_name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+  },
+  "real_world_analog": {
+    "cve": "CVE-2007-4559",
+    "summary": "Python tarfile directory traversal via archive member names.",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2007-4559",
+    "fix": "Extract only members whose resolved path stays under the destination directory.",
+    "verification": "CVE number confirmed via public records; the app is original synthetic code."
+  },
+  "note": "Self-contained oracle case. Proven directly with effect='canary_write'. Original synthetic code.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_write",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "app.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_relative.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_absolute.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_safe_archive.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_crash.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_writes_canary.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_sink_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_escape.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_escape.py",
+        "label": "flaky"
+      }
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_absolute.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: an absolute member name has no '..', so the incomplete fix must not be accepted as fixed."
+    }
+  }
+}

@@ -1,0 +1,45 @@
+"""Backup restore service.
+
+``App`` accepts restore requests carrying a tar archive. Each member is
+extracted into the restore directory.
+"""
+
+import io
+import tarfile
+
+
+def pack(members):
+    """Serialise ``(name, data)`` pairs into a tar archive."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as archive:
+        for name, data in members:
+            raw = data.encode("utf-8")
+            info = tarfile.TarInfo(name=name)
+            info.size = len(raw)
+            archive.addfile(info, io.BytesIO(raw))
+    return buf.getvalue()
+
+
+def restore(dest, blob):
+    """Extract every archive member into ``dest``."""
+    archive = tarfile.open(fileobj=io.BytesIO(blob), mode="r")
+    archive.extractall(dest)
+    return dest
+
+
+class App:
+    """Answer restore requests carrying a tar archive."""
+
+    def __init__(self, dest_dir):
+        self.dest_dir = dest_dir
+
+    def handle_request(self, method, blob=None):
+        """Entry point: restore ``blob`` on POST, reject anything else."""
+        if method != "POST":
+            return "method not allowed"
+        return restore(self.dest_dir, blob)
+
+
+def create_app(dest_dir):
+    """Build an app that restores archives into ``dest_dir``."""
+    return App(dest_dir)

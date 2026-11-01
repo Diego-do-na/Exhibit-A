@@ -1,0 +1,11 @@
+{
+  "id": "ssti-jinja-preview-template",
+  "class": "server_side_template_injection",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 12
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The preview helper compiles the request source with jinja2.Template and renders it, so a source that reaches os.system through template internals executes during render (server-side template injection).",
+  "source": "manual (case author); real-world analog CVE-2019-8341"
+}

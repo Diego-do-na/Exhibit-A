@@ -1,0 +1,11 @@
+{
+  "id": "yaml-job-load-unsafe",
+  "class": "insecure_deserialization",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 12
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The intake helper loads the request document with yaml.unsafe_load, so a document tagged !!python/object/apply executes during load (unsafe YAML deserialization).",
+  "source": "manual (case author); real-world analog CVE-2017-18342"
+}

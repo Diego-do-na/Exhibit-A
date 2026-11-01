@@ -1,0 +1,11 @@
+{
+  "id": "upload-avatar-filename",
+  "class": "unrestricted_file_upload",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 16
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The avatar helper joins the request file name onto the destination and opens it for writing, so a name that contains '..' or is absolute is stored outside the avatar directory (unrestricted file upload / path traversal write).",
+  "source": "manual (case author); real-world analog CVE-2021-31542"
+}

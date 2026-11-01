@@ -1,0 +1,83 @@
+{
+  "cases": [
+    {
+      "id": "upload-avatar",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "unrestricted_file_upload",
+          "file": "vulnerable/app.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "cwe": {
+    "cwe_id": "CWE-434",
+    "cwe_name": "Unrestricted Upload of File with Dangerous Type"
+  },
+  "real_world_analog": {
+    "cve": "CVE-2021-31542",
+    "summary": "Django MultiPartParser: uploaded filename traversal writes outside the intended directory.",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2021-31542",
+    "fix": "Store under basename(name) confined with realpath to the destination directory.",
+    "verification": "CVE number confirmed via public records; the app is original synthetic code."
+  },
+  "note": "Self-contained oracle case. Proven directly with effect='canary_write'. Original synthetic code.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_write",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "app.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_dotdot_filename.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_absolute_filename.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_plain_upload.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_none_name.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_writes_canary.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_sink_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_escape.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_escape.py",
+        "label": "flaky"
+      }
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_absolute_filename.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: an absolute name has no '..', so the incomplete fix must not be accepted as fixed."
+    }
+  }
+}
