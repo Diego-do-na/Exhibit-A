@@ -123,6 +123,21 @@ TARGETS = (
     Target("sql-trunc-kind-injection", INCOMPLETE, "fixed_incomplete", paired=False),
     Target("docsuite-large-command-injection", VULNERABLE),
     Target("docsuite-large-command-injection", FIXED, "fixed", paired=False),
+    Target("xxe-catalog", VULNERABLE),
+    Target("xxe-catalog", FIXED, "fixed", paired=False),
+    Target("xxe-catalog", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("ssti-jinja-preview", VULNERABLE),
+    Target("ssti-jinja-preview", FIXED, "fixed", paired=False),
+    Target("ssti-jinja-preview", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("yaml-job-load", VULNERABLE),
+    Target("yaml-job-load", FIXED, "fixed", paired=False),
+    Target("yaml-job-load", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("tar-slip-restore", VULNERABLE),
+    Target("tar-slip-restore", FIXED, "fixed", paired=False),
+    Target("tar-slip-restore", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("upload-avatar", VULNERABLE),
+    Target("upload-avatar", FIXED, "fixed", paired=False),
+    Target("upload-avatar", INCOMPLETE, "fixed_incomplete", paired=False),
 )
 
 #: Ground-truth classes, each with the wordings that mean it. Matching stays literal on purpose:
@@ -131,6 +146,9 @@ _TRAVERSAL = "path_traversal"
 _COMMAND_INJECTION = "command_injection"
 _INSECURE_DESERIALIZATION = "insecure_deserialization"
 _SQL_INJECTION = "sql_injection"
+_SSTI = "server_side_template_injection"
+_XXE = "xml_external_entity"
+_UPLOAD = "unrestricted_file_upload"
 _CLASS_MEMBERS = {
     _TRAVERSAL: ("traversal", "zip_slip", "zipslip", "tar_slip"),
     _COMMAND_INJECTION: ("command_injection", "shell_injection", "command_execution", "os_command"),
@@ -138,6 +156,9 @@ _CLASS_MEMBERS = {
         "insecure_deserialization", "unsafe_deserialization", "deserialization", "pickle", "yaml",
     ),
     _SQL_INJECTION: ("sql_injection", "blind_sql", "union_sql"),
+    _SSTI: ("ssti", "template_injection", "server_side_template"),
+    _XXE: ("xml_external_entity", "xxe", "xml_entity"),
+    _UPLOAD: ("unrestricted_file_upload", "unrestricted_upload", "file_upload"),
 }
 
 
