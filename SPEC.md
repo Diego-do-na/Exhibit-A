@@ -21,6 +21,24 @@ A green result means "nothing could be proven", never "safe".
   **Nothing merges itself.**
 - The live view is a thin viewer of the ledger. It is not a dashboard product.
 
+### Commands
+
+The engine is driven through the `exhibit-a` CLI with the following subcommands:
+
+- `scan`: detect language/framework/dependencies, print `RepoProfile`, compute static call graph (`--graph`), and identify reach paths from diffs (`--pr-diff`).
+- `run`: execute the core verification loop on benchmark cases (`--case`) or PR diffs (`--pr-diff`), with cost controls (`--profile {standard,compact}`), static slicing (`--slice`), and provider configuration (`--provider`, `--model`).
+- `ledger`: display token, cost, and event totals for a run from its JSONL ledger.
+- `trace`: display the chronological sequence of lifecycle steps and outcomes for a run.
+- `report`: render a finding package as formatted Markdown or self-contained HTML.
+- `runs`: query and print past run history from the index (`runs.jsonl`).
+- `advisories`: query OSV advisories for project dependencies (suspicion hint only, not proof).
+- `dashboard`: serve the local read-only web dashboard to inspect runs, traces, and proof artifacts.
+- `audit`: audit a whole repository by ranking call graph reach paths and running the verification loop against top sink targets.
+- `doctor`: verify sandbox container isolation, runtime, capabilities, seccomp filters, and cgroup limits via an ephemeral probe container.
+- `reproduce`: re-run a proof bundle in the isolated, resource-limited sandbox against vulnerable and fixed trees with no model call.
+- `sarif`: export proven findings from a run directory to SARIF 2.1.0 for GitHub code scanning.
+- `verify`: verify a proof bundle offline: check file SHA-256 digests and the attestation manifest signature.
+
 ### Non-goals
 
 - Auditing entire dependency repositories.
@@ -112,7 +130,7 @@ directory (T079); R6 is what remains of that.
   stderr, oracle_events[] }`. Ephemeral container: unprivileged, capabilities dropped, no
   network, read-only filesystem except the clone, CPU/memory/pids/time limits, pinned
   image. Never mount the Docker socket or host directories.
-- **Oracle**: observes the intended effect and checks provenance.
+- **Oracle**: observes the intended effect (`canary_read`, `canary_write`, `canary_exec`, `canary_sql`) and checks provenance.
 - **Roles** behind one `ModelRole` interface: adversary, test writer, fixer, defender.
 
 ### Model providers
@@ -121,11 +139,13 @@ directory (T079); R6 is what remains of that.
 - `ollama` (plumbing and debugging only)
 - Meta Model API, and Meta open-weight models through an inference partner
   (OpenAI-compatible endpoint)
+- Baseten (`baseten` provider): comparison and fallback provider speaking OpenAI-compatible
+  chat-completions, with mandatory explicit pricing configuration (`src/exhibit_a/models/baseten.py`).
  
-Implemented provider registry and factories: `replay`, `ollama`, `openai_compatible`, and
-`meta` (see `src/exhibit_a/models/config.py`). The code consumes provider implementations
-through an OpenAI-compatible request shape and exposes a `MetaProvider` subclass that
-reuses the OpenAI-compatible plumbing.
+Implemented provider registry and factories: `replay`, `ollama`, `openai_compatible`,
+`meta`, and `baseten` (see `src/exhibit_a/models/config.py`). The code consumes provider implementations
+through an OpenAI-compatible request shape and exposes provider subclasses that
+reuse the OpenAI-compatible plumbing.
 
 UNVERIFIED: whether the Meta Model API accepts the `response_format` structured-output
 field, the exact base URL, and the model pricing are recorded but remain unverified
@@ -153,10 +173,35 @@ Every model call is recorded and replayable. A cost meter enforces a hard stop b
 ```json
 {"suspicion_id": "", "verdict": "proven",
  "evidence": {"test_path": "", "fails_on": "", "passes_on": "", "runs": 3,
-              "oracle": {}, "provenance": {}},
+              "oracle": {}, "provenance": {},
+              "observed_location": {"file": "", "line": 0, "function": "", "line_source": ""}},
  "fix": {"patch_path": ""},
- "bypass_attempts": {"tried": 0, "succeeded": 0}}
+ "bypass_attempts": {"tried": 0, "succeeded": 0},
+ "duplicates": [], "duplicate_of": null}
 ```
+
+Findings grouping (deduplication): when multiple suspicions prove the same oracle effect through the same entry point and sink call chain, the primary finding records absorbed suspicion IDs in `duplicates`, while duplicate findings record the primary ID in `duplicate_of`. Both fields are omitted from serialized output when empty.
+
+In `evidence` (and `evidence.json`), `observed_location` records where the oracle observed the effect:
+- `file`: file path of the observed sink.
+- `line`: line number of the observed sink.
+- `function`: qualname of the enclosing function/method.
+- `line_source`: source text of the observed line at the sink.
+
+`manifest.json` (attestation manifest)
+```json
+{"schema_version": 1,
+ "files": {"evidence.json": "", "fix.patch": "", "test_exploit.py": "", "verdict.json": ""},
+ "exhibit_a_version": "", "exhibit_a_commit": "",
+ "case_id": "", "repo_commit": null, "diff_hash": null,
+ "effect": "", "entry_point": "",
+ "oracle_verdict": {"verdict": "proven", "reason": "", "effect": "", "evidence": {}, "fix_verified": true, "fix_incomplete": false},
+ "ledger_events": [{"index": 0, "type": ""}],
+ "requirements": [],
+ "signature": ""}
+```
+
+Every finding package carries a signed `manifest.json` produced at packaging time. It binds file SHA-256 digests, engine version/commit, oracle verdict, and supporting ledger event indices under an HMAC-SHA256 signature, allowing offline verification (`exhibit-a verify`) and reproduction in the isolated, resource-limited sandbox (`exhibit-a reproduce`) with no model call.
 
 Event line (ledger):
 ```json
@@ -168,25 +213,16 @@ Event types: `pr_opened`, `scan_done`, `baseline_done`, `suspicion_raised`,
 `exploit_written`, `run_started`, `oracle_event`, `verdict`, `fix_proposed`,
 `bypass_attempt`, `bypass_result`, `packaged`.
 
-## 7. Vulnerability classes (v1)
+## 7. Vulnerability classes and effects (v1)
 
-Three classes, chosen by what can be proven by execution with a clear oracle:
+Four concrete oracle effects are implemented and proven by execution with a clear oracle (`Effect = Literal["canary_read", "canary_write", "canary_exec", "canary_sql"]`):
 
-1. Broken authorization (access to another user's resource).
-2. Path traversal (read effect: a canary file outside the allowed directory is read) and
-   archive extraction / zip-slip (write effect: a canary file outside the extraction
-   directory is written). SSRF is not a v1 class: a faithful effect needs a network, which
-   the sandbox forbids (see `docs/oracle/second-class.md`).
-3. A simple warm-up class: reflected XSS or SQL injection.
+1. `canary_read`: Path traversal (file read outside allowed directory). Realised on Starlette `StaticFiles` (CVE-2023-29159).
+2. `canary_write`: Archive extraction / zip-slip (file write outside allowed extraction directory). Realised on `archive-extraction-pathtraversal`.
+3. `canary_exec`: Remote command execution, code injection, and unsafe deserialization (process execution or running an executable planted outside the app directory). Realised on `command-injection-shell` and `unsafe-deserialization-pickle`.
+4. `canary_sql`: SQL injection (reading a seeded canary table from the application database via dynamic/unparameterized SQL queries). Realised on `sql-injection-login` and `sql-injection-search`.
 
-Final choice is an open decision (section 14).
-
-Status update: path traversal (read) is implemented in the loop and exercised by the
-project's first real-case corpus entry (Starlette `StaticFiles` path traversal,
-CVE-2023-29159). Archive extraction (write) runs through the loop and the sandbox (T076,
-`canary_write` effect) on a synthetic corpus case (`bench/corpus/archive-extraction-pathtraversal`),
-not on a real CVE. Broken authorization and the warm-up class are in scope for v1 but are
-not realised.
+SSRF is not a v1 class: a faithful effect needs a network, which the isolated, resource-limited sandbox forbids (see `docs/oracle/second-class.md`). Broken authorization without an observable side-effect sink remains out of scope.
 
 ## 8. Surfaces
 
@@ -236,12 +272,16 @@ Every module sits behind a flag so it can be ablated.
 - baseline check: implemented (runs inside the isolated, resource-limited sandbox via `SandboxRunner`).
 - oracle with provenance: implemented (canary + stack-provenance checks).
 - differential gating & repeated runs: implemented in the loop (N runs; since A-22/T078 the exploit passing on the fixed code and the fixed baseline passing gate every `proven`, section 4).
-- vulnerability classes: path traversal (read) and archive extraction (write, synthetic case) realised; broken authorization and the warm-up class are not, and SSRF is not a v1 class.
+- vulnerability classes: four oracle effects realised on corpus cases: path traversal (`canary_read`), archive extraction (`canary_write`), command injection and unsafe deserialization (`canary_exec`), and SQL injection (`canary_sql`); SSRF is not a v1 class.
 - PR-diff surface: implemented (T075): `exhibit-a run --pr-diff BASE..HEAD` verifies the changed Python files, exit codes 0/10/20/2 (`docs/reference/cli-exit-codes.md`); the GitHub Action calls it (T082).
 - ledger: implemented (append-only JSONL).
 - benchmark with ablations: bench corpus and probe tooling present; replay-driven cases work.
-- minimal live view: minimal replay-backed live pieces implemented.
-- CLI: `run` takes a benchmark case (`--replay` or live) or `--pr-diff`, with `--provider`/`--model`; every CLI mode runs baseline and exploit tests in the sandbox (`SandboxRunner`).
+- minimal live view: minimal replay-backed live pieces implemented, plus local read-only dashboard (`exhibit-a dashboard`).
+- CLI: complete suite of subcommands (`scan`, `run`, `ledger`, `trace`, `report`, `runs`, `advisories`, `dashboard`, `audit`, `doctor`, `reproduce`, `sarif`, `verify`); every CLI mode runs baseline and exploit tests in the isolated, resource-limited sandbox (`SandboxRunner`).
+- slicing: AST static call graph slicing (`--slice`), enabled by default with `--profile compact`.
+- proof bundles: signed `manifest.json`, offline `verify`, and sandbox `reproduce`.
+- findings grouping: deduplication collapses duplicate proofs sharing entry point and sink call chain.
+- model providers: Meta (primary) and Baseten (comparison and fallback).
 
 **Should**: CVE reachability, attack-surface map, open-weight models for adversary and test
 writer, GitHub Action, replay mode, defender bypass, cost meter, oracle evaluation set.
@@ -280,15 +320,15 @@ Resolved / updated:
   `bench/corpus/starlette-cve-2023-29159` case. The test package produced by the run is
   validated by `tests/test_e2e_cve.py`.
 
+- Vulnerability classes: resolved — four oracle effects realised across corpus cases: path traversal read (`canary_read`), archive extraction write (`canary_write`), command injection and unsafe deserialization (`canary_exec`), and SQL injection (`canary_sql`).
+
 - Provider shape: resolved — the implementation uses an OpenAI-compatible request shape
-  with provider factories and a `MetaProvider` subclass that delegates to the
-  OpenAI-compatible client (see `src/exhibit_a/models/config.py` and
-  `src/exhibit_a/models/meta.py`). HOWEVER, Meta endpoint specifics, the `response_format`
-  structured-output support, and the pricing table remain UNVERIFIED and must be checked
+  with provider factories and provider subclasses for Meta and Baseten (`src/exhibit_a/models/config.py`,
+  `src/exhibit_a/models/meta.py`, `src/exhibit_a/models/baseten.py`). HOWEVER, Meta endpoint specifics,
+  the `response_format` structured-output support, and the pricing table remain UNVERIFIED and must be checked
   against `dev.meta.ai` before relying on them.
 
 Still open / UNVERIFIED:
-- Final three vulnerability classes (path traversal read and archive-extraction write realised; broken authorization and the warm-up class not realised).
 - Which specific Meta model serves each role (to be decided by measurement and gating).
 - Provider data terms and full pricing confirmation.
 - Whether multimodal ingestion is built.
