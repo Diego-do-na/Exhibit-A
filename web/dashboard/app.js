@@ -42,6 +42,9 @@ const state = {
   currentRunId: null,
   sourceLabel: "",
   teardown: [], // callbacks run before the next route renders (streams, animation loops)
+  // Aborted when the next navigation starts, so a slow, stale render never paints over
+  // the view the user navigated to.
+  routeAbort: new AbortController(),
 };
 
 // -- DOM helpers ---------------------------------------------------------------
@@ -475,7 +478,11 @@ function pct(part, whole) {
 class AuthError extends Error {}
 
 async function api(path) {
-  const response = await fetch(path, { credentials: "same-origin", headers: { Accept: "application/json" } });
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: state.routeAbort.signal,
+  });
   if (response.status === 401) throw new AuthError("not signed in");
   let body = null;
   try { body = await response.json(); } catch (_) { body = null; }
@@ -1571,8 +1578,15 @@ function fallbackRunId() {
   return state.currentRunId || (state.runs[0] && state.runs[0].run_id) || null;
 }
 
+function isAbort(error) {
+  return Boolean(error) && error.name === "AbortError";
+}
+
 async function route() {
   runTeardown();
+  state.routeAbort.abort();
+  state.routeAbort = new AbortController();
+  const signal = state.routeAbort.signal;
   const rawHash = location.hash.replace(/^#\/?/, "");
   const parts = rawHash.split("/").map((p) => {
     try { return decodeURIComponent(p); } catch (_) { return ""; }
@@ -1603,8 +1617,9 @@ async function route() {
     } else {
       await renderHome(null);
     }
-    window.scrollTo(0, 0);
+    if (!signal.aborted) window.scrollTo(0, 0);
   } catch (error) {
+    if (isAbort(error) || signal.aborted) return; // a newer navigation owns the view
     renderError(error);
   }
 }

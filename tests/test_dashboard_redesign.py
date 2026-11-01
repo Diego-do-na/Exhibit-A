@@ -209,3 +209,13 @@ def test_liquid_glass_uses_the_token_blur_and_has_a_solid_fallback():
         assert surface in fallback
     assert "var(--panel-solid)" in fallback and "var(--sidebar-solid)" in fallback
     assert "--glass-specular" in CSS  # the highlight along the top edge
+
+
+def test_a_stale_render_cannot_paint_over_a_newer_route():
+    # Regression: opening "/" then "#/runs" quickly let the slower home render finish last
+    # and replace the runs table. Each navigation now aborts the previous one's requests.
+    api_fn = JS[JS.index("async function api(path)"):JS.index("function renderError")]
+    assert "signal: state.routeAbort.signal" in api_fn
+    router = JS[JS.index("async function route()"):JS.index("// -- Bootstrap")]
+    assert router.index("state.routeAbort.abort();") < router.index("new AbortController()")
+    assert "if (isAbort(error) || signal.aborted) return;" in router
