@@ -32,8 +32,9 @@ Every container mount is audited before execution. No host directory outside the
 | `/tmp/<work>/<dir>` | bind | `rw` | `canary_exec` | `<tmpdir>/outside` (per-run directory for `canary_ran` marker) |
 | `/oracle/outside.json` | bind | `rw` | `canary_write` | `<tmpdir>/outside.json` (post-run tmpfs listing) |
 | `/workspace/<sql_db>` | bind | `ro` | `canary_sql` | `<tmpdir>/seed/seeded.db` (seeded SQLite database copy) |
-| `/seed/original.db` | bind | `ro` | `canary_sql` seed container | `<tmpdir>/workspace/<sql_db>` (staged SQLite database) |
-| `/seed/out` | bind | `rw` | `canary_sql` seed container | `<tmpdir>/seed` (per-run seed output directory) |
+| `/workspace/<access_db>` | bind | `ro` | `canary_access` | `<tmpdir>/seed/seeded.json` (seeded access-store copy) |
+| `/seed/original.db` | bind | `ro` | `canary_sql` / `canary_access` seed container | `<tmpdir>/workspace/<sql_db or access_db>` (staged application store) |
+| `/seed/out` | bind | `rw` | `canary_sql` / `canary_access` seed container | `<tmpdir>/seed` (per-run seed output directory) |
 
 Self-check (`exhibit-a doctor`)
 - `exhibit-a doctor` (and `exhibit-a doctor --json`, implemented in `src/exhibit_a/cli/ext/doctor.py`) starts an ephemeral probe container with the sandbox's isolation flags and inspects the effective isolation from inside the container:
@@ -86,6 +87,16 @@ The `canary_sql` effect
 - Seeding happens in a short-lived init container with the same flags as the test container (`--network none`, `--cap-drop ALL`, `no-new-privileges`, memory, pids and time limits). It mounts the original database read-only and writes a seeded copy (the canary table with the run's token) to a temporary host directory; the original is never modified.
 - The test container mounts that copy read-only over `/workspace/<sql_db>`, nested inside the writable `/workspace` copy, and keeps every flag above. The test gets the token, not the database path.
 - What it cannot see: a driver other than `sqlite3`, and an app that needs to write to its own database during the run (the seeded copy is read-only). A green result still means "nothing could be proven".
+
+The `canary_redirect` effect
+- `SandboxRunner(redirect_meta=...).run_exploit(..., effect="canary_redirect")` proves open redirect: the application, reached through an entry point, answers with a redirect to a per-run canary host. Proof rules: `docs/oracle/oracle-provenance.md`, section 3.13. No canary file is mounted and nothing is ever fetched from the canary host; the test learns only the canary URL and the plugin's `redirect_probe` fixture calls the entry point and signs the observed response.
+- A green result still means "nothing could be proven".
+
+The `canary_access` effect
+- `SandboxRunner(access_db="<path in the clone>", access={"attacker": ..., "victim": ..., "resource": ...}).run_exploit(..., effect="canary_access")` proves broken access control: the application, reached through an entry point as the attacker, returns a victim-owned resource. Proof rules: `docs/oracle/oracle-provenance.md`, section 3.14. Both come from `case.json` `run.access_db` / `run.access`; without them, or if the file is missing, a link or not a regular file, the run fails closed before any container starts.
+- Seeding happens in a short-lived init container with the same flags as the test container. It mounts the original JSON store read-only and writes a seeded copy (the victim-owned resource with the run's token) to a temporary host directory; the original is never modified. The victim credential travels as a seed argument only, never in the test's environment.
+- The test container mounts that copy read-only over `/workspace/<access_db>`, nested inside the writable `/workspace` copy, and keeps every flag above. The test gets the attacker credential and the resource id, not the store path and never the victim credential.
+- What it cannot see: an app whose authentication is anything but a credential-plus-resource call, and an app that needs to write to its own store during the run (the seeded copy is read-only). A green result still means "nothing could be proven".
 
 Wording and guidance
 - Always say "isolated and resource-limited" when summarizing the sandbox guarantees.

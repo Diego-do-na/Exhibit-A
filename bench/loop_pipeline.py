@@ -291,11 +291,17 @@ def make_pipeline(
                     allow_host_execution=True,
                     requirements=tuple(case.requirements),
                     sql_db=case.sql_db or None,
+                    access_db=case.access_db or None,
+                    access=dict(case.access) or None,
+                    redirect_meta=case.redirect_meta,
                 )
             else:
                 effective_runner = SandboxRunner(
                     requirements=tuple(case.requirements),
                     sql_db=case.sql_db or None,
+                    access_db=case.access_db or None,
+                    access=dict(case.access) or None,
+                    redirect_meta=case.redirect_meta,
                 )
             if not _runner_supports_effect(effective_runner, case.effect):
                 # Fail closed before anything executes: the runner cannot

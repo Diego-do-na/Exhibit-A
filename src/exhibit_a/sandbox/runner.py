@@ -31,7 +31,12 @@ Returns:
     For effect="canary_connect" a loopback HTTP listener runs inside the test's container (the
     sandbox keeps --network none) and serves the run's token at the secret path of
     EXHIBIT_A_CANARY_URL; "connect_log": list holds what it recorded (untrusted: the judge needs
-    signed plugin events for the same request).
+    signed plugin events for the same request). For effect="canary_redirect" no canary file is
+    mounted and nothing is fetched: the plugin's redirect_probe fixture calls the entry point
+    and signs the observed response. For effect="canary_access" the victim-owned resource is
+    added to a copy of the application's JSON store by a first, equally isolated container
+    (the victim credential travels as a seed argument only), and the copy is mounted
+    read-only over the declared path in the test's container.
 
 Oracle events are signed by the plugin with a key generated here per run and written to the
 container's stdin (``docker run -i``), never to its environment, command line or a mount.
@@ -66,12 +71,26 @@ from .image import build_image
 from exhibit_a.oracle.oracle import (
     SQL_CANARY_COLUMN,
     SQL_CANARY_TABLE,
+    access_db_problem,
+    access_shape_problem,
     marker_holds_token,
     parse_canary_url,
+    parse_redirect_host,
     read_connect_log,
     sql_db_problem,
 )
-from exhibit_a.oracle.plugin import ENV_CONNECT, ENV_DOS, ENV_MARKER, ENV_SQL, KEY_BYTES, key_message, verify_lines
+from exhibit_a.oracle.plugin import (
+    ENV_ACCESS_ATTACKER,
+    ENV_ACCESS_RESOURCE,
+    ENV_CONNECT,
+    ENV_DOS,
+    ENV_MARKER,
+    ENV_REDIRECT,
+    ENV_SQL,
+    KEY_BYTES,
+    key_message,
+    verify_lines,
+)
 from exhibit_a.oracle.provenance import ManifestError, app_manifest, staging_exclude, tree_changes
 
 PYTEST_VERSION = "pytest==7.3.2"
@@ -154,6 +173,13 @@ DECLARED_MOUNTS: tuple[dict[str, str], ...] = (
         "source": "<tmpdir>/seed/seeded.db (seeded copy of application SQLite DB)",
     },
     {
+        "target": "/workspace/<access_db>",
+        "mode": "ro",
+        "kind": "bind",
+        "scope": "canary_access",
+        "source": "<tmpdir>/seed/seeded.json (seeded copy of the access store)",
+    },
+    {
         "target": "/opt/exhibit_a_plugin/canary_server.py",
         "mode": "ro",
         "kind": "bind",
@@ -171,14 +197,14 @@ DECLARED_MOUNTS: tuple[dict[str, str], ...] = (
         "target": "/seed/original.db",
         "mode": "ro",
         "kind": "bind",
-        "scope": "canary_sql_seed",
-        "source": "<tmpdir>/workspace/<sql_db> (staged application SQLite DB)",
+        "scope": "canary_sql_seed|canary_access_seed",
+        "source": "<tmpdir>/workspace/<sql_db or access_db> (staged application store)",
     },
     {
         "target": "/seed/out",
         "mode": "rw",
         "kind": "bind",
-        "scope": "canary_sql_seed",
+        "scope": "canary_sql_seed|canary_access_seed",
         "source": "<tmpdir>/seed (per-run seed output directory)",
     },
 )
@@ -193,6 +219,9 @@ _PLUGIN_DIR = "/opt/exhibit_a_plugin"
 _SERVER_MOUNT = f"{_PLUGIN_DIR}/canary_server.py"
 _CONNECT_LOG_MOUNT = "/oracle/connect.jsonl"
 _CONNECT_ENV = ENV_CONNECT
+_REDIRECT_ENV = ENV_REDIRECT
+_ACCESS_ATTACKER_ENV = ENV_ACCESS_ATTACKER
+_ACCESS_RESOURCE_ENV = ENV_ACCESS_RESOURCE
 _CANARY_MOUNT = "/oracle/canary"
 _EVENTS_MOUNT = "/oracle/events.jsonl"
 _ENV_PREFIX = "EXHIBIT_A_"
@@ -216,6 +245,26 @@ connection.execute("CREATE TABLE {SQL_CANARY_TABLE} ({SQL_CANARY_COLUMN} TEXT)")
 connection.execute("INSERT INTO {SQL_CANARY_TABLE} ({SQL_CANARY_COLUMN}) VALUES (?)", (os.environ["EXHIBIT_A_CANARY_TOKEN"],))
 connection.commit()
 connection.close()
+'''
+
+# canary_access: a first container adds the victim-owned resource holding the token to a
+# copy of the application's JSON store. Same isolation as the SQL seed: the original is
+# mounted read-only, the copy lands in the seed directory, the test's container then gets
+# it mounted read-only over the declared path. The victim credential arrives as an
+# argument (never in the test's environment); the token arrives in the environment
+# (it is the test contract, as for every other effect).
+_ACCESS_SEED_SCRIPT = r'''
+import json, os, shutil, sys
+source, target, victim, resource = sys.argv[1:5]
+with open(source, encoding="utf-8") as fh:
+    raw = fh.read()
+store = json.loads(raw) if raw.strip() else {}
+if not isinstance(store, dict) or resource in store:
+    raise SystemExit("the access store cannot be seeded")
+store[resource] = {"owner": victim, "content": os.environ["EXHIBIT_A_CANARY_TOKEN"]}
+with open(target, "w", encoding="utf-8") as fh:
+    json.dump(store, fh, indent=2, sort_keys=True)
+    fh.write("\n")
 '''
 
 
@@ -277,6 +326,11 @@ with open(out, "w") as fh:
 def _valid_connect_url(url: object) -> bool:
     """Whether ``url`` is a canary URL the listener can serve (loopback http with port and path)."""
     return parse_canary_url(url) is not None
+
+
+def _valid_redirect_url(url: object) -> bool:
+    """Whether ``url`` is a canary redirect target (any URL with a host; nothing is fetched)."""
+    return parse_redirect_host(url) is not None
 
 
 def _read_connect_log(path: str) -> list[dict]:
@@ -511,6 +565,62 @@ def _seed_database(
     return None
 
 
+def _seed_access(
+    image: str,
+    source: str,
+    seed_dir: str,
+    token: str,
+    victim: str,
+    resource: str,
+    runtime_args: list[str] | None = None,
+    seccomp_args: list[str] | None = None,
+    tmpdir: str | None = None,
+) -> str | None:
+    """Add the victim-owned resource to a copy of ``source`` in a throwaway container.
+
+    Same isolation as the SQL seed: the original is mounted read-only, the copy lands in
+    ``seed_dir``, the only writable mount. The victim credential arrives as an argument;
+    the token arrives in the environment (it is the test contract). None, or why it failed.
+    """
+    if seccomp_args is None:
+        seccomp_args, seccomp_err = _seccomp_args()
+        if seccomp_err is not None:
+            return seccomp_err
+    if runtime_args is None:
+        runtime_args, rt_err = _resolve_runtime()
+        if rt_err is not None:
+            return rt_err
+    name = f"exhibit_a_seed_{uuid.uuid4().hex[:8]}"
+    cmd = [
+        "docker", "run", "--name", name, "--rm",
+        *runtime_args,
+        "--read-only", "--tmpfs", TMPFS_SPEC,
+        "--network", "none", "-e", "HOME=/tmp", "-e", f"{_TOKEN_ENV}={token}", "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        *seccomp_args,
+        "--pids-limit", str(PIDS_LIMIT), "--memory", MEMORY_LIMIT,
+        "--memory-swap", MEMORY_LIMIT, "--cpus", CPUS_LIMIT,
+        "-v", f"{source}:/seed/original.db:ro", "-v", f"{seed_dir}:/seed/out:rw",
+        "--user", _container_user(), image,
+        "python", "-I", "-S", "-c", _ACCESS_SEED_SCRIPT, "/seed/original.db", "/seed/out/seeded.json",
+        victim, resource,
+    ]
+    if tmpdir is not None:
+        mount_err = _verify_declared_mounts(cmd, tmpdir)
+        if mount_err is not None:
+            return mount_err
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_SEED_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return "seeding the access store timed out"
+    except OSError as e:
+        return f"cannot seed the access store: {e}"
+    if proc.returncode != 0:
+        return "cannot seed the victim-owned resource: " + proc.stderr.decode(errors="replace")[-500:]
+    return None
+
+
 def _check_docker_available() -> bool:
     from shutil import which
 
@@ -538,6 +648,8 @@ def run(
     manifest: Mapping[str, str] | None = None,
     effect: str = "canary_read",
     sql_db: str | None = None,
+    access_db: str | None = None,
+    access_victim: str | None = None,
     runtime: str | None = None,
 ) -> Dict[str, Any]:
     """
@@ -563,6 +675,11 @@ def run(
         sql_db: for effect="canary_sql", the application's database as a path relative to the clone. It
             must exist there as a regular file; the test's container sees a copy of it with the canary
             table added, mounted read-only at that path.
+        access_db: for effect="canary_access", the application's JSON store as a path relative to the
+            clone. It must exist there as a regular file; the test's container sees a copy of it with
+            the victim-owned resource added, mounted read-only at that path.
+        access_victim: for effect="canary_access", the victim credential the seed step stores as the
+            resource's owner. It travels as a seed argument only, never in the test's environment.
         runtime: optional Docker runtime name (defaults to `EXHIBIT_A_DOCKER_RUNTIME`, e.g. `runsc` for gVisor).
             Fails closed with `env_failure` if set and not installed.
 
@@ -617,6 +734,7 @@ def run(
 
         if effect not in (
             "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
+            "canary_redirect", "canary_access",
         ):
             return _env_failure(f"unknown oracle effect: {effect}")
         if effect == "canary_write":
@@ -644,9 +762,29 @@ def run(
         if effect == "canary_dos":
             if canary_path is not None or events_path is None:
                 return _env_failure("a dos effect mounts no canary file and needs events_path")
+        if effect == "canary_redirect":
+            if canary_path is not None or events_path is None or _TOKEN_ENV not in extra_env:
+                return _env_failure("a redirect effect mounts no canary file and needs events_path and "
+                                    f"{_TOKEN_ENV}")
+            if not _valid_redirect_url(extra_env.get(_REDIRECT_ENV)):
+                return _env_failure("a redirect effect needs an EXHIBIT_A_CANARY_REDIRECT URL with a host in env")
+        if effect == "canary_access":
+            problem = access_db_problem(Path(workspace), access_db)
+            if problem is not None:
+                return _env_failure(problem)
+            problem = access_shape_problem({
+                "attacker": extra_env.get(_ACCESS_ATTACKER_ENV, ""),
+                "victim": access_victim or "",
+                "resource": extra_env.get(_ACCESS_RESOURCE_ENV, ""),
+            })
+            if problem is not None:
+                return _env_failure(problem)
+            if canary_path is not None or events_path is None or _TOKEN_ENV not in extra_env:
+                return _env_failure("an access effect mounts no canary file and needs events_path and "
+                                    f"{_TOKEN_ENV}")
         observe = (
             canary_path is not None or events_path is not None
-            or effect in ("canary_write", "canary_connect", "canary_dos")
+            or effect in ("canary_write", "canary_connect", "canary_dos", "canary_redirect", "canary_access")
         )
         oracle_key = secrets.token_bytes(KEY_BYTES)
         events_file = os.path.join(tmpdir, "events.jsonl")
@@ -727,9 +865,20 @@ def run(
                 # DOS effect: NO canary file is mounted. The plugin times the entry point
                 # inside the same container; CPU and time limits stay the sandbox defaults.
                 extra_args += ["-e", "EXHIBIT_A_CANARY=dos", "-e", f"{ENV_DOS}=1"]
+            elif effect == "canary_redirect":
+                # Redirect effect: NO canary file is mounted and nothing is ever fetched.
+                # The plugin's redirect_probe fixture calls the entry point and signs the
+                # observed response; the canary URL travels in the environment (test contract).
+                redirect_url = extra_env[_REDIRECT_ENV]
+                extra_args += ["-e", f"EXHIBIT_A_CANARY={redirect_url}", "-e", f"{_REDIRECT_ENV}={redirect_url}"]
+            elif effect == "canary_access":
+                # Access effect: the canary is the seeded store below, mounted read-only at
+                # its declared path. The attacker credential and the resource arrive in the
+                # environment (test contract); the victim credential only as the seed argument.
+                extra_args += ["-e", f"EXHIBIT_A_CANARY={_WORKSPACE}/{access_db}"]
             plugin_args = ["-p", _PLUGIN_MODULE]
         for env_name, value in extra_env.items():
-            if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY", _CONNECT_ENV, ENV_DOS) and observe:
+            if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY", _CONNECT_ENV, ENV_DOS, _REDIRECT_ENV) and observe:
                 continue
             extra_args += ["-e", f"{env_name}={value}"]
 
@@ -791,6 +940,32 @@ def run(
             except OSError as e:
                 return _env_failure(f"the seeded database is missing: {e}")
             extra_args += ["-v", f"{seeded}:{_WORKSPACE}/{sql_db}:ro"]
+
+        if effect == "canary_access":
+            seed_dir = os.path.join(tmpdir, "seed")
+            os.mkdir(seed_dir)
+            os.chmod(seed_dir, 0o777)
+            seeded = os.path.join(seed_dir, "seeded.json")
+            failure = _seed_access(
+                image,
+                os.path.join(workspace, str(access_db)),
+                seed_dir,
+                extra_env[_TOKEN_ENV],
+                str(access_victim),
+                str(extra_env[_ACCESS_RESOURCE_ENV]),
+                runtime_args=runtime_args,
+                seccomp_args=seccomp_args,
+                tmpdir=tmpdir,
+            )
+            if failure is not None:
+                return _env_failure(failure)
+            try:
+                if not stat.S_ISREG(os.lstat(seeded).st_mode):
+                    return _env_failure("the seeded store is not a regular file")
+                os.chmod(seeded, 0o444)
+            except OSError as e:
+                return _env_failure(f"the seeded store is missing: {e}")
+            extra_args += ["-v", f"{seeded}:{_WORKSPACE}/{access_db}:ro"]
 
         # 2) Run the image with strict isolation and no network.
         pytest_args = ["-q", "-p", "no:cacheprovider", *plugin_args, f"/workspace/{rel_test}"]

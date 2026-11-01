@@ -35,7 +35,12 @@ database; ``_judge_sql`` and section 3.10 say what proves it. The ``canary_conne
 starts a loopback HTTP listener that serves the token at one unguessable path; ``_judge_connect``
 and section 3.11 say what proves it. The ``canary_dos`` effect (algorithmic complexity: ReDoS,
 quadratic parsing) has the runner time the entry point on a malicious input against a benign
-input of the same length; ``_judge_dos`` and section 3.12 say what proves it.
+input of the same length; ``_judge_dos`` and section 3.12 say what proves it. The
+``canary_redirect`` effect (open redirect) has the runner observe the entry point's response:
+a redirect to a per-run canary host proves it (``_judge_redirect``, section 3.13). The
+``canary_access`` effect (broken access control) seeds a victim-owned resource holding the token
+and has the runner observe the entry point's response to an attacker-authenticated request
+(``_judge_access``, section 3.14).
 """
 
 from __future__ import annotations
@@ -51,21 +56,32 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from pathlib import Path, PurePath, PurePosixPath
 from typing import Literal
 from urllib.parse import urlsplit
 
-from exhibit_a.oracle.guard import channel_problem, connect_problem, dos_problem, exec_problem, sql_problem
+from exhibit_a.oracle.guard import (
+    access_problem,
+    channel_problem,
+    connect_problem,
+    dos_problem,
+    exec_problem,
+    redirect_problem,
+    sql_problem,
+)
 from exhibit_a.oracle.plugin import (
     DOS_FLOOR,
     DOS_MIN_APP_FRACTION,
     DOS_RATIO,
+    ENV_ACCESS_ATTACKER,
+    ENV_ACCESS_RESOURCE,
     ENV_CANARY,
     ENV_CONNECT,
     ENV_DOS,
     ENV_EVENTS,
     ENV_MARKER,
+    ENV_REDIRECT,
     ENV_SQL,
     KEY_BYTES,
     key_message,
@@ -78,6 +94,9 @@ ENV_ALLOWED_DIR = "EXHIBIT_A_ALLOWED_DIR"
 ENV_CANARY_TOKEN = "EXHIBIT_A_CANARY_TOKEN"
 #: The test contract for canary_connect: the full URL of the per-run loopback listener.
 ENV_CONNECT_URL = ENV_CONNECT
+#: The test contract for canary_redirect: the full URL of the per-run canary redirect
+#: target. Only its host matters to the judge; nothing is ever fetched from it.
+ENV_REDIRECT_URL = ENV_REDIRECT
 
 TestOutcome = Literal["passed", "failed", "error", "timeout"]
 
@@ -89,7 +108,10 @@ TestOutcome = Literal["passed", "failed", "error", "timeout"]
 # execution: the app runs an executable outside the allowed directory, which leaves the token in
 # a marker file beside it; it has its own judge (_judge_exec). "canary_sql" is SQL injection: the
 # app reads a row of a table it never queries, in its own SQLite database (_judge_sql).
-Effect = Literal["canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos"]
+Effect = Literal[
+    "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
+    "canary_redirect", "canary_access",
+]
 # Which accesses count for each effect: "r+" or O_RDWR is both a read and a write.
 _ACCEPTED_ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}
 # A write effect reads at most this much of the canary after the run to find the token.
@@ -137,6 +159,10 @@ REASON_SQL_UNPLACED = "sql_unplaced"
 REASON_FLAKY = "flaky"
 REASON_DOS_FROM_TEST = "dos_from_test"
 REASON_DOS_API_CHANGED = "dos_api_changed"
+REASON_REDIRECT_FROM_TEST = "redirect_from_test"
+REASON_REDIRECT_API_CHANGED = "redirect_api_changed"
+REASON_ACCESS_FROM_TEST = "access_from_test"
+REASON_ACCESS_API_CHANGED = "access_api_changed"
 
 
 class Frame(StrictModel):
@@ -163,7 +189,7 @@ class OracleEvent(StrictModel):
     # Missing in events from older plugins, which classify as "unknown": never a proof.
     op: Literal[
         "open", "rename", "link", "process", "native", "env", "chdir", "codegen",
-        "sql_connect", "sql_read", "sql_text", "connect", "request", "dos",
+        "sql_connect", "sql_read", "sql_text", "connect", "request", "dos", "response",
     ] = "open"
     flags: int | None = None
     access: Literal["read", "write", "read_write", "unknown", "exec", "sql", "cpu"] | None = None
@@ -210,6 +236,16 @@ class OracleEvent(StrictModel):
     table: str | None = None
     column: str | None = None
     database: str | None = None
+    # canary_redirect / canary_access only. ``response``: the entry point's response as the
+    # runner observed it when it called the entry point itself (never the test's copy):
+    # the HTTP status, the ``Location`` header when one was present, and the body. For
+    # canary_access the probe also records which attacker credential and resource it was
+    # called with; the judge binds both to the run's declared access contract.
+    status: int | None = None
+    location: str | None = None
+    body: str | None = None
+    auth: str | None = None
+    resource: str | None = None
 
 
 class Judgement(StrictModel):
@@ -236,6 +272,9 @@ def run_oracle(
     timeout: float = 60.0,
     effect: Effect = "canary_read",
     sql_db: str | None = None,
+    access_db: str | None = None,
+    access: Mapping[str, str] | None = None,
+    redirect_meta: bool = False,
 ) -> Judgement:
     """Run ``test_path`` against the app in ``app_root`` and judge the result.
 
@@ -255,13 +294,28 @@ def run_oracle(
     HTTP listener serving the token at one unguessable path; the app must request that URL
     through an entry point (see ``_judge_connect``). ``"canary_dos"`` times the entry point
     on a malicious input against a same-length benign input (see ``_judge_dos``).
+    ``"canary_redirect"`` observes the entry point's response: a redirect to a per-run
+    canary host proves an open redirect (see ``_judge_redirect``); when the case declares
+    it (``redirect_meta``), an HTML meta refresh to that host counts too. ``"canary_access"``
+    stages a copy of the app whose store, ``access_db`` (a JSON file relative to ``app_root``
+    mapping a resource to its owner), gains the victim-owned resource holding the token; the
+    app must return that token for an attacker-authenticated request (see ``_judge_access``).
+    ``access`` declares the principals and the protected resource as
+    ``{"attacker": ..., "victim": ..., "resource": ...}``; the test learns only the attacker
+    credential and the resource. Raises ``ValueError`` if ``sql_db``, ``access_db``/``access``
+    or ``redirect_meta`` is missing, unusable or given for another effect.
     """
     if effect not in (
         "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
+        "canary_redirect", "canary_access",
     ):
         raise ValueError(f"unknown effect {effect!r}")
     if sql_db is not None and effect != "canary_sql":
         raise ValueError("sql_db is only for the canary_sql effect")
+    if (access_db is not None or access is not None) and effect != "canary_access":
+        raise ValueError("access_db and access are only for the canary_access effect")
+    if redirect_meta and effect != "canary_redirect":
+        raise ValueError("redirect_meta is only for the canary_redirect effect")
     app_root = Path(app_root).resolve()
     test_path = Path(test_path).resolve()
 
@@ -274,6 +328,10 @@ def run_oracle(
         problem = connect_problem(test_path)
     if problem is None and effect == "canary_dos":
         problem = dos_problem(test_path)
+    if problem is None and effect == "canary_redirect":
+        problem = redirect_problem(test_path)
+    if problem is None and effect == "canary_access":
+        problem = access_problem(test_path)
     if problem is not None:
         # Not run at all: an "error" outcome, which the loop classifies as invalid_test.
         return Judgement(
@@ -286,6 +344,10 @@ def run_oracle(
         return _run_connect(app_root, test_path, set(entry_points), timeout)
     if effect == "canary_dos":
         return _run_dos(app_root, test_path, set(entry_points), timeout)
+    if effect == "canary_redirect":
+        return _run_redirect(app_root, test_path, set(entry_points), timeout, redirect_meta)
+    if effect == "canary_access":
+        return _run_access(app_root, test_path, set(entry_points), timeout, access_db, access)
 
     # The test's own directory is test code even when it sits inside the app root.
     exclude = []
@@ -652,6 +714,266 @@ def _run_dos(app_root: Path, test_path: Path, entry_points: set[str], timeout: f
     )
 
 
+def redirect_canary_host() -> str:
+    """A per-run canary host for the redirect target: unguessable, never resolved.
+
+    The ``.invalid`` top-level domain (RFC 2606) never resolves, so nothing is ever
+    fetched from it: the proof is the redirect target the application names, not a
+    connection. The test learns the full URL and must make the application redirect to it.
+    """
+    return f"canary-{secrets.token_hex(8)}.invalid"
+
+
+def redirect_canary_url(host: str) -> str:
+    """The canary redirect target for a run: the canary host with an unguessable path."""
+    return f"http://{host}/{secrets.token_hex(8)}"
+
+
+def parse_redirect_host(url: object) -> str | None:
+    """The lowercase host of a redirect target, or None if it names no host.
+
+    Any scheme with a hostname counts (``http``, ``https``, protocol-relative); a
+    ``javascript:`` URL or a relative path names no host and never matches the canary.
+    """
+    if not isinstance(url, str):
+        return None
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower()
+    return host or None
+
+
+def access_shape_problem(access: object) -> str | None:
+    """Why ``access`` cannot declare the principals and the protected resource, or None.
+
+    It must map ``attacker`` and ``victim`` (how to authenticate as each principal) and
+    ``resource`` (the victim-owned resource the attacker must not reach) to non-empty
+    strings. The test learns only the attacker credential and the resource; the victim
+    credential reaches the runner alone, for seeding.
+    """
+    if not isinstance(access, Mapping):
+        return "access must map 'attacker', 'victim' and 'resource' to non-empty strings"
+    for key in ("attacker", "victim", "resource"):
+        value = access.get(key)
+        if not isinstance(value, str) or not value:
+            return f"access[{key!r}] must be a non-empty string"
+    for key in ("attacker", "victim"):
+        value = access[key]
+        if len(value) > 64 or re.fullmatch(r"[A-Za-z0-9_.@-]+", value) is None:
+            return f"access[{key!r}] may only hold letters, digits and '_', '.', '@', '-' (at most 64 characters)"
+    resource = access["resource"]
+    if len(resource) > 200 or re.fullmatch(r"[A-Za-z0-9_./-]+", resource) is None:
+        return "access['resource'] may only hold letters, digits and '_', '.', '/', '-' (at most 200 characters)"
+    if resource.startswith("/") or ".." in PurePosixPath(resource).parts:
+        return "access['resource'] must be a plain resource id without '..' or a leading slash"
+    return None
+
+
+def access_db_shape_problem(rel: object) -> str | None:
+    """Why ``rel`` cannot name the application's access store (``run.access_db``), or None.
+
+    It must be a plain relative path inside the app: letters, digits and ``_./-`` only (it ends
+    up in a container mount specification), no ``..`` or ``.`` component, no empty one, no
+    leading ``/``.
+    """
+    if not isinstance(rel, str) or not rel:
+        return "access_db must be a non-empty path relative to the application tree"
+    if not _SQL_DB_PATH.fullmatch(rel):
+        return "access_db may only hold letters, digits and '_', '.', '-', '/' (at most 200 characters)"
+    path = PurePosixPath(rel)
+    if path.is_absolute() or path.as_posix() != rel or any(part in (".", "..") for part in path.parts):
+        return "access_db must be a normalised relative path without '.' or '..' components"
+    return None
+
+
+def access_db_problem(root: Path, rel: object) -> str | None:
+    """Why ``root / rel`` cannot be the application's access store, or None.
+
+    The store must be a regular JSON file (not a link, nor behind one) inside ``root``, of a
+    size that is cheap to copy for every run. It may be empty (an empty store); a missing file
+    is a problem: the app has to find its own store where it expects it.
+    """
+    problem = access_db_shape_problem(rel)
+    if problem is not None:
+        return problem
+    current = Path(root)
+    for part in PurePosixPath(str(rel)).parts:
+        current = current / part
+        try:
+            st = os.lstat(current)
+        except OSError:
+            return f"access_db {rel!r} does not exist in the application tree"
+        if stat.S_ISLNK(st.st_mode):
+            return f"access_db {rel!r} is, or is behind, a symbolic link"
+    if not stat.S_ISREG(st.st_mode):
+        return f"access_db {rel!r} is not a regular file"
+    if st.st_size > _MAX_SQL_DB_BYTES:
+        return f"access_db {rel!r} is larger than {_MAX_SQL_DB_BYTES >> 20} MiB"
+    return None
+
+
+def seed_access_db(db: Path, victim: str, resource: str, token: str) -> None:
+    """Add the victim-owned resource, holding ``token``, to ``db``, a private store copy.
+
+    The store maps a resource id to ``{"owner": ..., "content": ...}``. An empty file counts
+    as an empty store; anything that is not a JSON object, or that already holds the
+    resource, is refused rather than trusted. The copy is made read-only, so the tree check
+    sees any change to it. Host path only (a research and test tool, not isolated): the
+    sandbox seeds inside a container (sandbox/runner.py).
+    """
+    import json as _json
+
+    try:
+        raw = db.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"cannot read the access store: {exc}") from exc
+    if not raw.strip():
+        store: object = {}
+    else:
+        try:
+            store = _json.loads(raw)
+        except ValueError as exc:
+            raise ValueError(f"cannot seed the access store: not a JSON object: {exc}") from exc
+    if not isinstance(store, dict):
+        raise ValueError("cannot seed the access store: not a JSON object")
+    if resource in store:
+        raise ValueError("cannot seed the access store: it already holds the resource")
+    store[resource] = {"owner": victim, "content": token}
+    try:
+        db.write_text(_json.dumps(store, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"cannot seed the access store: {exc}") from exc
+    os.chmod(db, 0o444)
+
+
+def _manifest_or_error(app_root: Path, test_path: Path) -> tuple[dict[str, str], list[str], str | None]:
+    """The staged manifest and test exclusion for ``app_root``, or the failure reason."""
+    exclude = []
+    if test_path.parent.is_relative_to(app_root) and test_path.parent != app_root:
+        exclude.append(test_path.parent.relative_to(app_root).as_posix())
+    elif test_path.parent == app_root:
+        exclude += [test_path.name, "conftest.py"]
+    try:
+        return app_manifest(app_root, exclude), exclude, None
+    except ManifestError as exc:
+        return {}, exclude, f"the application tree could not be hashed before the run: {exc}"
+
+
+def _run_redirect(
+    app_root: Path, test_path: Path, entry_points: set[str], timeout: float, redirect_meta: bool,
+) -> Judgement:
+    """The host path of ``canary_redirect``: no file, no listener, the runner watches the response.
+
+    The test gets the canary URL and must make the application redirect to it through a
+    declared entry point. The plugin's ``redirect_probe`` fixture calls the entry point
+    itself and signs the observed response; the test only asserts on the copy it returns.
+    Nothing is ever fetched from the canary host (``.invalid`` never resolves).
+    """
+    manifest, exclude, failure = _manifest_or_error(app_root, test_path)
+    if failure is not None:
+        return Judgement(
+            observed_effect=False, provenance_ok=False, test_outcome="error",
+            reason=failure, reason_code=REASON_MANIFEST_FAILED,
+        )
+    key = secrets.token_bytes(KEY_BYTES)
+    token = "CANARY-" + secrets.token_hex(16)
+    url = redirect_canary_url(redirect_canary_host())
+    with tempfile.TemporaryDirectory(prefix="exhibit_a_oracle_") as tmp:
+        work = Path(tmp).resolve()
+        allowed = work / "allowed"
+        allowed.mkdir()
+        (allowed / "public.txt").write_text("public file\n", encoding="utf-8")
+        events_path = work / "events.jsonl"
+        ini = work / "pytest.ini"
+        ini.write_text("[pytest]\n", encoding="utf-8")
+        outcome = _run_test(
+            app_root, test_path, work, ini, allowed, url, token, events_path, timeout,
+            key=key, manifest=manifest, redirect_url=url,
+        )
+        events, forged, forged_reason = _read_events(events_path, key)
+    changes = tree_changes(app_root, manifest, exclude)
+    return _judge(
+        outcome, events, app_root, test_path, entry_points,
+        effect="canary_redirect", forged_events=forged, forged_reason=forged_reason,
+        app_tree=AppTree(str(app_root), app_root, manifest), app_tree_changes=changes,
+        allowed_dir=str(allowed), redirect_host=parse_redirect_host(url), redirect_meta=redirect_meta,
+    )
+
+
+def _run_access(
+    app_root: Path,
+    test_path: Path,
+    entry_points: set[str],
+    timeout: float,
+    access_db: str | None,
+    access: Mapping[str, str] | None,
+) -> Judgement:
+    """The host path of ``canary_access``: a staged copy with the victim resource seeded.
+
+    The application's own store file is never touched: the app is copied into the work
+    directory, the victim-owned resource holding the token is added to the copy, and the
+    test runs there. The test learns the attacker credential and the resource id; the
+    victim credential reaches only the seeding step. The plugin's ``access_probe`` fixture
+    calls the entry point itself as the attacker and signs the observed response.
+    """
+    problem = access_db_problem(app_root, access_db)
+    if problem is not None:
+        raise ValueError(problem)
+    problem = access_shape_problem(access)
+    if problem is not None:
+        raise ValueError(problem)
+    assert access_db is not None and access is not None
+    key = secrets.token_bytes(KEY_BYTES)
+    token = "CANARY-" + secrets.token_hex(16)
+    with tempfile.TemporaryDirectory(prefix="exhibit_a_oracle_") as tmp:
+        work = Path(tmp).resolve()
+        allowed = work / "allowed"
+        allowed.mkdir()
+        (allowed / "public.txt").write_text("public file\n", encoding="utf-8")
+        stage = work / "app"
+        try:
+            shutil.copytree(app_root, stage, symlinks=True)
+        except (OSError, shutil.Error) as exc:
+            return Judgement(
+                observed_effect=False, provenance_ok=False, test_outcome="error",
+                reason=f"the application tree could not be staged: {exc}", reason_code=REASON_MANIFEST_FAILED,
+            )
+        run_test = stage / test_path.relative_to(app_root) if test_path.is_relative_to(app_root) else test_path
+        db = stage / str(access_db)
+        seed_access_db(db, access["victim"], access["resource"], token)
+        exclude = []
+        if run_test.parent.is_relative_to(stage) and run_test.parent != stage:
+            exclude.append(run_test.parent.relative_to(stage).as_posix())
+        elif run_test.parent == stage:
+            exclude += [run_test.name, "conftest.py"]
+        try:
+            manifest = app_manifest(stage, exclude)
+        except ManifestError as exc:
+            return Judgement(
+                observed_effect=False, provenance_ok=False, test_outcome="error",
+                reason=f"the application tree could not be hashed before the run: {exc}",
+                reason_code=REASON_MANIFEST_FAILED,
+            )
+        events_path = work / "events.jsonl"
+        ini = work / "pytest.ini"
+        ini.write_text("[pytest]\n", encoding="utf-8")
+        outcome = _run_test(
+            stage, run_test, work, ini, allowed, db.resolve(), token, events_path, timeout, key=key,
+            manifest=manifest, access=(access["attacker"], access["resource"]),
+        )
+        events, forged, forged_reason = _read_events(events_path, key)
+        changes = tree_changes(stage, manifest, exclude)
+        return _judge(
+            outcome, events, stage, run_test, entry_points,
+            effect="canary_access", forged_events=forged, forged_reason=forged_reason,
+            app_tree=AppTree(str(stage), stage, manifest), app_tree_changes=changes,
+            access={"attacker": access["attacker"], "resource": access["resource"]},
+            access_token=token,
+        )
+
+
 def _wait_for_port(port: int, timeout: float) -> bool:
     """Whether 127.0.0.1:``port`` accepts a connection within ``timeout`` seconds."""
     import socket
@@ -747,6 +1069,8 @@ def _run_test(
     sql_table: str | None = None,
     connect_url: str | None = None,
     dos: bool = False,
+    redirect_url: str | None = None,
+    access: tuple[str, str] | None = None,
 ) -> TestOutcome:
     """Run the test with the plugin; ``key`` goes to the plugin on stdin, never elsewhere.
 
@@ -780,6 +1104,12 @@ def _run_test(
         env[ENV_CONNECT_URL] = connect_url  # the test contract; ENV_CANARY carries it too
     if dos:
         env[ENV_DOS] = "1"
+    if redirect_url is not None:
+        env[ENV_REDIRECT_URL] = redirect_url  # the test contract; ENV_CANARY carries it too
+    if access is not None:
+        # The test contract: how to authenticate as the attacker, and which resource to
+        # ask for. The victim credential is never in the test's environment.
+        env[ENV_ACCESS_ATTACKER], env[ENV_ACCESS_RESOURCE] = access
     cmd = [
         sys.executable,
         "-m",
@@ -865,6 +1195,10 @@ def _judge(
     canary_ran: bool | None = None,
     canary_url: str | None = None,
     connect_log: list[dict] | None = None,
+    redirect_host: str | None = None,
+    redirect_meta: bool = False,
+    access: Mapping[str, str] | None = None,
+    access_token: str | None = None,
 ) -> Judgement:
     """Decide what a run means.
 
@@ -930,6 +1264,16 @@ def _judge(
         )
     if effect == "canary_dos":
         return _judge_dos(outcome, events, app_root, test_path.parent, entry_points, app_tree)
+    if effect == "canary_redirect":
+        return _judge_redirect(
+            outcome, events, app_root, test_path.parent, entry_points, app_tree,
+            redirect_host, redirect_meta,
+        )
+    if effect == "canary_access":
+        return _judge_access(
+            outcome, events, app_root, test_path.parent, entry_points, app_tree,
+            dict(access or {}), access_token,
+        )
     # Only opens of the kind this effect looks for count. A write-effect run ignores a read of
     # the canary path, and a read-effect run ignores a write: the wrong access never proves the
     # intended vulnerability. The full event list is still returned for the record.
@@ -1370,6 +1714,221 @@ def _judge_dos(
         )
     else:
         reason = f"algorithmic complexity observed through an entry point, but the test did not fail ({outcome})"
+    return Judgement(
+        observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
+        reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
+    )
+
+
+_META_TAG = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+_META_REFRESH = re.compile(r"http-equiv\s*=\s*[\"']?\s*refresh\s*[\"']?", re.IGNORECASE)
+_META_URL = re.compile(r"url\s*=\s*[\"']?([^\"'\s;>]+)", re.IGNORECASE)
+
+
+def _meta_refresh_host(body: object) -> str | None:
+    """The host of an HTML meta-refresh target in ``body``, or None if there is none.
+
+    Only a ``<meta http-equiv="refresh" ...>`` tag whose ``content`` names a URL with a
+    host counts. A plain page mentioning a URL, or a refresh without a target, names
+    nothing. Anything unparseable fails closed.
+    """
+    if not isinstance(body, str):
+        return None
+    for tag in _META_TAG.findall(body[:65536]):
+        if not _META_REFRESH.search(tag):
+            continue
+        found = _META_URL.search(tag)
+        if found is None:
+            continue
+        host = parse_redirect_host(found.group(1))
+        if host is not None:
+            return host
+    return None
+
+
+def _redirect_matches_canary(event: OracleEvent, host: str, allow_meta: bool) -> bool:
+    """Whether an observed response redirects to this run's canary host.
+
+    A 3xx response whose ``Location`` names the canary host always counts. An HTML meta
+    refresh to it counts only when the case declares that shape (``redirect_meta``): it
+    widens the proof, so it stays opt-in per case.
+    """
+    if event.op != "response":
+        return False
+    if isinstance(event.status, bool):
+        return False
+    if isinstance(event.status, int) and 300 <= event.status <= 399:
+        target = parse_redirect_host(event.location)
+        if target == host:
+            return True
+    if allow_meta and _meta_refresh_host(event.body) == host:
+        return True
+    return False
+
+
+def _response_provenance_problem(
+    event: OracleEvent,
+    app_root: Path,
+    test_dir: Path,
+    entry_points: set[str],
+    app_tree: AppTree | None,
+    from_test_code: str,
+    api_changed_code: str,
+) -> tuple[str, str] | None:
+    """``(reason code, why)`` an observed response is not the app's doing, or None.
+
+    One response event whose innermost project frame is the test's (the test built the
+    response itself instead of letting the application answer) refuses the whole run, even
+    beside a genuine one. Otherwise the response needs the same valid provenance as every
+    other effect: admitted app code, outermost app frame a declared entry point, called
+    from the test.
+    """
+    who = _started_from(event, app_root, test_dir)
+    if who != "app":
+        return from_test_code, (
+            "the response was produced by "
+            + ("the test itself" if who == "test" else "code nobody vouches for")
+        )
+    if event.patched is not None:
+        return api_changed_code, f"{event.patched} changed while the entry point ran"
+    problem = _provenance_problem(event, app_root, test_dir, entry_points, app_tree)
+    if problem is not None:
+        return problem[0], f"response without valid provenance: {problem[1]}"
+    return None
+
+
+def _judge_redirect(
+    outcome: TestOutcome,
+    events: list[OracleEvent],
+    app_root: Path,
+    test_dir: Path,
+    entry_points: set[str],
+    app_tree: AppTree | None,
+    redirect_host: str | None,
+    redirect_meta: bool,
+) -> Judgement:
+    """Decide a canary_redirect run (docs/oracle/oracle-provenance.md, section 3.13).
+
+    Proven only if all hold: authenticated provenance is on; no response was produced
+    from test frames (one such event refuses the whole run, even beside a genuine one);
+    every observed response has valid provenance; at least one response redirects to this
+    run's canary host (a 3xx ``Location``, or a meta refresh when the case declares it);
+    and the test failed. The test's own copy of the response is what its assertion checks;
+    the signed plugin event is what proves it.
+    """
+
+    def refuse(code: str, why: str, observed: bool = False) -> Judgement:
+        return Judgement(
+            observed_effect=observed, provenance_ok=False, reason=f"canary_redirect not proven: {why}; test {outcome}",
+            test_outcome=outcome, events=events, reason_code=code,
+        )
+
+    if app_tree is None:
+        return refuse(REASON_PROVENANCE, "provenance cannot be authenticated without the staged app")
+    if not redirect_host:
+        return refuse(REASON_NO_EFFECT, "the run's canary host was not recorded, so nothing matches it")
+    for event in events:
+        if event.op != "response":
+            continue
+        problem = _response_provenance_problem(
+            event, app_root, test_dir, entry_points, app_tree,
+            REASON_REDIRECT_FROM_TEST, REASON_REDIRECT_API_CHANGED,
+        )
+        if problem is not None:
+            return refuse(problem[0], problem[1], observed=True)
+    relevant = [event for event in events if _redirect_matches_canary(event, redirect_host, redirect_meta)]
+    if not relevant:
+        why = {
+            "failed": "test failed but the application never redirected to the canary host: it failed for the wrong reason",
+            "passed": "test passed and the application never redirected to the canary host: nothing was proven",
+            "error": "test did not run to a result and the application never redirected to the canary host",
+            "timeout": "test timed out and the application never redirected to the canary host",
+        }[outcome]
+        return Judgement(
+            observed_effect=False, provenance_ok=False, reason=why, test_outcome=outcome, events=events,
+            reason_code=REASON_NO_EFFECT,
+        )
+    if outcome == "failed":
+        reason = "application redirected to the canary host through an entry point; test failed"
+    else:
+        reason = f"application redirected through an entry point, but the test did not fail ({outcome})"
+    return Judgement(
+        observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
+        reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
+    )
+
+
+def _judge_access(
+    outcome: TestOutcome,
+    events: list[OracleEvent],
+    app_root: Path,
+    test_dir: Path,
+    entry_points: set[str],
+    app_tree: AppTree | None,
+    access: dict[str, str],
+    access_token: str | None,
+) -> Judgement:
+    """Decide a canary_access run (docs/oracle/oracle-provenance.md, section 3.14).
+
+    Proven only if all hold: authenticated provenance is on; the run declared the attacker
+    credential and the resource; nothing but application code touched the store file, and
+    only to read it; no response was produced from test frames; every observed response
+    has valid provenance; at least one response observed for the declared attacker and
+    resource holds the run's token; and the test failed. A request that authenticates as
+    anyone else (including the victim, who owns the resource) proves nothing.
+    """
+
+    def refuse(code: str, why: str, observed: bool = False) -> Judgement:
+        return Judgement(
+            observed_effect=observed, provenance_ok=False, reason=f"canary_access not proven: {why}; test {outcome}",
+            test_outcome=outcome, events=events, reason_code=code,
+        )
+
+    if app_tree is None:
+        return refuse(REASON_PROVENANCE, "provenance cannot be authenticated without the staged app")
+    attacker, resource = access.get("attacker", ""), access.get("resource", "")
+    if not attacker or not resource or not access_token:
+        return refuse(REASON_NO_EFFECT, "the run's access contract was not recorded, so nothing matches it")
+    for event in events:
+        if event.op in ("open", "rename", "link"):
+            who = _started_from(event, app_root, test_dir)
+            if who != "app":
+                return refuse(REASON_ACCESS_FROM_TEST, "the access store was touched by "
+                              + ("the test itself" if who == "test" else "code nobody vouches for"))
+            if _access(event) != "read":
+                return refuse(REASON_CANARY_TAMPERED, f"in-process {event.op} of the access store ({_access(event)})")
+    for event in events:
+        if event.op != "response":
+            continue
+        if event.auth != attacker or event.resource != resource:
+            return refuse(REASON_ACCESS_FROM_TEST, "a response was observed for a credential or resource "
+                          "outside this run's access contract")
+        problem = _response_provenance_problem(
+            event, app_root, test_dir, entry_points, app_tree,
+            REASON_ACCESS_FROM_TEST, REASON_ACCESS_API_CHANGED,
+        )
+        if problem is not None:
+            return refuse(problem[0], problem[1], observed=True)
+    relevant = [
+        event for event in events
+        if event.op == "response" and event.auth == attacker and event.resource == resource
+        and isinstance(event.body, str) and access_token in event.body
+    ]
+    if not relevant:
+        why = {
+            "failed": "test failed but the application never returned the victim's token to the attacker: it failed for the wrong reason",
+            "passed": "test passed and the application never returned the victim's token to the attacker: nothing was proven",
+            "error": "test did not run to a result and the application never returned the victim's token",
+            "timeout": "test timed out and the application never returned the victim's token",
+        }[outcome]
+        return Judgement(
+            observed_effect=False, provenance_ok=False, reason=why, test_outcome=outcome, events=events,
+            reason_code=REASON_NO_EFFECT,
+        )
+    if outcome == "failed":
+        reason = "application returned the victim's token to the attacker through an entry point; test failed"
+    else:
+        reason = f"application returned the token through an entry point, but the test did not fail ({outcome})"
     return Judgement(
         observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
         reason_code="" if outcome == "failed" else REASON_NO_EFFECT,

@@ -525,6 +525,9 @@ def _run_case(args: argparse.Namespace) -> int:
             return 1
     req_tuple = tuple(requirements)
     sql_db = settings.get("sql_db") or None
+    access_db = settings.get("access_db") or None
+    access = settings.get("access") or None
+    redirect_meta = bool(settings.get("redirect_meta", False))
     runner_cls = _sandbox_runner_cls()
     loop = VerificationLoop(
         clone, out, ledger, roles, "test_baseline.py",
@@ -532,9 +535,15 @@ def _run_case(args: argparse.Namespace) -> int:
         runner=runner_cls(
             requirements=req_tuple,
             sql_db=sql_db,
+            access_db=access_db,
+            access=access,
+            redirect_meta=redirect_meta,
         ),
         requirements=req_tuple,
         sql_db=sql_db,
+        access_db=access_db,
+        access=access,
+        redirect_meta=redirect_meta,
         effect=settings.get("effect", "canary_read"),
         prompt_profile=_profile(args),
         slice_plan=slice_plan,

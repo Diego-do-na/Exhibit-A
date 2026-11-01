@@ -299,6 +299,53 @@ def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> 
             "sys.setprofile or importlib tricks. "
             f"Imports: the Python standard library, pytest, the application, and the installed packages: {allowed}."
         )
+    elif effect == "canary_redirect":
+        # Its own text from start to end: there is no canary file to open and no service to
+        # request. The runner calls the entry point itself through the redirect_probe fixture
+        # and observes the response; nothing is ever fetched from the canary host.
+        url = "os.environ['EXHIBIT_A_CANARY_REDIRECT']"
+        allowed = ", ".join(packages) if packages else "nothing beyond the application itself"
+        return (
+            f"PROOF CONTRACT: The flaw (open redirect) is proven only if the APPLICATION, handling "
+            f"input the test sends through its entry point, answers with a redirect to {url} (a "
+            f"per-run URL the test reads from the environment; only its host matters to the "
+            f"oracle). Use the redirect_probe pytest fixture the oracle provides: "
+            f"redirect_probe(<entry point callable>, <redirect target>) calls the entry point "
+            f"itself and returns the observed response as a dict with status, location and body. "
+            f"The test must FAIL on vulnerable code: assert the redirect target is NOT the canary "
+            f"URL. The test must PASS once the flaw is fixed: if the application refuses the input "
+            f"by raising an exception or answering without a redirect, catch that and treat it as "
+            f"safe, so that only that assertion can fail. The test must never build a response "
+            f"itself, follow the redirect, or serve one; never import a web framework; never "
+            f"monkeypatch, replace or edit application code, modules or attributes; never use "
+            f"ctypes, subprocess, eval, exec or importlib tricks. "
+            f"Imports: the Python standard library, pytest, the application, and the installed packages: {allowed}."
+        )
+    elif effect == "canary_access":
+        # Its own text from start to end: the seeded store is never named, and the victim
+        # credential never reaches the test. The runner calls the entry point as the attacker
+        # through the access_probe fixture and observes the response.
+        attacker = "os.environ['EXHIBIT_A_ATTACKER']"
+        resource = "os.environ['EXHIBIT_A_RESOURCE']"
+        token = "os.environ['EXHIBIT_A_CANARY_TOKEN']"
+        allowed = ", ".join(packages) if packages else "nothing beyond the application itself"
+        return (
+            f"PROOF CONTRACT: A resource owned by a victim holds the token {token}; the flaw "
+            f"(broken access control) is proven only if the APPLICATION, handling a request "
+            f"authenticated as the attacker {attacker} for the resource {resource}, returns the "
+            f"victim's token in its response. Use the access_probe pytest fixture the oracle "
+            f"provides: access_probe(<entry point callable>, <attacker credential>, <resource id>) "
+            f"calls the entry point itself as the attacker and returns the observed response as a "
+            f"dict with status, location and body. The test must FAIL on vulnerable code: assert "
+            f"the token is NOT in the response. The test must PASS once the flaw is fixed: if the "
+            f"application refuses the request by raising an exception or answering with an error, "
+            f"catch that and treat it as safe, so that only that assertion can fail. The test must "
+            f"never authenticate as anyone else (it is never given the victim credential), never "
+            f"read the application's store, and never touch JSON store files; never monkeypatch, "
+            f"replace or edit application code, modules or attributes; never use ctypes, "
+            f"subprocess, eval, exec or importlib tricks. "
+            f"Imports: the Python standard library, pytest, the application, and the installed packages: {allowed}."
+        )
     else:
         raise ValueError(f"unknown oracle effect {effect!r}")
     allowed = ", ".join(packages) if packages else "nothing beyond the application itself"

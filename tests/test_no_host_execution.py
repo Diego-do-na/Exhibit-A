@@ -105,10 +105,16 @@ class SpySandboxRunner:
         requirements: tuple[str, ...] | list[str] = (),
         image: str | None = None,
         sql_db: str | None = None,
+        access_db: str | None = None,
+        access: dict[str, str] | None = None,
+        redirect_meta: bool = False,
     ) -> None:
         self.requirements = tuple(requirements)
         self.image = image
         self.sql_db = sql_db
+        self.access_db = access_db
+        self.access = access
+        self.redirect_meta = redirect_meta
         self.baselines: list[tuple[str, str, float]] = []
         self.exploits: list[tuple[Path, Path, set[str], float, str]] = []
         SpySandboxRunner.instances.append(self)
