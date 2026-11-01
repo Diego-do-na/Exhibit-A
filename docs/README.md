@@ -5,6 +5,7 @@ One line per document. Paths are relative to the repository root.
 - [common.md](common.md) — shared append-only per-task log (merge=union); read the last ~40 lines before starting a task.
 - [GUIDE.md](GUIDE.md) — Spanish walkthrough of the project, verified against `main` on 2026-10-28.
 - [sprint-review.md](sprint-review.md) — closing review of the sprint: what was built, what is pending, proposed patches.
+- [how-this-was-built.md](how-this-was-built.md) — factual account of the spec-first, multi-agent build workflow.
 - [README.md](README.md) — this index.
 
 ## oracle/ — the proof oracle
