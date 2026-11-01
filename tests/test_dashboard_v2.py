@@ -50,7 +50,7 @@ def test_run_detail_exposes_trace_costs_and_graph_endpoints(tmp_path: Path):
     assert detail["trace"]["steps"]
     assert "by_role" in detail["costs"] and "by_stage" in detail["costs"]
     assert "graph" in detail
-    assert detail["proven"][0]["evidence"]["cwe"] == ""
+    assert detail["proven"][0]["evidence"]["cwe"] == "CWE-22"
 
     for suffix, key in (("/trace", "steps"), ("/costs", "by_role"), ("/graph", "nodes")):
         status, _, payload = api(state, f"/api/runs/{run_id}{suffix}")
@@ -61,4 +61,10 @@ def test_all_effect_labels_are_exposed_without_frontend_hard_coding(tmp_path: Pa
     state = local_state(make_samples(tmp_path))
     status, _, graph = api(state, "/api/runs/synthetic-01-starlette-proven/graph")
     assert status == 200
-    assert graph["effects"] == ["canary_read", "canary_write", "canary_exec"]
+    assert graph["effects"] == [
+        "canary_read",
+        "canary_write",
+        "canary_exec",
+        "canary_sql",
+        "canary_connect",
+    ]

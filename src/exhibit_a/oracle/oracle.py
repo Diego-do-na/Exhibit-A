@@ -31,11 +31,14 @@ run (F5). See docs/oracle/oracle-provenance.md, section 3.7.
 The ``canary_exec`` effect (command execution, unsafe deserialization) plants an executable
 instead; ``_judge_exec`` and section 3.9 of that document say what proves it. The ``canary_sql``
 effect (SQL injection) adds a table with the token to a copy of the application's own SQLite
-database; ``_judge_sql`` and section 3.10 say what proves it.
+database; ``_judge_sql`` and section 3.10 say what proves it. The ``canary_connect`` effect (SSRF)
+starts a loopback HTTP listener that serves the token at one unguessable path; ``_judge_connect``
+and section 3.11 say what proves it.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import secrets
@@ -45,13 +48,16 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Collection
 from pathlib import Path, PurePath, PurePosixPath
 from typing import Literal
+from urllib.parse import urlsplit
 
-from exhibit_a.oracle.guard import channel_problem, exec_problem, sql_problem
+from exhibit_a.oracle.guard import channel_problem, connect_problem, exec_problem, sql_problem
 from exhibit_a.oracle.plugin import (
     ENV_CANARY,
+    ENV_CONNECT,
     ENV_EVENTS,
     ENV_MARKER,
     ENV_SQL,
@@ -64,6 +70,8 @@ from exhibit_a.schemas.base import StrictModel
 
 ENV_ALLOWED_DIR = "EXHIBIT_A_ALLOWED_DIR"
 ENV_CANARY_TOKEN = "EXHIBIT_A_CANARY_TOKEN"
+#: The test contract for canary_connect: the full URL of the per-run loopback listener.
+ENV_CONNECT_URL = ENV_CONNECT
 
 TestOutcome = Literal["passed", "failed", "error", "timeout"]
 
@@ -75,7 +83,7 @@ TestOutcome = Literal["passed", "failed", "error", "timeout"]
 # execution: the app runs an executable outside the allowed directory, which leaves the token in
 # a marker file beside it; it has its own judge (_judge_exec). "canary_sql" is SQL injection: the
 # app reads a row of a table it never queries, in its own SQLite database (_judge_sql).
-Effect = Literal["canary_read", "canary_write", "canary_exec", "canary_sql"]
+Effect = Literal["canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect"]
 # Which accesses count for each effect: "r+" or O_RDWR is both a read and a write.
 _ACCEPTED_ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}
 # A write effect reads at most this much of the canary after the run to find the token.
@@ -116,6 +124,7 @@ REASON_NOT_VIA_ALLOWED_DIR = "canary_not_via_allowed_dir"
 REASON_CANARY_TAMPERED = "canary_tampered"
 REASON_FROM_TEST = "process_from_test"
 REASON_PROCESS_API_CHANGED = "process_api_changed"
+REASON_CONNECT_FROM_TEST = "connect_from_test"
 REASON_SQL_FROM_TEST = "sql_from_test"
 REASON_SQL_API_CHANGED = "sql_api_changed"
 REASON_SQL_UNPLACED = "sql_unplaced"
@@ -145,7 +154,7 @@ class OracleEvent(StrictModel):
     # Missing in events from older plugins, which classify as "unknown": never a proof.
     op: Literal[
         "open", "rename", "link", "process", "native", "env", "chdir", "codegen",
-        "sql_connect", "sql_read", "sql_text",
+        "sql_connect", "sql_read", "sql_text", "connect", "request",
     ] = "open"
     flags: int | None = None
     access: Literal["read", "write", "read_write", "unknown", "exec", "sql"] | None = None
@@ -170,6 +179,13 @@ class OracleEvent(StrictModel):
     # longer the plugin's wrapper. ``sql_read``: a read of the canary ``table`` and ``column`` in
     # ``database`` (sqlite's name for it: main, temp or an alias) on that ``connection``.
     # ``sql_text``: the statement that read it, from the trace callback.
+    # canary_connect only. ``connect``: the ``host`` and ``port`` of an outbound connection
+    # attempt (``socket.connect``, ``socket.getaddrinfo``, ``http.client.connect``); ``request``:
+    # the ``url`` of an HTTP request (``urllib.Request``) or its request target
+    # (``http.client.send``). ``path`` is the run's canary URL.
+    host: str | None = None
+    port: int | None = None
+    url: str | None = None
     connection: int | None = None
     declared_db: bool = False
     instrumented: bool = False
@@ -217,9 +233,11 @@ def run_oracle(
     (see ``_judge_exec``). ``"canary_sql"`` runs the test against a staged copy of the app whose
     database, ``sql_db`` (a path relative to ``app_root``, a SQLite file the app uses), has the canary
     table added; the app must read it through an entry point (see ``_judge_sql``). Raises
-    ``ValueError`` if ``sql_db`` is missing or unusable.
+    ``ValueError`` if ``sql_db`` is missing or unusable. ``"canary_connect"`` starts a loopback
+    HTTP listener serving the token at one unguessable path; the app must request that URL
+    through an entry point (see ``_judge_connect``).
     """
-    if effect not in ("canary_read", "canary_write", "canary_exec", "canary_sql"):
+    if effect not in ("canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect"):
         raise ValueError(f"unknown effect {effect!r}")
     if sql_db is not None and effect != "canary_sql":
         raise ValueError("sql_db is only for the canary_sql effect")
@@ -231,6 +249,8 @@ def run_oracle(
         problem = exec_problem(test_path)
     if problem is None and effect == "canary_sql":
         problem = sql_problem(test_path)
+    if problem is None and effect == "canary_connect":
+        problem = connect_problem(test_path)
     if problem is not None:
         # Not run at all: an "error" outcome, which the loop classifies as invalid_test.
         return Judgement(
@@ -239,6 +259,8 @@ def run_oracle(
         )
     if effect == "canary_sql":
         return _run_sql(app_root, test_path, set(entry_points), timeout, sql_db)
+    if effect == "canary_connect":
+        return _run_connect(app_root, test_path, set(entry_points), timeout)
 
     # The test's own directory is test code even when it sits inside the app root.
     exclude = []
@@ -423,6 +445,169 @@ def _run_sql(app_root: Path, test_path: Path, entry_points: set[str], timeout: f
         )
 
 
+#: Hosts that count as this machine's loopback for a canary connection.
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1"})
+_SERVER_SOURCE = Path(__file__).resolve().parent / "canary_server.py"
+_MAX_CONNECT_LOG_BYTES = 1 << 20
+_MAX_CONNECT_LOG_LINES = 10000
+
+
+def canary_connect_url(port: int, secret: str) -> str:
+    """The canary URL for a run: the loopback listener with its unguessable path."""
+    return f"http://127.0.0.1:{port}/{secret}"
+
+
+def parse_canary_url(url: object) -> tuple[str, int, str] | None:
+    """``(host, port, secret path)`` of a canary URL, or None if it is not one.
+
+    A canary URL is an ``http`` URL on a loopback host with an explicit port and a
+    non-empty path. Anything else (another scheme or host, a missing port or path) is
+    not a URL the oracle ever hands out and never matches.
+    """
+    if not isinstance(url, str):
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme != "http" or not parts.hostname or not parts.path or parts.path == "/":
+        return None
+    if parts.port is None:
+        return None
+    host = parts.hostname.lower()
+    if host not in _LOOPBACK_HOSTS:
+        return None
+    return host, parts.port, parts.path
+
+
+def pick_connect_port() -> int:
+    """A random loopback port for the canary listener (20000-59999)."""
+    return 20000 + secrets.randbelow(40000)
+
+
+def read_connect_log(path: Path) -> list[dict]:
+    """Listener records from ``path``; malformed lines are dropped, never trusted.
+
+    The log file is writable from inside the run, so every line is untrusted: only a
+    dict with a string ``target`` counts as a request record. The oracle never proves
+    from this file alone (see ``_judge_connect``).
+    """
+    try:
+        if os.lstat(path).st_size > _MAX_CONNECT_LOG_BYTES:
+            return []
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return []
+    records = []
+    for line in lines[:_MAX_CONNECT_LOG_LINES]:
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(item, dict):
+            continue
+        # Request records carry the request target; connection records carry none.
+        if isinstance(item.get("target"), str) or item.get("kind") == "connection":
+            records.append(item)
+    return records
+
+
+def _run_connect(app_root: Path, test_path: Path, entry_points: set[str], timeout: float) -> Judgement:
+    """The host path of ``canary_connect``: a loopback listener serves the token.
+
+    The listener runs as a separate child process bound to 127.0.0.1 on a random port; it
+    never loads the oracle plugin, so its own sockets produce no events. The test gets the
+    listener's URL and the token, and must make the application request the URL through a
+    declared entry point. The listener's log is untrusted (see ``read_connect_log``): the
+    proof needs a signed plugin event for the same request (see ``_judge_connect``).
+    """
+    key = secrets.token_bytes(KEY_BYTES)
+    token = "CANARY-" + secrets.token_hex(16)
+    secret = secrets.token_hex(16)
+    port = pick_connect_port()
+    url = canary_connect_url(port, secret)
+    with tempfile.TemporaryDirectory(prefix="exhibit_a_oracle_") as tmp:
+        work = Path(tmp).resolve()
+        allowed = work / "allowed"
+        allowed.mkdir()
+        (allowed / "public.txt").write_text("public file\n", encoding="utf-8")
+        exclude = []
+        if test_path.parent.is_relative_to(app_root) and test_path.parent != app_root:
+            exclude.append(test_path.parent.relative_to(app_root).as_posix())
+        elif test_path.parent == app_root:
+            exclude += [test_path.name, "conftest.py"]
+        try:
+            manifest = app_manifest(app_root, exclude)
+        except ManifestError as exc:
+            return Judgement(
+                observed_effect=False, provenance_ok=False, test_outcome="error",
+                reason=f"the application tree could not be hashed before the run: {exc}",
+                reason_code=REASON_MANIFEST_FAILED,
+            )
+        events_path = work / "events.jsonl"
+        log_path = work / "connect.jsonl"
+        log_path.write_text("")
+        ini = work / "pytest.ini"
+        ini.write_text("[pytest]\n", encoding="utf-8")
+        server = subprocess.Popen(
+            [sys.executable, "-I", "-S", str(_SERVER_SOURCE),
+             str(port), "/" + secret, token, str(log_path)],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+            cwd=work,
+        )
+        try:
+            if not _wait_for_port(port, timeout=10.0):
+                _stop(server)
+                return Judgement(
+                    observed_effect=False, provenance_ok=False, test_outcome="error",
+                    reason="the canary listener did not start: the run cannot prove anything",
+                    reason_code=REASON_MANIFEST_FAILED,
+                )
+            outcome = _run_test(
+                app_root, test_path, work, ini, allowed, url, token, events_path, timeout,
+                key=key, manifest=manifest, connect_url=url,
+            )
+            events, forged, forged_reason = _read_events(events_path, key)
+            log = read_connect_log(log_path)
+        finally:
+            _stop(server)
+    changes = tree_changes(app_root, manifest, exclude)
+    return _judge(
+        outcome, events, app_root, test_path, entry_points,
+        effect="canary_connect", forged_events=forged, forged_reason=forged_reason,
+        app_tree=AppTree(str(app_root), app_root, manifest), app_tree_changes=changes,
+        allowed_dir=str(allowed), canary_url=url, connect_log=log,
+    )
+
+
+def _wait_for_port(port: int, timeout: float) -> bool:
+    """Whether 127.0.0.1:``port`` accepts a connection within ``timeout`` seconds."""
+    import socket
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.05)
+    return False
+
+
+def _stop(server: "subprocess.Popen[bytes]") -> None:
+    try:
+        server.terminate()
+        server.wait(timeout=10.0)
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            server.kill()
+        except OSError:
+            pass
+
+
 def canary_written(canary: Path, token: str) -> bool:
     """Whether the run left a regular file at ``canary`` (absent before) holding ``token``.
 
@@ -482,7 +667,7 @@ def _run_test(
     work: Path,
     ini: Path,
     allowed: Path,
-    canary: Path,
+    canary: Path | str,
     token: str,
     events_path: Path,
     timeout: float,
@@ -491,6 +676,7 @@ def _run_test(
     manifest: dict[str, str] | None = None,
     marker: Path | None = None,
     sql_table: str | None = None,
+    connect_url: str | None = None,
 ) -> TestOutcome:
     """Run the test with the plugin; ``key`` goes to the plugin on stdin, never elsewhere.
 
@@ -520,6 +706,8 @@ def _run_test(
         env[ENV_MARKER] = str(marker)
     if sql_table is not None:
         env[ENV_SQL] = sql_table  # ENV_CANARY above is the application's database file
+    if connect_url is not None:
+        env[ENV_CONNECT_URL] = connect_url  # the test contract; ENV_CANARY carries it too
     cmd = [
         sys.executable,
         "-m",
@@ -603,6 +791,8 @@ def _judge(
     allowed_dir: str | None = None,
     canary_written: bool | None = None,
     canary_ran: bool | None = None,
+    canary_url: str | None = None,
+    connect_log: list[dict] | None = None,
 ) -> Judgement:
     """Decide what a run means.
 
@@ -661,6 +851,11 @@ def _judge(
         return _judge_exec(outcome, events, app_root, test_path.parent, entry_points, app_tree, canary_ran)
     if effect == "canary_sql":
         return _judge_sql(outcome, events, app_root, test_path.parent, entry_points, app_tree)
+    if effect == "canary_connect":
+        return _judge_connect(
+            outcome, events, app_root, test_path.parent, entry_points, app_tree,
+            canary_url, connect_log,
+        )
     # Only opens of the kind this effect looks for count. A write-effect run ignores a read of
     # the canary path, and a read-effect run ignores a write: the wrong access never proves the
     # intended vulnerability. The full event list is still returned for the record.
@@ -875,6 +1070,141 @@ def _judge_sql(
         reason = "canary row read by application code through an entry point; test failed"
     else:
         reason = f"canary row read through an entry point, but the test did not fail ({outcome})"
+    return Judgement(
+        observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
+        reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
+    )
+
+
+def _secret_hit(target: str, secret: str) -> bool:
+    """Whether a requested ``target`` names this run's secret path.
+
+    The exact secret path, or anything under it (an app that appends to the URL still
+    proves it knew the secret). Anything else, including a longer string that merely
+    starts the same way, does not match.
+    """
+    return target == secret or target.startswith(secret + "/")
+
+
+def _connect_matches_canary(event: OracleEvent, port: int) -> bool:
+    """Whether a ``connect`` event names this run's listener: a loopback host and its port."""
+    if event.op != "connect" or event.port != port or not event.host:
+        return False
+    return event.host.lower() in _LOOPBACK_HOSTS
+
+
+def _request_matches_canary(event: OracleEvent, port: int, secret: str) -> bool:
+    """Whether a ``request`` event names this run's secret path on the listener.
+
+    ``urllib.Request`` carries the full URL (host, port and path must all match);
+    ``http.client.send`` carries only the request target (the path must match, and the
+    matching connection is checked separately). Anything else names nothing.
+    """
+    if event.op != "request" or not event.url:
+        return False
+    if event.url.startswith("/"):
+        return _secret_hit(event.url, secret)
+    try:
+        parts = urlsplit(event.url)
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "http"
+        and (parts.hostname or "").lower() in _LOOPBACK_HOSTS
+        and parts.port == port
+        and _secret_hit(parts.path, secret)
+    )
+
+
+def _judge_connect(
+    outcome: TestOutcome,
+    events: list[OracleEvent],
+    app_root: Path,
+    test_dir: Path,
+    entry_points: set[str],
+    app_tree: AppTree | None,
+    canary_url: str | None,
+    connect_log: list[dict] | None,
+) -> Judgement:
+    """Decide a canary_connect run (docs/oracle/oracle-provenance.md, section 3.11).
+
+    Proven only if all hold: nothing connected or requested from test frames (one such
+    event refuses the whole run, even beside a genuine one); the listener's log shows a
+    request for this run's secret path; a signed plugin event shows the application
+    itself requested that path (``urllib``/``http.client``) with valid provenance; a
+    signed plugin event shows the application itself connected to the listener with valid
+    provenance; and the test failed. The log is untrusted: without the signed plugin
+    events, forged or truthful, it proves nothing.
+    """
+
+    def refuse(code: str, why: str, observed: bool = False) -> Judgement:
+        return Judgement(
+            observed_effect=observed, provenance_ok=False, reason=f"canary_connect not proven: {why}; test {outcome}",
+            test_outcome=outcome, events=events, reason_code=code,
+        )
+
+    if app_tree is None:
+        return refuse(REASON_PROVENANCE, "provenance cannot be authenticated without the staged app")
+    parsed = parse_canary_url(canary_url)
+    if parsed is None:
+        return refuse(REASON_NO_EFFECT, "the run's canary URL was not recorded, so nothing matches it")
+    _, port, secret = parsed
+    for event in events:
+        if event.op not in ("connect", "request"):
+            continue
+        who = _started_from(event, app_root, test_dir)
+        if who != "app":
+            return refuse(REASON_CONNECT_FROM_TEST, "an outbound connection was opened or requested by "
+                          + ("the test itself" if who == "test" else "code nobody vouches for"))
+    log = connect_log or []
+    log_hit = any(
+        isinstance(record, dict) and isinstance(record.get("target"), str)
+        and _secret_hit(record["target"], secret)
+        for record in log
+    )
+    url_hit = connect_hit = False
+    for event in events:
+        if event.op == "request" and _request_matches_canary(event, port, secret):
+            problem = _provenance_problem(event, app_root, test_dir, entry_points, app_tree)
+            if problem is not None:
+                return refuse(problem[0], f"canary URL requested without valid provenance: {problem[1]}",
+                               observed=True)
+            url_hit = True
+        elif event.op == "connect" and _connect_matches_canary(event, port):
+            problem = _provenance_problem(event, app_root, test_dir, entry_points, app_tree)
+            if problem is not None:
+                return refuse(problem[0], f"canary connection without valid provenance: {problem[1]}",
+                               observed=True)
+            connect_hit = True
+    if not log_hit:
+        why = {
+            "failed": "test failed but the canary listener recorded no request for its secret path",
+            "passed": "test passed and the canary listener recorded no request: nothing was proven",
+            "error": "test did not run to a result and the canary listener recorded no request",
+            "timeout": "test timed out and the canary listener recorded no request",
+        }[outcome]
+        return Judgement(
+            observed_effect=False, provenance_ok=False, reason=why, test_outcome=outcome, events=events,
+            reason_code=REASON_NO_EFFECT,
+        )
+    if not (url_hit and connect_hit):
+        missing = "the request" if connect_hit else "the connection" if url_hit else "a request and a connection"
+        why = {
+            "failed": f"test failed but {missing} to the canary from application code was not observed",
+            "passed": f"test passed and {missing} to the canary from application code was not observed",
+            "error": f"test did not run to a result and {missing} to the canary from application code was not observed",
+            "timeout": f"test timed out and {missing} to the canary from application code was not observed",
+        }[outcome]
+        # The listener saw the request, so the effect was observed; the matching signed
+        # plugin event from application code is what is missing.
+        return Judgement(
+            observed_effect=True, provenance_ok=False, reason=why + " with valid provenance",
+            test_outcome=outcome, events=events, reason_code=REASON_PROVENANCE,
+        )
+    if outcome == "failed":
+        reason = "canary URL requested by application code reached through an entry point; test failed"
+    else:
+        reason = f"canary URL requested through an entry point, but the test did not fail ({outcome})"
     return Judgement(
         observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
         reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
