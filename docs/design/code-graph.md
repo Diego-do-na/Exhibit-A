@@ -147,6 +147,27 @@ exhibit-a scan REPO --graph [--graph-out graph.json] [--entry-point Class.method
 exhibit-a scan REPO --pr-diff BASE..HEAD   # adds the reach report, built on HEAD as committed
 ```
 
+### JavaScript and TypeScript
+
+`src/exhibit_a/graph/js/graph_builder.js` parses `.js`, `.mjs`, `.cjs`, and `.ts` files with
+the pinned TypeScript compiler API inside the Node 22 sandbox image. The repository is mounted
+read-only, the container has no network, dropped capabilities, a read-only root filesystem, and
+resource limits; the host receives only bounded JSON and validates it against the existing graph
+contract. Source is never imported or executed.
+
+The JS graph resolves local calls, named and namespace `import` aliases, `require` aliases,
+exported handlers, and Express/Koa/Fastify/Next-style route registrations. It records argument
+expressions so literal-only calls are excluded from sink hits. `js_graph.py` exposes the same
+graph, reach, and slice inputs as the Python graph. The current JS oracle proves only
+`canary_read` (filesystem reads and `res.sendFile`) and `canary_exec` (shell-capable
+`child_process` calls and dynamic code); request, redirect, SQL, `path.join`, and other matches
+remain suspicion-only.
+
+On the synthetic Express graph used by `tests/test_graph_js.py`, the four-call helper path is
+preserved from the exported route handler to `fs.readFile`; the never-called constant-only
+`readFileSync` call is not reported. In the padded acceptance fixture, the measured slice is
+653 characters versus 10,182 repository characters (6.4%, under the 20% threshold).
+
 ## What the graph cannot see
 
 Each of these costs recall (a missed path, so `nothing_reachable` or a slice without the

@@ -1,0 +1,155 @@
+"""Sandboxed JavaScript/TypeScript graph and reachability adapter."""
+from __future__ import annotations
+
+from collections import deque
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+from exhibit_a.schemas.graph import CodeGraph, EntryPoint, ReachPath, ReachReport, SinkHit, Unreached
+from exhibit_a.sandbox.image_node import build_node_image
+from .reach import changed_lines, changed_nodes
+from .slicer import make_plan
+
+from .js_catalog import find_entries as _find_entries
+from .js_catalog import sink_hits
+
+BUILDER = Path(__file__).with_name("js").joinpath("graph_builder.js")
+MAX_OUTPUT_BYTES = 10 * 1024 * 1024
+TYPESCRIPT_PACKAGE = "typescript@5.7.2"
+
+
+def _validate(raw: object) -> CodeGraph:
+    if not isinstance(raw, dict) or raw.get("schema_version") != "1":
+        raise ValueError("invalid JavaScript graph schema")
+    entry_points = raw.pop("entry_points", [])
+    if not isinstance(entry_points, list) or len(entry_points) > 10000:
+        raise ValueError("invalid JavaScript entry points")
+    if len(json.dumps(raw, separators=(",", ":"))) > MAX_OUTPUT_BYTES:
+        raise ValueError("JavaScript graph output is oversized")
+    graph = CodeGraph.model_validate(raw)
+    # Pydantic's strict contract intentionally has no language-specific extension fields.
+    object.__setattr__(graph, "_js_entry_points", tuple(entry_points))
+    return graph
+
+
+def build_js_graph(root: str | Path, *, image: str | None = None, timeout: float = 120.0) -> CodeGraph:
+    root = Path(root).resolve()
+    if not root.is_dir():
+        raise ValueError(f"repository is not a directory: {root}")
+    tag = image or build_node_image([TYPESCRIPT_PACKAGE])
+    # Colima/Docker may not share arbitrary system temp paths. Stage a bounded copy under the
+    # repository worktree (a shared path), then mount that copy read-only into the sandbox.
+    with tempfile.TemporaryDirectory(prefix=".exhibit-a-js-stage-", dir=Path.cwd()) as staged_dir:
+        staged_root = Path(staged_dir) / "repo"
+        shutil.copytree(root, staged_root, symlinks=True)
+        command = [
+            "docker", "run", "--rm", "-i", "--network", "none", "--read-only",
+            "--tmpfs", "/tmp:rw,size=64m,mode=1777", "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges", "-v", f"{staged_root}:/workspace:ro",
+        ]
+        with open(BUILDER, "rb") as source:
+            data = source.read()
+        command.extend([tag, "node", "-", "/workspace"])
+        proc = subprocess.run(command, input=data, capture_output=True, timeout=timeout)
+    if proc.returncode != 0:
+        raise RuntimeError(f"JavaScript graph builder failed: {proc.stderr.decode(errors='replace')[-2000:]}")
+    if len(proc.stdout) > MAX_OUTPUT_BYTES:
+        raise ValueError("JavaScript graph output is oversized")
+    try:
+        raw = json.loads(proc.stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("malformed JavaScript graph output") from exc
+    return _validate(raw)
+
+
+build_graph = build_js_graph
+
+
+def find_entries(graph: CodeGraph, declared: list[str] | tuple[str, ...] = ()) -> tuple[list[EntryPoint], list[str]]:
+    return _find_entries(graph, declared)
+
+
+def functions_in(graph: CodeGraph, file: str) -> list[str]:
+    return sorted(node.id for node in graph.nodes if node.kind in ("function", "method") and node.file == file)
+
+
+def render(path: ReachPath) -> str:
+    short = lambda node: node.split(":", 1)[-1]
+    parts = [short(node) for node in path.to_changed]
+    parts.extend(short(node) for node in path.to_sink[1:])
+    parts.append(f"{path.sink.target} (line {path.sink.line})")
+    return " -> ".join(parts)
+
+
+def reach_from_diff(graph: CodeGraph, diff_text: str, *,
+                    declared_entries: list[str] | tuple[str, ...] = (), **limits: int) -> ReachReport:
+    changed, outside = changed_nodes(graph, changed_lines(diff_text))
+    report = find_paths(graph, changed, declared_entries=declared_entries, **limits)
+    return report.model_copy(update={"changed_outside_functions": outside})
+
+
+def find_paths(graph: CodeGraph, changed: list[str] | tuple[str, ...], *,
+               declared_entries: list[str] | tuple[str, ...] = (), max_depth: int = 12,
+               max_paths: int = 50, **_: object) -> ReachReport:
+    entries, missing = find_entries(graph, declared_entries)
+    entry_by_node = {entry.node: entry for entry in entries}
+    nodes = {node.id: node for node in graph.nodes}
+    forward: dict[str, list[str]] = {}
+    backward: dict[str, list[str]] = {}
+    for edge in graph.edges:
+        if edge.dst in nodes and nodes[edge.dst].kind in ("function", "method"):
+            forward.setdefault(edge.src, []).append(edge.dst)
+            backward.setdefault(edge.dst, []).append(edge.src)
+    hits = sink_hits(graph)
+    paths, unreached = [], []
+    for changed_id in sorted(set(changed)):
+        if changed_id not in nodes:
+            unreached.append(Unreached(node=changed_id, reason="not a node of the graph")); continue
+        ancestors = _bfs(backward, changed_id, max_depth)
+        reached = [node for node in ancestors if node in entry_by_node]
+        if not reached:
+            unreached.append(Unreached(node=changed_id, reason="no entry point reaches it")); continue
+        found = False
+        for entry_node in reached:
+            to_changed = list(reversed(_chain(ancestors, entry_node)))
+            descendants = _bfs(forward, changed_id, max_depth)
+            for sink_node, (depth, prev) in descendants.items():
+                for hit in hits.get(sink_node, []):
+                    to_sink = _chain(descendants, sink_node)
+                    paths.append(ReachPath(
+                        entry=entry_node, entry_kind=entry_by_node[entry_node].kind,
+                        oracle_entry_point=entry_by_node[entry_node].oracle_name, changed=changed_id,
+                        pivot=changed_id, to_changed=to_changed, to_sink=to_sink, sink=hit,
+                        hops=len(to_changed) + len(to_sink), returns=0, unresolved_hops=int(hit.weak),
+                        confidence=0.5 if hit.weak else 1.0, vuln_class=hit.vuln_class,
+                    ))
+                    found = True
+        if not found:
+            unreached.append(Unreached(node=changed_id, reason="reaches no sink"))
+    paths.sort(key=lambda p: (p.hops, p.unresolved_hops, p.entry, p.changed, p.sink.line))
+    return ReachReport(entries=entries, undeclared_entries=missing, changed=sorted(set(changed)),
+                       paths=paths[:max_paths], unreached=unreached, max_depth=max_depth)
+
+
+def _bfs(adjacency: dict[str, list[str]], start: str, depth: int) -> dict[str, tuple[int, str | None]]:
+    result = {start: (0, None)}
+    queue = deque([start])
+    while queue:
+        current = queue.popleft()
+        if result[current][0] >= depth: continue
+        for other in sorted(adjacency.get(current, [])):
+            if other not in result:
+                result[other] = (result[current][0] + 1, current)
+                queue.append(other)
+    return result
+
+
+def _chain(found: dict[str, tuple[int, str | None]], target: str) -> list[str]:
+    result = [target]
+    while found[result[-1]][1] is not None:
+        result.append(found[result[-1]][1])  # type: ignore[arg-type]
+    return list(reversed(result))
