@@ -75,7 +75,7 @@ def test_node_accepts_valid_package_specs():
 
 def test_node_dockerfile_content_golden():
     expected_empty = (
-        f"FROM {BASE_IMAGE}\n"
+        "FROM node:22.23.4-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da\n"
         "ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_AUDIT=false\n"
         f"WORKDIR {INSTALL_DIR}\n"
         f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION}\n"
@@ -85,7 +85,7 @@ def test_node_dockerfile_content_golden():
     assert dockerfile([]) == expected_empty
 
     expected_with_pkgs = (
-        f"FROM {BASE_IMAGE}\n"
+        "FROM node:22.23.4-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da\n"
         "ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_AUDIT=false\n"
         f"WORKDIR {INSTALL_DIR}\n"
         f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION}\n"
@@ -174,5 +174,5 @@ def test_node_sandbox_runs_node_and_typescript_isolated():
     )
 
     assert result.returncode == 0, f"docker run failed: stdout={result.stdout}\nstderr={result.stderr}"
-    assert "v20." in result.stdout
+    assert "v22." in result.stdout
     assert "ts_eval=42" in result.stdout

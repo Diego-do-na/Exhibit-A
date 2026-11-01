@@ -17,8 +17,8 @@ import subprocess
 
 from .image import _image_exists, _normalize, _shell_quote
 
-BASE_IMAGE_TAG = "node:20.18.0-slim"
-BASE_IMAGE_DIGEST = "sha256:28fbbb764069c698ead61d6a739a7615e8f0e07a4b8fe1473ceca70c1c3d6aaa"
+BASE_IMAGE_TAG = "node:22.23.4-slim"
+BASE_IMAGE_DIGEST = "sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da"
 BASE_IMAGE = f"{BASE_IMAGE_TAG}@{BASE_IMAGE_DIGEST}"
 TAG_REPOSITORY = "exhibit-a-sandbox-node"
 BUILD_TIMEOUT = 900

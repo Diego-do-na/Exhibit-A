@@ -63,7 +63,7 @@ Image / requirements mechanism
   - The run image therefore contains only what the builder installed; no build context files are sent during build (the implementation sends a Dockerfile on stdin), and no host files other than the workspace copy are exposed.
 
 Node sandbox image (`image_node.py`)
-- Base: pinned official Node LTS slim base image (`node:20.18.0-slim@sha256:28fbbb764069c698ead61d6a739a7615e8f0e07a4b8fe1473ceca70c1c3d6aaa`) pinning both exact version tag and sha256 digest.
+- Base: pinned official Node LTS slim base image (`node:22.23.4-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da`) pinning both exact version tag and sha256 digest.
 - TypeScript support: pinned loader `tsx` (`tsx@4.19.2`) installed as a dev dependency inside the image into `/opt/sandbox`.
 - Pins & lockfile: npm packages are installed using exact pins (`npm install --save-exact --ignore-scripts`) into the fixed directory (`/opt/sandbox`), writing an audited `package-lock.json` and `package.json`.
 - `--ignore-scripts`: all package installations strictly enforce `--ignore-scripts` to prevent arbitrary code execution during image build time via npm lifecycle scripts (`preinstall`, `install`, `postinstall`).
