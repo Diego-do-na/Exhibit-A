@@ -29,7 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, runtime_checkable
@@ -37,22 +37,36 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import ValidationError
 
 from exhibit_a.oracle import Judgement, OracleEvent, run_oracle
-from exhibit_a.oracle.guard import channel_problem, connect_problem, dos_problem, exec_problem, sql_problem
+from exhibit_a.oracle.guard import (
+    access_problem,
+    channel_problem,
+    connect_problem,
+    dos_problem,
+    exec_problem,
+    redirect_problem,
+    sql_problem,
+)
 from exhibit_a.oracle.oracle import (
     ENV_ALLOWED_DIR,
     ENV_CANARY_TOKEN,
     ENV_CONNECT_URL,
+    ENV_REDIRECT_URL,
     EXEC_CANARY_NAME,
     EXEC_MARKER_NAME,
     REASON_CHANNEL_TRIPWIRE,
     TestOutcome,
     _judge,
+    access_db_problem,
+    access_shape_problem,
     canary_connect_url,
     exec_canary_script,
+    parse_redirect_host,
     pick_connect_port,
+    redirect_canary_host,
+    redirect_canary_url,
     sql_db_problem,
 )
-from exhibit_a.oracle.plugin import ENV_DOS
+from exhibit_a.oracle.plugin import ENV_ACCESS_ATTACKER, ENV_ACCESS_RESOURCE, ENV_DOS
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest
 
 # Where the sandbox mounts the clone; frames recorded inside the container use these paths.
@@ -110,6 +124,15 @@ class SandboxRunner:
     # canary_sql only: the application's SQLite database, as a path relative to the app tree
     # (case.json run.sql_db). The container sees a copy of it with the canary table added.
     sql_db: str | None = None
+    # canary_access only: the application's JSON store (case.json run.access_db) and the
+    # principals and protected resource (case.json run.access: attacker, victim, resource).
+    # The container sees a copy of the store with the victim-owned resource added; the
+    # victim credential travels as a seed argument only, never in the test's environment.
+    access_db: str | None = None
+    access: Mapping[str, str] | None = None
+    # canary_redirect only: whether an HTML meta refresh to the canary host counts
+    # (case.json run.redirect_meta). A 3xx Location to it always counts.
+    redirect_meta: bool = False
 
     def run_baseline(self, clone_path: str, test_path: str, timeout: float) -> dict[str, Any]:
         from exhibit_a.sandbox import run
@@ -137,6 +160,10 @@ class SandboxRunner:
             problem = connect_problem(Path(test_path))
         if problem is None and effect == "canary_dos":
             problem = dos_problem(Path(test_path))
+        if problem is None and effect == "canary_redirect":
+            problem = redirect_problem(Path(test_path))
+        if problem is None and effect == "canary_access":
+            problem = access_problem(Path(test_path))
         if problem is not None:
             # Not run at all, as on the host path: the loop classifies "error" as invalid_test.
             return Judgement(
@@ -164,11 +191,26 @@ class SandboxRunner:
                 problem = sql_db_problem(stage, self.sql_db)
                 if problem is not None:
                     raise OSError(f"sandbox could not run the exploit: {problem}")
+            if effect == "canary_access":
+                # The store must be where the case says; the sandbox seeds a copy of it.
+                # The victim credential travels as a seed argument only, never to the test.
+                problem = access_db_problem(stage, self.access_db)
+                if problem is None:
+                    problem = access_shape_problem(
+                        {"attacker": "", "victim": "", "resource": ""} if self.access is None else self.access
+                    )
+                if problem is not None:
+                    raise OSError(f"sandbox could not run the exploit: {problem}")
             canary_url = None
             if effect == "canary_connect":
                 # The listener runs inside the container on loopback; the test learns only
                 # its URL and must make the application request it.
                 canary_url = canary_connect_url(pick_connect_port(), secrets.token_hex(16))
+            redirect_url = None
+            if effect == "canary_redirect":
+                # No listener and no fetch: the canary is a hostname the application names
+                # in its response. The test learns only the URL.
+                redirect_url = redirect_canary_url(redirect_canary_host())
             # The stage is never mounted (the sandbox copies it), so it stays the host's
             # untouched copy of what the plugin's manifest describes.
             try:
@@ -189,10 +231,21 @@ class SandboxRunner:
                     ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed",
                     **({ENV_CONNECT_URL: canary_url} if canary_url is not None else {}),
                     **({ENV_DOS: "1"} if effect == "canary_dos" else {}),
+                    **({ENV_REDIRECT_URL: redirect_url} if redirect_url is not None else {}),
+                    **(
+                        {
+                            ENV_ACCESS_ATTACKER: str(self.access["attacker"]),
+                            ENV_ACCESS_RESOURCE: str(self.access["resource"]),
+                        }
+                        if effect == "canary_access" and self.access is not None
+                        else {}
+                    ),
                 },
                 manifest=manifest,
                 effect=effect,
                 sql_db=self.sql_db if effect == "canary_sql" else None,
+                access_db=self.access_db if effect == "canary_access" else None,
+                access_victim=str(self.access["victim"]) if effect == "canary_access" and self.access is not None else None,
             )
             if result["outcome"] == "env_failure":
                 raise OSError(f"sandbox could not run the exploit: {result['stderr']}")
@@ -217,6 +270,17 @@ class SandboxRunner:
                 # (untrusted: the judge needs signed plugin events for the same request).
                 canary_url=canary_url if effect == "canary_connect" else None,
                 connect_log=list(result.get("connect_log", [])) if effect == "canary_connect" else None,
+                # Redirect: the canary host handed out and whether a meta refresh counts
+                # (the case declares it). Access: the attacker and resource of this run
+                # plus its token, which only an attacker-authenticated response may hold.
+                redirect_host=parse_redirect_host(redirect_url) if effect == "canary_redirect" else None,
+                redirect_meta=self.redirect_meta if effect == "canary_redirect" else False,
+                access=(
+                    {"attacker": str(self.access["attacker"]), "resource": str(self.access["resource"])}
+                    if effect == "canary_access" and self.access is not None
+                    else None
+                ),
+                access_token=token if effect == "canary_access" else None,
             )
 
 
@@ -233,6 +297,9 @@ class HostRunner:
     allow_host_execution: bool = False
     requirements: Sequence[str] = ()
     sql_db: str | None = None
+    access_db: str | None = None
+    access: Mapping[str, str] | None = None
+    redirect_meta: bool = False
 
     def __post_init__(self) -> None:
         if not self.allow_host_execution:
@@ -282,6 +349,9 @@ class HostRunner:
             timeout=timeout,
             effect=effect,
             sql_db=self.sql_db,
+            access_db=self.access_db,
+            access=self.access,
+            redirect_meta=self.redirect_meta,
         )
 
 

@@ -22,8 +22,15 @@ KINDS = ("vulnerable", "fixed", "clean")
 #: path-traversal style effect; ``canary_write`` is the archive-extraction /
 #: zip-slip style effect (the app creates a file outside the allowed directory);
 #: ``canary_exec`` is command execution; ``canary_sql`` is SQL injection (the app reads a row
-#: of a table it never queries, in the SQLite database ``run.sql_db`` declares).
-EFFECTS = ("canary_read", "canary_write", "canary_exec", "canary_sql")
+#: of a table it never queries, in the SQLite database ``run.sql_db`` declares);
+#: ``canary_redirect`` is open redirect (the app's response redirects to a per-run canary
+#: host); ``canary_access`` is broken access control (the app returns a victim-owned
+#: resource to an attacker-authenticated request, seeded into ``run.access_db`` for the
+#: principals ``run.access`` declares).
+EFFECTS = (
+    "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
+    "canary_redirect", "canary_access",
+)
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,16 @@ class Case:
     # canary_sql only: the application's SQLite database, a path inside the source tree that the
     # sandbox copies, seeds with the canary table and mounts read-only at that path ("" otherwise).
     sql_db: str = ""
+    # canary_access only: the application's JSON store, a path inside the source tree that the
+    # sandbox copies, seeds with the victim-owned resource and mounts read-only at that path.
+    access_db: str = ""
+    # canary_access only: the principals and the protected resource (case.json run.access:
+    # attacker and victim credentials, resource id). The test learns only the attacker
+    # credential and the resource.
+    access: dict = field(default_factory=dict)
+    # canary_redirect only: whether an HTML meta refresh to the canary host counts next to
+    # a 3xx Location (case.json run.redirect_meta).
+    redirect_meta: bool = False
     # True for a case nobody tuned on: written after the compact profile and the oracle were
     # frozen, from a public advisory (case.json ``held_out``). Docs and tables use it to keep
     # held-out results apart from the tuned ones.
@@ -103,6 +120,25 @@ def _case_from_real(case_dir: Path, raw: dict, run: dict, top: dict | None = Non
         problem = sql_db_shape_problem(sql_db)
         if problem is not None:
             raise ValueError(f"case {raw.get('id')}: run.sql_db: {problem}")
+    access_db = run.get("access_db", "")
+    access = run.get("access") or {}
+    if effect == "canary_access" or access_db or access:
+        from exhibit_a.oracle.oracle import access_db_shape_problem, access_shape_problem
+
+        if effect != "canary_access":
+            raise ValueError(f"case {raw.get('id')}: run.access_db and run.access are only for the canary_access effect")
+        problem = access_db_shape_problem(access_db)
+        if problem is not None:
+            raise ValueError(f"case {raw.get('id')}: run.access_db: {problem}")
+        problem = access_shape_problem(access)
+        if problem is not None:
+            raise ValueError(f"case {raw.get('id')}: run.access: {problem}")
+    redirect_meta = run.get("redirect_meta", False)
+    if effect == "canary_redirect" or redirect_meta:
+        if effect != "canary_redirect":
+            raise ValueError(f"case {raw.get('id')}: run.redirect_meta is only for the canary_redirect effect")
+        if not isinstance(redirect_meta, bool):
+            raise ValueError(f"case {raw.get('id')}: run.redirect_meta must be true or false")
     trees = run.get("trees") or {}
     tree = run.get("tree") or trees.get("vulnerable", "")
     requirements = tuple(str(item) for item in run.get("requirements", []))
@@ -121,6 +157,9 @@ def _case_from_real(case_dir: Path, raw: dict, run: dict, top: dict | None = Non
         effect=effect,
         source_file=str(run.get("source_file", "")),
         sql_db=sql_db,
+        access_db=access_db,
+        access=dict(access),
+        redirect_meta=bool(redirect_meta),
         held_out=_held_out(raw, top or {}),
     )
 

@@ -162,7 +162,13 @@ def run_case(
     loop = VerificationLoop(
         clone, out_dir, ledger, roles, STAGED_BASELINE,
         run_id=case.id,
-        runner=SandboxRunner(requirements=tuple(case.requirements), sql_db=case.sql_db or None),
+        runner=SandboxRunner(
+            requirements=tuple(case.requirements),
+            sql_db=case.sql_db or None,
+            access_db=case.access_db or None,
+            access=dict(case.access) or None,
+            redirect_meta=case.redirect_meta,
+        ),
         requirements=tuple(case.requirements),
         effect=case.effect,
         prompt_profile=profile,

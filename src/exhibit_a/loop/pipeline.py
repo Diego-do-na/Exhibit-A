@@ -36,7 +36,7 @@ import json
 import re
 import shutil
 import uuid
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -221,6 +221,9 @@ class VerificationLoop:
         prompt_profile: str = "standard",
         slice_plan: SlicePlan | None = None,
         sql_db: str | None = None,
+        access_db: str | None = None,
+        access: Mapping[str, str] | None = None,
+        redirect_meta: bool = False,
         allow_host_execution: bool = False,
     ) -> None:
         if runs < 1:
@@ -233,9 +236,11 @@ class VerificationLoop:
         self.runs = runs
         self.timeout = timeout
         self.run_id = run_id or uuid.uuid4().hex[:12]
-        # ``requirements`` and ``sql_db`` (canary_sql: the app's database) only shape the default
-        # runner; an injected one carries its own. Host execution requires the explicit test-only
-        # switch ``allow_host_execution=True`` (never set by the CLI).
+        # ``requirements``, ``sql_db`` (canary_sql: the app's database), ``access_db`` and
+        # ``access`` (canary_access: the app's store, principals and resource) and
+        # ``redirect_meta`` (canary_redirect: whether a meta refresh counts) only shape the
+        # default runner; an injected one carries its own. Host execution requires the
+        # explicit test-only switch ``allow_host_execution=True`` (never set by the CLI).
         self.allow_host_execution = bool(allow_host_execution)
         if runner is not None:
             self.runner: TestRunner = runner
@@ -244,11 +249,17 @@ class VerificationLoop:
                 allow_host_execution=True,
                 requirements=tuple(requirements),
                 sql_db=sql_db,
+                access_db=access_db,
+                access=access,
+                redirect_meta=redirect_meta,
             )
         else:
             self.runner = SandboxRunner(
                 requirements=tuple(requirements),
                 sql_db=sql_db,
+                access_db=access_db,
+                access=access,
+                redirect_meta=redirect_meta,
             )
         self.baseline_runner = baseline_runner or self.runner.run_baseline
         # The judge is a callable that must accept the `effect` keyword so the loop
