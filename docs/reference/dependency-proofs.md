@@ -30,7 +30,7 @@ Without `--prove` no model is called and nothing is executed: the repository is 
 ```
 ADVISORY             PACKAGE VERSION   SEVERITY  REACHABLE?    PROVEN?  FIXED BY
 -------------------  ----------------  --------  ------------  -------  -----------------
-GHSA-v5gw-mw7f-84px  starlette 0.26.1  MODERATE  yes (1 path)  -        upgrade to 0.27.0
+GHSA-v5gw-mw7f-84px, CVE-2023-29159  starlette 0.26.1  MODERATE  yes (1 path)  -  upgrade to 0.27.0
 ```
 
 followed by the best paths (or the reason there is none) and `deps.json` in `--out`.
@@ -166,16 +166,16 @@ rejected. A later SBOM/VEX export consumes it.
 | `graph` | `files`, `nodes`, `edges`, `external`, `unresolved`, `entry_points`, `truncated`, `skipped` |
 | `prove` | `requested`, `profile`, `provider`, `model`, `budget_usd`, `spent_usd` |
 | `counts` | `advisories`, `reachable`, `not_reachable`, `unknown`, `proven` |
-| `advisories[]` | one per (pinned package, advisory) whose ranges include the pinned version |
+| `advisories[]` | one per (pinned package, grouped vulnerability) whose ranges include the pinned version |
 | `notes` | data-source notes and backend warnings |
 
 Each `advisories[]` entry:
 
 | field | meaning |
 | --- | --- |
-| `advisory_id`, `aliases`, `summary`, `evidence_urls` | from the record |
+| `advisory_id`, `advisory_ids`, `aliases`, `summary`, `evidence_urls` | one grouped row for records that share an OSV id or alias; `advisory_ids` lists every id in the group |
 | `package`, `installed_version`, `dependency_source` | the pin and where it was read (`requirements.txt:3`) |
-| `severity`, `severity_label` | the record's severity vectors as given; `database_specific.severity` or the vector type |
+| `severity`, `severity_label` | the record's severity vectors; `database_specific.severity` when present, otherwise a computed CVSS v3 base-score band (`LOW`, `MODERATE`, `HIGH`, `CRITICAL`), otherwise `unrated` |
 | `affected_status` | `affected` (a range includes the version) or `unverified` (live data, no evaluable range) |
 | `fixed_in`, `upgrade_kind` | first fixed version above the pin; `patch`, `minor` or `major` |
 | `vuln_class`, `effect` | class from the map or CWE ids; oracle effect, or null when none can observe it |

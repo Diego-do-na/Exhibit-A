@@ -19,6 +19,7 @@ Advisory records are untrusted data: every value read here is type-checked and c
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -143,9 +144,62 @@ def cwe_ids(adv: Advisory) -> list[str]:
 def severity_label(adv: Advisory) -> str:
     block = adv.raw.get("database_specific") if isinstance(adv.raw, dict) else None
     label = block.get("severity") if isinstance(block, dict) else None
-    if isinstance(label, str) and 0 < len(label) <= 20:
-        return label
-    return adv.severity[0]["type"] if adv.severity else "-"
+    if isinstance(label, str) and 0 < len(label) <= 20 and label.upper() not in {"CVSS_V3", "CVSS_V4"}:
+        return label.upper()
+    for severity in adv.severity:
+        if severity.get("type") != "CVSS_V3":
+            continue
+        score = _cvss_v3_base_score(severity.get("score", ""))
+        if score is not None:
+            if score >= 9.0:
+                return "CRITICAL"
+            if score >= 7.0:
+                return "HIGH"
+            if score >= 4.0:
+                return "MODERATE"
+            return "LOW"
+    return "unrated"
+
+
+def _cvss_v3_base_score(vector: str) -> float | None:
+    """Compute the CVSS v3 base score from a CVSS:3.x vector."""
+    parts = vector.split("/")
+    if not parts or not parts[0].startswith("CVSS:3."):
+        return None
+    metrics = dict(part.split(":", 1) for part in parts[1:] if ":" in part)
+    weights = {
+        "AV": {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2},
+        "AC": {"L": 0.77, "H": 0.44},
+        "PR": {"N": 0.85, "L": 0.62, "H": 0.27},
+        "UI": {"N": 0.85, "R": 0.62},
+        "C": {"N": 0.0, "L": 0.22, "H": 0.56},
+        "I": {"N": 0.0, "L": 0.22, "H": 0.56},
+        "A": {"N": 0.0, "L": 0.22, "H": 0.56},
+    }
+    try:
+        av, ac, pr, ui = (weights[key][metrics[key]] for key in ("AV", "AC", "PR", "UI"))
+        c, i, a = (weights[key][metrics[key]] for key in ("C", "I", "A"))
+        scope = metrics["S"]
+    except (KeyError, TypeError):
+        return None
+    isc_base = 1 - (1 - c) * (1 - i) * (1 - a)
+    if isc_base <= 0:
+        return 0.0
+    exploitability = 8.22 * av * ac * pr * ui
+    if scope == "U":
+        impact = 6.42 * isc_base
+        score = min(impact + exploitability, 10)
+    elif scope == "C":
+        pr_changed = {"N": 0.85, "L": 0.68, "H": 0.5}
+        try:
+            pr = pr_changed[metrics["PR"]]
+        except KeyError:
+            return None
+        impact = 7.52 * (isc_base - 0.029) - 3.25 * math.pow(isc_base - 0.02, 15)
+        score = min(1.08 * (impact + 8.22 * av * ac * pr * ui), 10)
+    else:
+        return None
+    return math.ceil(score * 10) / 10
 
 
 def affected_symbols(adv: Advisory, package: str, path: Path = SYMBOL_MAP) -> SymbolInfo:

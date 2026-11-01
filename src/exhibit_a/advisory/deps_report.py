@@ -139,7 +139,8 @@ def _fixed_by(fixed_in: str | None, proof: DependencyProof) -> str:
 
 def _entry(match: AdvisoryMatch, adv: Advisory, reach, info, proof: DependencyProof) -> DependencyAdvisory:
     return DependencyAdvisory(
-        advisory_id=match.advisory_id, aliases=match.aliases, package=match.package,
+        advisory_id=match.advisory_id, advisory_ids=[match.advisory_id, *match.aliases],
+        aliases=match.aliases, package=match.package,
         installed_version=match.installed_version, dependency_source=match.dependency_source,
         summary=match.summary, severity=match.severity, severity_label=severity_label(adv),
         affected_status=match.affected_status, fixed_in=match.fixed_in, upgrade_kind=match.upgrade_kind,
@@ -167,8 +168,7 @@ def scan(
     if backend.source == "recorded":
         notes.append("advisory data came from recorded records, not from a live OSV query")
     notes.extend(getattr(backend, "warnings", []))
-    items: list[DependencyAdvisory] = []
-    records: dict[int, Advisory] = {}
+    raw: list[tuple[PinnedDependency, Advisory, AdvisoryMatch]] = []
     seen: set[tuple[str, str, str]] = set()
     for dep in inputs.dependencies:
         for adv in candidates.get((dep.name, dep.version), []):
@@ -179,16 +179,64 @@ def scan(
             if isinstance(match, str):
                 continue  # not_affected / unevaluable: the installed version is not shown affected
             seen.add(key)
-            info = affected_symbols(adv, dep.name)
-            names = sorted(set(default_import_names(dep.name)) | {s.split(".", 1)[0] for s in info.symbols})
-            hint = reachability_hint(root, dep.name, info.symbols, names)
-            reach = dependency_reach(
-                graph, info, include_tests=include_tests, declared_entries=inputs.declared_entries,
-                package_imported=hint.package_imported, import_sites=hint.import_sites,
+            raw.append((dep, adv, match))
+
+    groups: list[list[tuple[PinnedDependency, Advisory, AdvisoryMatch]]] = []
+    for item in raw:
+        dep, adv, _ = item
+        ids = {adv.id, *adv.aliases}
+        matching = [group for group in groups
+                    if group[0][0].name == dep.name and
+                    group[0][0].version == dep.version and
+                    any(ids & {a.id, *a.aliases} for _, a, _ in group)]
+        if not matching:
+            groups.append([item])
+        else:
+            target = matching[0]
+            target.append(item)
+            for other in matching[1:]:
+                target.extend(other)
+                groups.remove(other)
+
+    items: list[DependencyAdvisory] = []
+    records: dict[int, Advisory] = {}
+    for group in groups:
+        dep = group[0][0]
+        ids = list(dict.fromkeys(identifier for _, adv, _ in group
+                                 for identifier in (adv.id, *adv.aliases)))
+        first = group[0][1]
+        merged = first
+        if len(group) > 1:
+            aliases = tuple(identifier for identifier in ids if identifier != first.id)
+            raw = dict(first.raw)
+            database_specific = {}
+            for _, advisory, _ in group:
+                block = advisory.raw.get("database_specific")
+                if isinstance(block, dict):
+                    database_specific.update(block)
+            if database_specific:
+                raw["database_specific"] = database_specific
+            severity = next((advisory.severity for _, advisory, _ in group if advisory.severity), ())
+            merged = Advisory(
+                id=first.id, aliases=aliases, summary=first.summary, modified=first.modified,
+                severity=severity, references=tuple(dict.fromkeys(
+                    reference for _, adv, _ in group for reference in adv.references)),
+                affected=tuple(package for _, adv, _ in group for package in adv.affected),
+                withdrawn=first.withdrawn, raw=raw,
             )
-            proof = DependencyProof(status="not_attempted", reason="--prove was not given", effect=info.effect)
-            records[len(items)] = adv
-            items.append(_entry(match, adv, reach, info, proof))
+        match = _match(dep, merged, backend, None, None)
+        if isinstance(match, str):
+            continue
+        info = affected_symbols(merged, dep.name)
+        names = sorted(set(default_import_names(dep.name)) | {s.split(".", 1)[0] for s in info.symbols})
+        hint = reachability_hint(root, dep.name, info.symbols, names)
+        reach = dependency_reach(
+            graph, info, include_tests=include_tests, declared_entries=inputs.declared_entries,
+            package_imported=hint.package_imported, import_sites=hint.import_sites,
+        )
+        proof = DependencyProof(status="not_attempted", reason="--prove was not given", effect=info.effect)
+        records[len(items)] = merged
+        items.append(_entry(match, merged, reach, info, proof))
     report = DepsReport(
         repo=repo_label if repo_label is not None else str(repo),
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -305,7 +353,8 @@ def render_table(report: DepsReport) -> str:
         reach = item.reachability
         cell = {"reachable": f"yes ({len(reach.paths)} path{'s' if len(reach.paths) != 1 else ''})",
                 "not_reachable": "no", "unknown": "unknown"}[reach.status]
-        rows.append([item.advisory_id, f"{item.package} {item.installed_version}", item.severity_label, cell,
+        ids = item.advisory_ids or [item.advisory_id, *item.aliases]
+        rows.append([", ".join(dict.fromkeys(ids)), f"{item.package} {item.installed_version}", item.severity_label, cell,
                      _PROOF_CELL[item.proof.status], item.fixed_by])
     lines = []
     if rows:
@@ -316,7 +365,8 @@ def render_table(report: DepsReport) -> str:
         lines.append("")
         for item in report.advisories:
             reach = item.reachability
-            lines.append(f"{item.advisory_id} ({item.package} {item.installed_version}): {reach.status}")
+            ids = item.advisory_ids or [item.advisory_id, *item.aliases]
+            lines.append(f"{', '.join(dict.fromkeys(ids))} ({item.package} {item.installed_version}): {reach.status}")
             if reach.paths:
                 for path in reach.paths[:3]:
                     lines.append(f"  path [{path.kind}, entry {path.oracle_entry_point}]: {path.rendered}")
