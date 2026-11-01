@@ -520,7 +520,7 @@ def test_every_catalog_rule_is_complete():
     for rule in SINKS:
         assert rule.names and rule.category and rule.vuln_class and rule.note
         assert rule.effect in (None, "canary_read", "canary_write", "canary_exec", "canary_sql",
-                               "canary_connect", "canary_dos")
+                               "canary_connect", "canary_dos", "canary_redirect", "canary_access")
     assert match_sink("requests.codes") is None
     assert match_sink("httpx.Client.post").vuln_class == "ssrf"
 
