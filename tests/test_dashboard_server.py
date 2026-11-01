@@ -147,10 +147,10 @@ def test_long_request_targets_are_refused(state):
 
 def test_runs_are_newest_first_and_paginated(state):
     status, _, data = api(state, "/api/runs?per_page=4")
-    assert status == 200 and data["total"] == 10 and data["pages"] == 3
-    assert [r["run_id"] for r in data["runs"]][:2] == ["synthetic-10-starlette-pr55", "synthetic-09-starlette-pr52"]
-    _, _, last = api(state, "/api/runs?per_page=4&page=3")
-    assert [r["run_id"] for r in last["runs"]] == ["synthetic-02-starlette-fixed", "synthetic-01-starlette-proven"]
+    assert status == 200 and data["total"] == 13 and data["pages"] == 4
+    assert [r["run_id"] for r in data["runs"]][:2] == ["synthetic-13-billing-search-sql", "synthetic-10-starlette-pr55"]
+    _, _, last = api(state, "/api/runs?per_page=4&page=4")
+    assert [r["run_id"] for r in last["runs"]] == ["synthetic-01-starlette-proven"]
     _, _, beyond = api(state, "/api/runs?per_page=4&page=9")
     assert beyond["runs"] == []
     _, _, capped = api(state, "/api/runs?per_page=100000")

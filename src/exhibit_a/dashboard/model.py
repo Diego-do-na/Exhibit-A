@@ -18,6 +18,7 @@ Every lookup tolerates missing or mistyped keys.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Iterable, Sequence
 from datetime import datetime
@@ -153,12 +154,13 @@ def stage_of(event: Event) -> str:
 
 
 def _effect_type(oracle: dict[str, Any]) -> str:
-    """canary_read / canary_write from an oracle event's open mode."""
+    """The oracle effect of an event: canary_read / canary_write from its open mode,
+    otherwise the declared type when it is a known effect (canary_exec, canary_sql, ...)."""
     mode = _text(oracle.get("mode"), 16).lower()
     if any(char in _WRITE_MODE for char in mode):
         return "canary_write"
     declared = _text(oracle.get("type"), 32)
-    if declared in ("canary_read", "canary_write"):
+    if declared in EFFECTS:
         return declared
     return "canary_read" if "r" in mode else "unknown"
 
@@ -258,6 +260,7 @@ def run_row(data: RunData) -> dict[str, Any]:
         "commit": ref.commit or meta.get("commit", ""),
         "branch": ref.branch or meta.get("branch", ""),
         "title": meta.get("title", ""),
+        "repo_id": "",
         "url": ref.url,
         "synthetic": ref.synthetic or bool(meta.get("synthetic")),
         "started_at": ref.started_at or (data.events[0].ts if data.events else ""),
@@ -293,6 +296,7 @@ def run_row(data: RunData) -> dict[str, Any]:
             # (e.g. ``flags`` that is not an object): unreadable, never partial.
             row["error"] = "ledger payloads do not have the expected shapes"
             row["headline"] = _headline("unreadable", 0)
+            row["repo_id"] = repo_id(row["repo"])
             return row
         if not data.events and extra.get("status") in ("skipped", "timed_out"):
             result["status"] = extra["status"]
@@ -316,6 +320,7 @@ def run_row(data: RunData) -> dict[str, Any]:
             }
         )
     row["headline"] = _headline(row["status"], row["proven"])
+    row["repo_id"] = repo_id(row["repo"])
     return row
 
 
@@ -615,12 +620,17 @@ def build_graph_view(data: RunData) -> dict[str, Any]:
     return result
 
 
-def run_detail(data: RunData) -> dict[str, Any]:
-    """Everything the run detail view shows, except the raw event list."""
+def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
+    """Everything the run detail view shows, except the raw event list.
+
+    ``with_graph=False`` skips the code graph (the repository overview aggregates the
+    findings of many runs and never shows their graphs).
+    """
     row = run_row(data)
+    graph = build_graph_view(data) if with_graph else None
     if row["error"]:
         return {"run": row, "stages": _stages([]), "proven": [], "discarded": [], "latency_ms": 0,
-                "trace": trace_to_dict(row["run_id"], []), "costs": _costs([]), "graph": build_graph_view(data)}
+                "trace": trace_to_dict(row["run_id"], []), "costs": _costs([]), "graph": graph}
     events = data.events
     suspicions: dict[str, dict[str, Any]] = {}
     verdicts: dict[str, dict[str, Any]] = {}
@@ -700,7 +710,7 @@ def run_detail(data: RunData) -> dict[str, Any]:
         "latency_ms": sum(e.latency_ms for e in events),
         "trace": trace_to_dict(row["run_id"], steps),
         "costs": _costs(events),
-        "graph": build_graph_view(data),
+        "graph": graph,
     }
 
 
@@ -742,3 +752,168 @@ def build_trends(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return sorted(points, key=lambda p: (p["started_at"], p["run_id"]))
+
+
+# -- repositories --------------------------------------------------------------------
+
+#: Most runs one repository aggregate reads (newest first); older runs are left out.
+MAX_REPO_RUNS = 500
+#: Rows returned in a repository's pull request and finding lists.
+MAX_REPO_ROWS = 50
+SEVERITIES = ("critical", "high", "medium", "low")
+UNKNOWN_REPO_ID = "unknown"
+_SLUG = re.compile(r"[^a-z0-9]+")
+
+
+def repo_id(name: str) -> str:
+    """A stable, URL-safe id for a repository name ("" maps to ``unknown``).
+
+    The readable slug is capped and followed by a short digest of the full name, so two
+    names that slug alike ("a/b" and "a-b") still get different ids.
+    """
+    if not name:
+        return UNKNOWN_REPO_ID
+    slug = _SLUG.sub("-", name.lower()).strip("-")[:60].strip("-") or "repo"
+    return f"{slug}-{hashlib.sha256(name.encode('utf-8')).hexdigest()[:6]}"
+
+
+def _fix_status(evidence: dict[str, Any]) -> str:
+    if (_dict(evidence.get("bypass")).get("succeeded") or 0) > 0:
+        return "bypassed"
+    if _dict(evidence.get("passes_on_fixed")).get("fix_verified") is True:
+        return "verified"
+    return "not_verified"
+
+
+def _root_cause(item: dict[str, Any]) -> str:
+    """Findings with the same effect, CWE and observed (or suspected) code share a root cause."""
+    evidence = _dict(item.get("evidence"))
+    observed = _dict(evidence.get("observed_location"))
+    effect = _text(_dict(evidence.get("effect")).get("type"), 64)
+    where = observed.get("file") or item.get("file") or ""
+    function = observed.get("function") or item.get("entry_point") or ""
+    return "|".join((effect, _text(evidence.get("cwe"), 80), str(where), str(function)))
+
+
+def _finding_row(row: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+    evidence = _dict(item.get("evidence"))
+    effect = _dict(evidence.get("effect"))
+    observed = _dict(evidence.get("observed_location"))
+    severity = _text(evidence.get("severity"), 32).lower()
+    return {
+        "run_id": row["run_id"],
+        "finding_id": item.get("id", ""),
+        "class": item.get("class", ""),
+        "hypothesis": item.get("hypothesis", ""),
+        "severity": severity if severity in SEVERITIES else "",
+        "cwe": _text(evidence.get("cwe"), 80),
+        "effect": _text(effect.get("type"), 64),
+        "effect_label": _text(effect.get("label"), 64),
+        "file": observed.get("file") or item.get("file", ""),
+        "line": observed.get("line") or item.get("line", 0),
+        "fix_status": _fix_status(evidence),
+        "pr": row.get("pr", ""),
+        "title": row.get("title", ""),
+        "started_at": row.get("started_at", ""),
+        "root_cause": _root_cause(item),
+    }
+
+
+def _repo_summary(rid: str, entries: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> dict[str, Any]:
+    """Cards on the home view: one per repository. ``entries`` are newest first."""
+    rows = [row for row, _ in entries]
+    readable = [row for row in rows if row.get("status") != "unreadable"]
+    severity_mix = {name: 0 for name in (*SEVERITIES, "unknown")}
+    for _, detail in entries:
+        for item in (detail or {}).get("proven", []):
+            severity = _text(_dict(item.get("evidence")).get("severity"), 32).lower()
+            severity_mix[severity if severity in SEVERITIES else "unknown"] += 1
+    last = rows[0] if rows else {}
+    return {
+        "id": rid,
+        "name": last.get("repo", ""),
+        "synthetic": any(row.get("synthetic") for row in rows),
+        "runs": len(rows),
+        "readable_runs": len(readable),
+        "proven": sum(row.get("proven", 0) for row in readable),
+        "last_run": {key: last.get(key) for key in ("run_id", "started_at", "status", "headline", "pr", "title", "proven")}
+        if last else None,
+        "trend": [
+            {"run_id": row["run_id"], "started_at": row.get("started_at", ""), "proven": row.get("proven", 0),
+             "status": row.get("status", "")}
+            for row in reversed(readable)
+        ],
+        "severity_mix": severity_mix,
+    }
+
+
+def group_by_repo(
+    entries: Iterable[tuple[dict[str, Any], dict[str, Any] | None]],
+) -> dict[str, list[tuple[dict[str, Any], dict[str, Any] | None]]]:
+    """(row, detail) pairs grouped by repository id, each group newest first."""
+    groups: dict[str, list[tuple[dict[str, Any], dict[str, Any] | None]]] = {}
+    for row, detail in entries:
+        groups.setdefault(row.get("repo_id") or UNKNOWN_REPO_ID, []).append((row, detail))
+    for group in groups.values():
+        group.sort(key=lambda entry: (entry[0].get("started_at", ""), entry[0]["run_id"]), reverse=True)
+    return groups
+
+
+def build_repo_index(entries: Iterable[tuple[dict[str, Any], dict[str, Any] | None]]) -> list[dict[str, Any]]:
+    """Every repository with its summary, the most recently active first."""
+    summaries = [_repo_summary(rid, group) for rid, group in group_by_repo(entries).items()]
+    return sorted(summaries, key=lambda s: ((s["last_run"] or {}).get("started_at") or "", s["id"]), reverse=True)
+
+
+def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> dict[str, Any]:
+    """Headline metrics across a repository's runs, its recent pull requests and the most
+    serious proven findings (by severity, then fix status, then recency).
+
+    Every number is a count or sum of recorded run data; nothing is estimated.
+    """
+    summary = _repo_summary(rid, group)
+    findings: list[dict[str, Any]] = []
+    discarded = 0
+    cost = 0.0
+    tokens_in = tokens_out = 0
+    for row, detail in group:
+        cost += row.get("cost_usd") or 0.0
+        tokens_in += row.get("tokens_in") or 0
+        tokens_out += row.get("tokens_out") or 0
+        if detail is None or row.get("status") == "unreadable":
+            continue
+        discarded += len(detail.get("discarded", []))
+        findings.extend(_finding_row(row, item) for item in detail.get("proven", []))
+    causes: dict[str, dict[str, Any]] = {}
+    for finding in findings:  # newest run first, so the first one seen is the latest
+        cause = causes.setdefault(finding["root_cause"], {**finding, "occurrences": 0, "runs": []})
+        cause["occurrences"] += 1
+        cause["runs"].append(finding["run_id"])
+    rank_severity = {name: i for i, name in enumerate(SEVERITIES)}
+    rank_fix = {"bypassed": 0, "not_verified": 1, "verified": 2}
+    # sorted() is stable: among equals the newest occurrence (insertion order) stays first.
+    serious = sorted(
+        causes.values(),
+        key=lambda f: (rank_severity.get(f["severity"], len(SEVERITIES)), rank_fix[f["fix_status"]]),
+    )
+    pull_requests = [
+        {key: row.get(key) for key in ("run_id", "pr", "title", "status", "headline", "proven", "started_at",
+                                       "commit", "branch", "risk", "cost_usd", "duration_s", "synthetic")}
+        for row, _ in group[:MAX_REPO_ROWS]
+    ]
+    return {
+        "repo": summary,
+        "metrics": {
+            "runs": len(group),
+            "proven": sum(1 for _ in findings),
+            "root_causes": len(causes),
+            "fixes_verified": sum(1 for f in findings if f["fix_status"] == "verified"),
+            "fixes_bypassed": sum(1 for f in findings if f["fix_status"] == "bypassed"),
+            "discarded": discarded,
+            "cost_usd": round(cost, 8),
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+        },
+        "pull_requests": pull_requests,
+        "top_findings": serious[:MAX_REPO_ROWS],
+    }

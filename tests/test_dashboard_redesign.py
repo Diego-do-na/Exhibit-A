@@ -81,3 +81,98 @@ def test_no_invented_numbers_in_finding_detail():
     for invented in ('"403"', '"200"', "|| 403", "|| 200", '"HIGH"', '"1 → 0"', "EA_FIXTURE"):
         assert invented not in detail
     assert "BYPASSED" in detail  # a defeated fix is never shown as PASS
+
+
+# -- B: repositories and the home view -------------------------------------------------
+
+from exhibit_a.dashboard.model import UNKNOWN_REPO_ID, repo_id  # noqa: E402
+from test_dashboard_support import api  # noqa: E402
+
+STARLETTE = "example-org/starlette-app (synthetic)"
+ARCHIVE = "example-org/archive-service (synthetic)"
+BILLING = "example-org/billing-api (synthetic)"
+
+
+def test_repo_ids_are_stable_url_safe_and_distinct():
+    assert repo_id(STARLETTE) == repo_id(STARLETTE)
+    assert re.fullmatch(r"[a-z0-9][a-z0-9-]{0,80}", repo_id(STARLETTE))
+    assert repo_id("a/b") != repo_id("a-b")  # same slug, different digest
+    assert repo_id("") == UNKNOWN_REPO_ID
+    assert re.fullmatch(r"[a-z0-9][a-z0-9-]{0,80}", repo_id('<script>alert("x")</script>/../..'))
+
+
+def test_repos_endpoint_summarises_every_repository_from_run_data(state):
+    status, headers, data = api(state, "/api/repos")
+    assert status == 200 and headers["content-type"] == ["application/json; charset=utf-8"]
+    repos = {repo["name"]: repo for repo in data["repos"]}
+    assert set(repos) == {STARLETTE, ARCHIVE, BILLING}
+    assert data["runs_considered"] == data["runs_total"] == 13
+    _, _, runs = api(state, "/api/runs?per_page=100")
+    for name, repo in repos.items():
+        rows = [row for row in runs["runs"] if row["repo"] == name]
+        assert repo["runs"] == len(rows)
+        assert repo["proven"] == sum(row["proven"] for row in rows)
+        assert [p["proven"] for p in repo["trend"]] == [r["proven"] for r in sorted(rows, key=lambda r: r["started_at"])]
+        assert repo["last_run"]["run_id"] == max(rows, key=lambda r: r["started_at"])["run_id"]
+        assert all(row["repo_id"] == repo["id"] for row in rows)
+    assert repos[BILLING]["severity_mix"]["critical"] == 2  # canary_exec + canary_sql
+    assert repos[STARLETTE]["severity_mix"]["high"] == 3
+    # most recently active first
+    starts = [repo["last_run"]["started_at"] for repo in data["repos"]]
+    assert starts == sorted(starts, reverse=True)
+
+
+def test_repo_detail_metrics_are_counts_of_recorded_runs(state):
+    _, _, index = api(state, "/api/repos")
+    ids = {repo["name"]: repo["id"] for repo in index["repos"]}
+
+    status, _, starlette = api(state, f"/api/repos/{ids[STARLETTE]}")
+    assert status == 200
+    m = starlette["metrics"]
+    # S1 is proven in three runs of the same code: three findings, one root cause.
+    assert (m["runs"], m["proven"], m["root_causes"], m["fixes_verified"]) == (7, 3, 1, 3)
+    assert [pr["pr"] for pr in starlette["pull_requests"]] == ["55", "52", "50", "48", "46", "44", "41"]
+    assert starlette["top_findings"][0]["occurrences"] == 3
+    assert starlette["top_findings"][0]["run_id"] == "synthetic-10-starlette-pr55"  # newest occurrence
+
+    _, _, archive = api(state, f"/api/repos/{ids[ARCHIVE]}")
+    # Run 04's fix was defeated by a bypass variant: it is never counted as verified.
+    assert archive["metrics"]["fixes_bypassed"] == 1 and archive["metrics"]["fixes_verified"] == 1
+    assert archive["top_findings"][0]["fix_status"] == "bypassed"
+
+    _, _, billing = api(state, f"/api/repos/{ids[BILLING]}")
+    assert {f["effect"] for f in billing["top_findings"]} == {"canary_exec", "canary_sql"}
+    assert all(f["severity"] == "critical" for f in billing["top_findings"])
+    assert billing["metrics"]["cost_usd"] == pytest.approx(
+        sum(pr["cost_usd"] for pr in billing["pull_requests"]))
+
+
+@pytest.mark.parametrize("target", ["/api/repos/unknown-000000", "/api/repos/UPPER", "/api/repos/..", "/api/repos/a/b"])
+def test_repo_detail_refuses_unknown_or_malformed_ids(state, target):
+    status, _, _ = api(state, target)
+    assert status == 404
+
+
+def test_repo_endpoints_need_the_session(state):
+    for target in ("/api/repos", f"/api/repos/{repo_id(STARLETTE)}"):
+        status, _, _ = request(state, target)
+        assert status == 401
+
+
+def test_home_is_the_default_route_and_sidebar_starts_with_it():
+    nav = re.findall(r'data-nav="([a-z]+)"', HTML)
+    assert nav[0] == "home"
+    assert 'href="#/" class="nav-item" data-nav="home"' in HTML
+    router = JS[JS.index("async function route()"):JS.index("// -- Bootstrap")]
+    assert "await renderHome(null);" in router.split("} else {")[-1]  # unknown hashes land on home
+    assert "renderHome(parts[1])" in router
+
+
+def test_static_export_answers_the_repository_endpoints(tmp_path):
+    from exhibit_a.dashboard.export import export_dashboard
+    from exhibit_a.dashboard.sources import LocalRunsSource
+
+    out = tmp_path / "export"
+    export_dashboard(LocalRunsSource(make_samples(tmp_path)), out, run_id="synthetic-01-starlette-proven")
+    script = (out / "static.js").read_text(encoding="utf-8")
+    assert 'parts[1] === "repos"' in script and repo_id(STARLETTE) in script

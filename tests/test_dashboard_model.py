@@ -129,7 +129,7 @@ def test_trends_are_oldest_first_and_skip_unreadable(tmp_path):
     rows = list(rows_by_id(LocalRunsSource(make_samples(tmp_path))).values())
     rows.append(run_row(RunData(ref=RunRef("broken", started_at="2027-01-01"), error="bad")))
     points = build_trends(rows)
-    assert len(points) == 10
+    assert len(points) == 13
     assert [p["started_at"] for p in points] == sorted(p["started_at"] for p in points)
-    assert sum(p["proven"] for p in points) == 5
+    assert sum(p["proven"] for p in points) == 7
     assert all(set(model.TREND_VERDICTS) <= set(p) for p in points)

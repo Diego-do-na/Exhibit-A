@@ -37,7 +37,7 @@ def test_fixture_puts_hostile_strings_in_every_text_field():
 
 def test_api_serves_hostile_strings_only_as_json():
     state = local_state(HOSTILE)
-    for target in ("/api/runs", "/api/runs/run-hostile", "/api/runs/run-hostile/events", "/api/trends"):
+    for target in ("/api/runs", "/api/runs/run-hostile", "/api/runs/run-hostile/events", "/api/trends", "/api/repos"):
         status, headers, data = api(state, target)
         assert status == 200, target
         assert headers["content-type"] == ["application/json; charset=utf-8"]
@@ -80,7 +80,8 @@ const { chromium } = require('playwright');
   page.on('pageerror', (e) => report.errors.push(String(e)));
   await page.goto(bootstrap);
   const views = [['runs', '#/runs', 'table.runs'], ['detail', '#/run/run-hostile', '.finding'],
-                 ['trends', '#/trends', '.chart svg'], ['replay', '#/replay/run-hostile', 'button.primary']];
+                 ['trends', '#/trends', '.chart svg'], ['replay', '#/replay/run-hostile', 'button.primary'],
+                 ['home', '#/', '.repo-card']];
   for (const [name, hash, selector] of views) {
     await page.goto(base + hash);
     await page.waitForSelector(selector, { timeout: 10000 });
@@ -141,7 +142,7 @@ def test_hostile_run_is_inert_in_a_real_browser(tmp_path):
     assert proc.returncode == 0, proc.stderr
     report = json.loads(proc.stdout.strip().splitlines()[-1])
     assert report["dialogs"] == [] and report["errors"] == []
-    assert set(report["views"]) == {"runs", "detail", "trends", "replay"}
+    assert set(report["views"]) == {"runs", "detail", "trends", "replay", "home"}
     for name, view in report["views"].items():
         assert view["scripts"] == 1, name  # only app.js
         assert view["imgs"] == 0 and view["jsLinks"] == 0 and view["handlers"] == 0, name

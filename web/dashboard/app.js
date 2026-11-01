@@ -429,9 +429,15 @@ function repoShort(name) {
   return text || "unknown repository";
 }
 
+const ACRONYMS = { sql: "SQL", cwe: "CWE", url: "URL", xss: "XSS", ssrf: "SSRF", idor: "IDOR", xxe: "XXE", ssti: "SSTI", crlf: "CRLF", dos: "DoS", redos: "ReDoS", http: "HTTP", api: "API", pr: "PR" };
+
 function humanize(value) {
   const text = String(value || "").replace(/_/g, " ").trim();
-  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
+  if (!text) return "";
+  const words = text.split(/\s+/).map((w) => ACRONYMS[w.toLowerCase()] || w);
+  const first = words[0];
+  words[0] = first === first.toLowerCase() ? first.charAt(0).toUpperCase() + first.slice(1) : first;
+  return words.join(" ");
 }
 
 function severityOf(evidence) {
@@ -740,6 +746,182 @@ function findingCard(row, item) {
         h("span", { class: "chip-effect" }, icon("file-text", 14), effect.label || humanize(effect.type) || "Effect not available"),
         h("span", { class: `tag-severity sev-${sev || "low"}`, text: severityText(ev) })),
       h("a", { class: "finding-open-link", href: target }, `${plural(proofs, "proof")} · Open →`)));
+}
+
+// ==============================================================================
+// Home: repository overview
+// ==============================================================================
+
+const SEVERITY_ORDER = ["critical", "high", "medium", "low", "unknown"];
+
+function sparkline(trend) {
+  // Proven findings per run, oldest to newest. Bars, not a line: the runs are discrete.
+  const width = 160;
+  const height = 36;
+  const points = trend.slice(-24);
+  const max = Math.max(1, ...points.map((p) => p.proven || 0));
+  const slot = width / Math.max(points.length, 1);
+  const bar = Math.max(2, Math.min(10, slot * 0.62));
+  const label = points.length
+    ? `Proven findings per run, oldest to newest: ${points.map((p) => p.proven || 0).join(", ")}`
+    : "No readable runs";
+  const root = svg("svg", { class: "sparkline", viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": label, preserveAspectRatio: "none" });
+  root.appendChild(svg("line", { class: "spark-base", x1: 0, x2: width, y1: height - 0.5, y2: height - 0.5 }));
+  points.forEach((p, i) => {
+    const value = p.proven || 0;
+    const barH = value ? Math.max(3, (value / max) * (height - 4)) : 1.5;
+    root.appendChild(svg("rect", {
+      class: value ? "spark-bar proven" : "spark-bar",
+      x: slot * i + (slot - bar) / 2, y: height - barH, width: bar, height: barH, rx: Math.min(1.5, bar / 2),
+    }));
+  });
+  return root;
+}
+
+function severityMix(mix, compact = false) {
+  const total = SEVERITY_ORDER.reduce((n, k) => n + (mix[k] || 0), 0);
+  const bar = h("div", { class: "mix-bar", role: "img", "aria-label": total
+    ? `Severity of proven findings: ${SEVERITY_ORDER.filter((k) => mix[k]).map((k) => `${mix[k]} ${k}`).join(", ")}`
+    : "No proven findings" });
+  if (total) {
+    for (const key of SEVERITY_ORDER) {
+      if (!mix[key]) continue;
+      bar.appendChild(h("span", { class: `mix-seg mix-${key}`, style: `flex-grow: ${mix[key]}` }));
+    }
+  }
+  const legend = compact ? null : h("ul", { class: "mix-legend" },
+    SEVERITY_ORDER.filter((k) => mix[k]).map((k) => h("li", {}, h("span", { class: `swatch mix-${k}` }), `${mix[k]} ${k}`)));
+  return h("div", { class: "mix" }, bar, total ? legend : h("span", { class: "mix-empty", text: "No proven findings" }));
+}
+
+function repoCard(repo, selected) {
+  const [owner, ...rest] = repoShort(repo.name).split("/");
+  const last = repo.last_run || {};
+  return h("a", {
+    class: `repo-card${selected ? " selected" : ""}`,
+    href: `#/repo/${encodeURIComponent(repo.id)}`,
+    "aria-current": selected ? "true" : null,
+    "aria-label": `${repoShort(repo.name)}: ${plural(repo.runs, "run")}, ${plural(repo.proven, "proven finding")}`,
+  },
+    h("div", { class: "repo-card-head" },
+      h("div", { class: "repo-name" },
+        rest.length ? h("span", { class: "repo-owner", text: `${owner}/` }) : null,
+        h("span", { class: "repo-leaf", text: rest.length ? rest.join("/") : owner })),
+      repo.synthetic ? h("span", { class: "tag", text: "synthetic" }) : null),
+    h("dl", { class: "repo-stats" },
+      h("div", {}, h("dt", { text: "Runs" }), h("dd", { text: String(repo.runs) })),
+      h("div", {}, h("dt", { text: "Proven" }), h("dd", { class: repo.proven ? "proven" : "", text: String(repo.proven) })),
+      h("div", { class: "repo-last" }, h("dt", { text: "Last run" }), h("dd", { text: last.started_at ? fmtRelative(last.started_at) : NA }))),
+    h("div", { class: "repo-card-foot" },
+      h("div", { class: "repo-trend" }, h("span", { class: "micro-label", text: "Proven per run" }), sparkline(repo.trend || [])),
+      h("div", { class: "repo-mix" }, h("span", { class: "micro-label", text: "Risk mix" }), severityMix(repo.severity_mix || {}, true))));
+}
+
+function metricTile(label, value, note, cls = "") {
+  return h("div", { class: `metric-tile ${cls}`.trim() },
+    h("span", { class: "metric-label", text: label }),
+    h("span", { class: "metric-value", text: value }),
+    note ? h("span", { class: "metric-note", text: note }) : null);
+}
+
+function fixStatusChip(status) {
+  if (status === "bypassed") return h("span", { class: "badge fail", text: "fix bypassed" });
+  if (status === "verified") return h("span", { class: "badge ok", text: "fix verified" });
+  return h("span", { class: "badge warn", text: "fix not verified" });
+}
+
+function prRow(row) {
+  const target = runHref(row.run_id);
+  return h("li", { class: "pr-row" },
+    h("a", { class: "pr-link", href: target },
+      h("span", { class: "pr-number mono", text: prLabel(row) || "no PR" }),
+      h("span", { class: "pr-main" },
+        h("span", { class: "pr-title", text: row.title || row.headline || row.run_id, title: row.title || null }),
+        h("span", { class: "pr-sub", text: `${fmtDate(row.started_at)} · ${shortSha(row.commit) || row.branch || NA}` })),
+      h("span", { class: "pr-status" }, statusBadge(row)),
+      h("span", { class: "pr-arrow", "aria-hidden": "true" }, icon("chevron-right", 16))));
+}
+
+function seriousRow(f) {
+  const target = runHref(f.run_id, `/finding/${encodeURIComponent(f.finding_id)}`);
+  const sev = f.severity || "";
+  return h("li", { class: "serious-row" },
+    h("a", { class: "serious-link", href: target },
+      h("span", { class: `sev-dot mix-${sev || "unknown"}`, "aria-hidden": "true" }),
+      h("span", { class: "serious-main" },
+        h("span", { class: "serious-title" },
+          h("span", { text: humanize(f.class) || f.finding_id }),
+          h("span", { class: `sev sev-${sev || "low"}`, text: ` · ${sev ? humanize(sev) : "Severity not available"}${f.cwe ? ` · ${f.cwe}` : ""}` })),
+        h("span", { class: "serious-loc mono", text: `${f.file || NA}${f.line ? `:${f.line}` : ""}` }),
+        h("span", { class: "serious-sub", text: `${prLabel(f) || "no PR"}${f.title ? ` · ${f.title}` : ""} · ${f.occurrences > 1 ? `seen in ${f.occurrences} runs` : "seen in 1 run"}` })),
+      h("span", { class: "serious-side" }, h("span", { class: "chip-effect small-chip", text: f.effect_label || humanize(f.effect) || NA }), fixStatusChip(f.fix_status))));
+}
+
+async function renderHome(repoId) {
+  setActiveNav("home");
+  const index = await api("/api/repos");
+  const repos = index.repos || [];
+  if (!repos.length) {
+    setShellHeader([{ text: "All repositories" }], "Home");
+    show(emptyState("No runs found in this source.", "Run exhibit-a on a pull request, then point the dashboard at its runs folder."));
+    return;
+  }
+  const selected = repos.find((r) => r.id === repoId) || repos[0];
+  const detail = await api(`/api/repos/${encodeURIComponent(selected.id)}`);
+  const m = detail.metrics || {};
+  const name = repoShort(selected.name);
+  setShellHeader([{ text: name, href: `#/repo/${encodeURIComponent(selected.id)}` }, { text: "Home" }], name.split("/").pop() || name,
+    "Export overview", () => downloadData(`repository-${selected.id}.json`, detail));
+  setFooter(`${state.sourceLabel || index.source || "Local replay"} · ${plural(index.runs_considered || 0, "run")} read`);
+
+  const last = selected.last_run || {};
+  const lastRunId = last.run_id || "";
+  const current = state.runsById.get(state.currentRunId);
+  // Keep the sidebar's run views inside the selected repository.
+  if (lastRunId && (!current || current.repo_id !== selected.id)) updateRunContextCard(lastRunId);
+
+  const cards = h("section", { class: "section-stack" },
+    h("div", { class: "section-head" },
+      h("div", { class: "section-title-wrap" },
+        h("h2", { class: "section-title", text: "Repositories" }),
+        h("p", { class: "section-subtitle", text: `${plural(repos.length, "repository", "repositories")} across ${plural(index.runs_considered || 0, "run")}. Pick one to see its pull requests and findings.` }))),
+    h("div", { class: "repo-grid" }, repos.map((r) => repoCard(r, r.id === selected.id))));
+
+  const runsNote = `${plural(m.runs || 0, "run")}${(index.runs_total || 0) > (index.runs_considered || 0) ? ` (newest ${index.runs_considered} of ${index.runs_total} read)` : ""}`;
+  const metrics = h("div", { class: "metric-row" },
+    metricTile("Proven findings", String(m.proven || 0), `across ${runsNote}`, m.proven ? "is-proven" : ""),
+    metricTile("Unique root causes", String(m.root_causes || 0), "same effect, CWE and code"),
+    metricTile("Fixes verified", String(m.fixes_verified || 0), m.fixes_bypassed ? `${m.fixes_bypassed} bypassed by a variant` : `of ${plural(m.proven || 0, "proven finding")}`),
+    metricTile("Discarded suspicions", String(m.discarded || 0), "not proven; not evidence of safety"),
+    metricTile("Cost", fmtCost(m.cost_usd), `${fmtTokens(m.tokens_in)} tokens in · ${fmtTokens(m.tokens_out)} out`));
+
+  const prs = detail.pull_requests || [];
+  const serious = detail.top_findings || [];
+  const prCard = h("section", { class: "card list-card" },
+    h("div", { class: "card-head" },
+      h("h3", { class: "card-title", text: "Recent pull requests" }),
+      h("a", { class: "card-link", href: "#/runs", text: "All runs →" })),
+    prs.length ? h("ul", { class: "pr-list" }, prs.slice(0, 8).map(prRow)) : emptyState("No runs for this repository."));
+  const seriousCard = h("section", { class: "card list-card" },
+    h("div", { class: "card-head" },
+      h("h3", { class: "card-title", text: "Most serious findings" }),
+      h("span", { class: "muted small", text: "by severity, then fix status" })),
+    serious.length
+      ? h("ul", { class: "serious-list" }, serious.slice(0, 6).map(seriousRow))
+      : nothingProven("repository"),
+    serious.length ? h("p", { class: "list-note", text: "Merge status is not recorded in the ledger: a verified fix may not be merged yet." }) : null);
+
+  show(
+    syntheticBanner([selected]),
+    cards,
+    h("section", { class: "section-stack" },
+      h("div", { class: "section-head" },
+        h("div", { class: "section-title-wrap" },
+          h("h2", { class: "section-title", text: name }),
+          h("p", { class: "section-subtitle", text: last.started_at ? `Last run ${fmtRelative(last.started_at)}: ${prLabel(last) ? `${prLabel(last)} · ` : ""}${last.headline || ""}` : "No runs recorded." })),
+        h("div", { class: "section-aside" }, h("span", { class: "micro-label", text: "Risk mix" }), severityMix(selected.severity_mix || {}))),
+      metrics,
+      h("div", { class: "home-columns" }, prCard, seriousCard)));
 }
 
 // ==============================================================================
@@ -1413,9 +1595,13 @@ async function route() {
       else await renderDependencies(id);
     } else if (parts[0] === "trends" || parts[0] === "benchmark") {
       await renderBenchmark();
-    } else {
+    } else if (parts[0] === "runs") {
       const page = Math.max(1, parseInt(parts[1] || "1", 10) || 1);
       await renderRuns(page);
+    } else if (parts[0] === "repo" && REPO_ID.test(parts[1] || "")) {
+      await renderHome(parts[1]);
+    } else {
+      await renderHome(null);
     }
     window.scrollTo(0, 0);
   } catch (error) {

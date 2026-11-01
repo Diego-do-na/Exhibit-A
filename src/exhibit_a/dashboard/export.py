@@ -7,7 +7,16 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .model import build_graph_view, build_trends, event_view, run_detail, run_row
+from .model import (
+    build_graph_view,
+    build_repo_detail,
+    build_repo_index,
+    build_trends,
+    event_view,
+    group_by_repo,
+    run_detail,
+    run_row,
+)
 from .sources import LEDGER_NAME, RESULT_NAME, RUN_ID_RE, LocalRunsSource, SourceError
 
 
@@ -60,6 +69,10 @@ function staticPath(path) {{
   if (parts[0] !== "api") return null;
   if (parts[1] === "info") return STATIC.info;
   if (parts[1] === "trends") return STATIC.trends;
+  if (parts[1] === "repos") {{
+    if (!parts[2]) return STATIC.repos;
+    return STATIC.reposById[decodeURIComponent(parts[2])] || {{ error: "unknown repository" }};
+  }}
   if (parts[1] !== "runs") return null;
   if (!parts[2]) return STATIC.runs;
   const id = decodeURIComponent(parts[2]);
@@ -133,6 +146,11 @@ def export_dashboard(
 
     rows = [run_row(data)]
     detail = run_detail(data)
+    entries = [(rows[0], detail)]
+    repos = {
+        rid: {**build_repo_detail(rid, group), "runs_considered": 1, "runs_total": 1}
+        for rid, group in group_by_repo(entries).items()
+    }
     events = {"run_id": selected, "from": 0, "events": [event_view(i, event) for i, event in enumerate(data.events)],
               "count": len(data.events), "total": len(data.events)}
     bundle = {
@@ -140,6 +158,8 @@ def export_dashboard(
         "runs": {"source": source.label, "runs": rows, "page": 1, "per_page": max(1, len(rows)), "total": len(rows),
                  "pages": 1},
         "trends": {"points": build_trends(rows), "limit": len(rows), "total": len(rows)},
+        "repos": {"source": source.label, "repos": build_repo_index(entries), "runs_considered": 1, "runs_total": 1},
+        "reposById": repos,
         "runsById": {
             selected: {
                 "detail": detail,

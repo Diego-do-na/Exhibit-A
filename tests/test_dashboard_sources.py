@@ -45,7 +45,7 @@ def write_run(root: Path, name: str, ledger: str | bytes, result: dict | None = 
 def test_local_source_lists_and_loads_sample_runs(tmp_path):
     source = LocalRunsSource(make_samples(tmp_path))
     refs = {ref.run_id: ref for ref in source.list_runs()}
-    assert len(refs) == 10
+    assert len(refs) == 13  # three repositories since FE-REDESIGN (home view and code graph demo)
     ref = refs["synthetic-01-starlette-proven"]
     assert ref.synthetic is True and ref.pr == "41" and ref.commit == "3f1c9b7e2a4d"
     data = source.load_run("synthetic-01-starlette-proven")

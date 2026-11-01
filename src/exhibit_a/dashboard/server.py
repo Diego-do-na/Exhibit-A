@@ -27,6 +27,10 @@ Endpoints (GET):
 - ``/api/runs/<id>/replay?speed=&from=``: Server-Sent Events replay of a
   finished ledger, paced by ``exhibit_a.live.replay.Replayer``.
 - ``/api/trends?limit=``: verdict counts of the most recent runs, oldest first.
+- ``/api/repos``: one summary per repository (runs, proven findings, last run, proven
+  findings per run, severity mix), aggregated from the run data; nothing is stored.
+- ``/api/repos/<id>``: one repository's headline metrics across its runs, its recent
+  pull requests and its most serious proven findings.
 """
 
 from __future__ import annotations
@@ -48,7 +52,18 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from ..live.replay import Replayer, format_done, parse_speed, select_events
-from .model import EFFECT_SCHEMA, build_graph_view, build_trends, event_view, run_detail, run_row
+from .model import (
+    EFFECT_SCHEMA,
+    MAX_REPO_RUNS,
+    build_graph_view,
+    build_repo_detail,
+    build_repo_index,
+    build_trends,
+    event_view,
+    group_by_repo,
+    run_detail,
+    run_row,
+)
 from .export import export_dashboard
 from .sources import RUN_ID_RE, LocalRunsSource, RunSource, SourceError, parse_source
 
@@ -103,6 +118,8 @@ DEFAULT_TREND_RUNS = 50
 MAX_SPEED = 64.0
 
 _RUN_ROUTE = re.compile(r"^/api/runs/([^/]+)(/events|/replay|/trace|/graph|/costs)?$")
+_REPO_ROUTE = re.compile(r"^/api/repos/([^/]+)$")
+REPO_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}\Z")
 
 
 def default_web_dir() -> Path:
@@ -320,6 +337,14 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 self._runs(query)
             elif route == "/api/trends":
                 self._trends(query)
+            elif route == "/api/repos":
+                self._repos()
+            elif _REPO_ROUTE.match(route):
+                rid = _REPO_ROUTE.match(route).group(1)
+                if not REPO_ID_RE.match(rid):
+                    self._error(404, "not found")
+                    return
+                self._repo(rid)
             else:
                 match = _RUN_ROUTE.match(route)
                 if match is None or not RUN_ID_RE.match(match.group(1)):
@@ -370,6 +395,45 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 return
             rows = [run_row(d) for d in (self._load(r.run_id) for r in refs) if d is not None]
             self._json({"points": build_trends(rows), "limit": limit, "total": len(refs)})
+
+        def _repo_entries(self) -> tuple[list[tuple[dict[str, Any], dict[str, Any] | None]], int] | None:
+            """(row, findings) of the newest runs, read-only; None after a source error."""
+            try:
+                refs = _sorted_refs(state.source)
+            except SourceError as exc:
+                self._error(502, str(exc))
+                return None
+            entries = []
+            for ref in refs[:MAX_REPO_RUNS]:
+                data = self._load(ref.run_id)
+                if data is None:
+                    continue
+                row = run_row(data)
+                entries.append((row, None if row["error"] else run_detail(data, with_graph=False)))
+            return entries, len(refs)
+
+        def _repos(self) -> None:
+            loaded = self._repo_entries()
+            if loaded is None:
+                return
+            entries, total = loaded
+            self._json({
+                "source": state.source.label,
+                "repos": build_repo_index(entries),
+                "runs_considered": len(entries),
+                "runs_total": total,
+            })
+
+        def _repo(self, rid: str) -> None:
+            loaded = self._repo_entries()
+            if loaded is None:
+                return
+            entries, total = loaded
+            group = group_by_repo(entries).get(rid)
+            if not group:
+                self._error(404, "unknown repository")
+                return
+            self._json({**build_repo_detail(rid, group), "runs_considered": len(entries), "runs_total": total})
 
         def _run(self, run_id: str, tail: str, query: dict[str, str]) -> None:
             data = self._load(run_id)
