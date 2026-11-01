@@ -11,22 +11,25 @@ The sandbox is isolated and resource-limited, never "100% safe".
 
 | vulnerability class | CWE id and name | oracle effect | corpus cases | held-out cases | proven live | measured status |
 |---|---|---|---|---:|---|---|
-| algorithmic_complexity | CWE-407 Inefficient Algorithmic Complexity | canary_dos | not covered (0) | 0 | not yet recorded | not covered |
+| algorithmic_complexity | CWE-407 Inefficient Algorithmic Complexity | canary_dos | `redos-search-query` (1) | 1 | not yet recorded | unmeasured |
 | arbitrary_file_write | CWE-73 External Control of File Name or Path | canary_write | not covered (0) | 0 | not yet recorded | not covered |
 | archive_extraction_path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal') | canary_write | `archive-extraction-pathtraversal`, `tar-slip-restore` (2) | 0 | yes | measured |
+| broken_access_control | CWE-639 Authorization Bypass Through User-Controlled Key | canary_access | `idor-document-fetch`, `idor-export-download` (2) | 2 | not yet recorded | unmeasured |
 | code_injection | CWE-95 Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
-| command_injection | CWE-77 Improper Neutralization of Special Elements used in a Command ('Command Injection')<br>CWE-78 Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') | canary_exec | `command-injection-shell`, `docsuite-large-command-injection` (2) | 1 | not yet recorded | unmeasured |
+| command_injection | CWE-77 Improper Neutralization of Special Elements used in a Command ('Command Injection')<br>CWE-78 Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') | canary_exec | `command-injection-ping`, `command-injection-shell`, `docsuite-large-command-injection` (3) | 2 | not yet recorded | unmeasured |
 | eval_injection | CWE-95 Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
 | insecure_deserialization | CWE-502 Deserialization of Untrusted Data | canary_exec | `unsafe-deserialization-pickle`, `yaml-job-load` (2) | 0 | not yet recorded | unmeasured |
+| open_redirect | CWE-601 URL Redirection to Untrusted Site ('Open Redirect') | canary_redirect | `open-redirect-continue`, `open-redirect-next` (2) | 2 | not yet recorded | unmeasured |
 | os_command_injection | CWE-78 Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
-| path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')<br>CWE-23 Relative Path Traversal | canary_read | `starlette-cve-2023-29159`, `static-route-traversal` (2) | 1 | yes | measured |
+| path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')<br>CWE-23 Relative Path Traversal | canary_read | `log-viewer-traversal`, `starlette-cve-2023-29159`, `static-route-traversal` (3) | 2 | yes | measured |
 | path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal') | canary_write | not covered (0) | 0 | not yet recorded | not covered |
-| path_traversal_write | CWE-73 External Control of File Name or Path | canary_write | `upload-filename-traversal` (1) | 1 | not yet recorded | unmeasured |
+| path_traversal_write | CWE-73 External Control of File Name or Path | canary_write | `report-export-write`, `upload-filename-traversal` (2) | 2 | not yet recorded | unmeasured |
 | redos | CWE-1333 Inefficient Regular Expression Complexity | canary_dos | not covered (0) | 0 | not yet recorded | not covered |
-| regex_denial_of_service | CWE-1333 Inefficient Regular Expression Complexity | canary_dos | not covered (0) | 0 | not yet recorded | not covered |
-| server_side_template_injection | CWE-1336 Improper Neutralization of Special Elements Used in a Template Engine | canary_exec | `ssti-jinja-preview` (1) | 0 | not yet recorded | unmeasured |
+| regex_denial_of_service | CWE-1333 Inefficient Regular Expression Complexity | canary_dos | `redos-username-check` (1) | 1 | not yet recorded | unmeasured |
+| server_side_request_forgery | CWE-918 Server-Side Request Forgery | canary_connect | `ssrf-webhook-fetch` (1) | 1 | not yet recorded | unmeasured |
+| server_side_template_injection | CWE-1336 Improper Neutralization of Special Elements Used in a Template Engine | canary_exec | `ssti-email-template`, `ssti-jinja-preview` (2) | 1 | not yet recorded | unmeasured |
 | sql_injection | CWE-89 Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
-| sql_injection | CWE-89 Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') | canary_sql | `sql-injection-login`, `sql-injection-search`, `sql-trunc-kind-injection` (3) | 1 | not yet recorded | unmeasured |
+| sql_injection | CWE-89 Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') | canary_sql | `sql-injection-filter`, `sql-injection-login`, `sql-injection-search`, `sql-trunc-kind-injection` (4) | 2 | not yet recorded | unmeasured |
 | ssti | CWE-1336 Improper Neutralization of Special Elements Used in a Template Engine | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
 | unrestricted_file_upload | CWE-434 Unrestricted Upload of File with Dangerous Type | canary_write | `upload-avatar` (1) | 0 | not yet recorded | unmeasured |
 | unsafe_deserialization | CWE-502 Deserialization of Untrusted Data | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
@@ -35,11 +38,23 @@ The sandbox is isolated and resource-limited, never "100% safe".
 ### Corpus case IDs
 
 - `archive-extraction-pathtraversal`
+- `command-injection-ping`
 - `command-injection-shell`
 - `docsuite-large-command-injection`
+- `idor-document-fetch`
+- `idor-export-download`
+- `log-viewer-traversal`
+- `open-redirect-continue`
+- `open-redirect-next`
+- `redos-search-query`
+- `redos-username-check`
+- `report-export-write`
+- `sql-injection-filter`
 - `sql-injection-login`
 - `sql-injection-search`
 - `sql-trunc-kind-injection`
+- `ssrf-webhook-fetch`
+- `ssti-email-template`
 - `ssti-jinja-preview`
 - `starlette-cve-2023-29159`
 - `starlette-cve-2023-29159-fixed`
