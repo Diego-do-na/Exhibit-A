@@ -11,6 +11,7 @@ One line per document. Paths are relative to the repository root.
 ## oracle/ — the proof oracle
 
 - [oracle/oracle-provenance.md](oracle/oracle-provenance.md) — authenticated provenance: admitting only staged application code, threat layers, residual limits R1-R6.
+- [oracle/js-oracle.md](oracle/js-oracle.md) — JavaScript and TypeScript oracle (design): node:test runner, V8 structured stacks, authenticated provenance, and residual limits.
 - [oracle/oracle-a1.md](oracle/oracle-a1.md) — finding A-1: signed oracle events (forged lines are dropped and counted, never proven).
 - [oracle/oracle-eval.md](oracle/oracle-eval.md) — labelled exploit/variant evaluation set with measured precision and recall.
 - [oracle/oracle-observer-spike.md](oracle/oracle-observer-spike.md) — out-of-process observer spike (research, not product): ptrace and fanotify prototypes.
