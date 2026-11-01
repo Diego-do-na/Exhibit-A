@@ -282,6 +282,23 @@ def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> 
             "ctypes, subprocess, eval, exec or importlib tricks. "
             f"Imports: the Python standard library, pytest, the application, and the installed packages: {allowed}."
         )
+    elif effect == "canary_dos":
+        allowed = ", ".join(packages) if packages else "nothing beyond the application itself"
+        return (
+            "PROOF CONTRACT: The flaw (algorithmic complexity: ReDoS or quadratic parsing) is proven "
+            "only if the APPLICATION, handling a small malicious input the runner sends through its "
+            "entry point, spends far more CPU than on a benign input of the SAME LENGTH. The test "
+            "must not time, sleep, hash, profile or busy-loop anything itself. Use the dos_probe "
+            "pytest fixture the oracle provides: dos_probe(<entry point callable>, "
+            "malicious=<str>, benign=<str of the same length>). The runner calls the entry point "
+            "with both inputs several times and measures application CPU. The test FAILS on "
+            "vulnerable code when that ratio is high; it must PASS once the flaw is fixed (if the "
+            "application refuses the input by raising or answering with an error, catch that and "
+            "treat it as safe). Never monkeypatch, replace or edit application code, modules or "
+            "attributes; never use ctypes, subprocess, eval, exec, time.sleep, time.process_time, "
+            "sys.setprofile or importlib tricks. "
+            f"Imports: the Python standard library, pytest, the application, and the installed packages: {allowed}."
+        )
     else:
         raise ValueError(f"unknown oracle effect {effect!r}")
     allowed = ", ".join(packages) if packages else "nothing beyond the application itself"

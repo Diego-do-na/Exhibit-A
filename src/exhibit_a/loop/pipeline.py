@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import difflib
 import json
-import json
 import re
 import shutil
 import uuid
@@ -53,6 +52,7 @@ from exhibit_a.loop import prompts
 from exhibit_a.models import ModelRole, RoleResult, SchemaValidationError
 from exhibit_a.loop.runner import HostRunner, SandboxRunner, TestRunner
 from exhibit_a.oracle import Judgement
+from exhibit_a.oracle.oracle import REASON_FLAKY
 from exhibit_a.schemas import (
     BypassAttempts,
     Evidence,
@@ -184,6 +184,8 @@ def classify(judgement: Judgement, *, oracle: bool = True) -> VerdictValue:
 
     With ``oracle`` off (an ablation) any plain test failure counts, whatever its reason.
     """
+    if judgement.reason_code == REASON_FLAKY:
+        return VerdictValue.FLAKY
     outcome = judgement.test_outcome
     if not oracle and outcome == "failed":
         return VerdictValue.PROVEN

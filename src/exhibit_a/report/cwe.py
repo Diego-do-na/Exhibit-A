@@ -106,6 +106,18 @@ CWE_1336 = CWEDefinition(
     description="The product uses a template engine to insert user-controlled data into a template, but it does not neutralize or incorrectly neutralizes special elements that can modify the intended template.",
 )
 
+CWE_1333 = CWEDefinition(
+    cwe_id="CWE-1333",
+    name="Inefficient Regular Expression Complexity",
+    description="The product uses a regular expression with an inefficient, possibly exponential worst-case computational complexity that can cause excessive CPU consumption (ReDoS).",
+)
+
+CWE_407 = CWEDefinition(
+    cwe_id="CWE-407",
+    name="Inefficient Algorithmic Complexity",
+    description="An algorithm does not sufficiently scale based on input size, allowing an attacker to cause excessive consumption of CPU or memory.",
+)
+
 
 def _normalize(value: str) -> str:
     """Normalize effect or vuln_class tokens for table lookup."""
@@ -165,6 +177,13 @@ CWE_TABLE: dict[tuple[str, str], CWEDefinition] = {
     # Unrestricted file upload
     ("canary_write", "unrestricted_file_upload"): CWE_434,
     ("write", "unrestricted_file_upload"): CWE_434,
+
+    # Algorithmic complexity / ReDoS
+    ("canary_dos", "regex_denial_of_service"): CWE_1333,
+    ("canary_dos", "redos"): CWE_1333,
+    ("dos", "regex_denial_of_service"): CWE_1333,
+    ("canary_dos", "algorithmic_complexity"): CWE_407,
+    ("dos", "algorithmic_complexity"): CWE_407,
 }
 
 
@@ -201,6 +220,10 @@ def get_cwe(effect: str, vuln_class: str) -> CWEDefinition:
         return CWE_611
     if "upload" in norm_class:
         return CWE_434
+    if "regex" in norm_class or "redos" in norm_class:
+        return CWE_1333
+    if "complexity" in norm_class or bare_effect == "dos":
+        return CWE_407
     if "deserializ" in norm_class:
         return CWE_502
     if "archive" in norm_class or "traversal" in norm_class:
@@ -248,6 +271,10 @@ def severity_from_effect(
 
     # Arbitrary file write / zip slip
     if eff == "write" or "write" in cls:
+        return "high"
+
+    # Algorithmic complexity / ReDoS
+    if eff == "dos" or "regex" in cls or "complexity" in cls or "redos" in cls:
         return "high"
 
     # File read / path traversal

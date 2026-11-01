@@ -227,8 +227,10 @@ def test_the_archive_case_graph_has_the_extraction_chain():
 # -- catalog: sinks and entry points (M2) ------------------------------------------------------
 
 SINK_SOURCE = '''
+import json
 import os
 import pickle
+import re
 import socket
 import subprocess
 import tarfile
@@ -414,6 +416,26 @@ def joined(base, name):
 
 def harmless(p):
     return os.path.basename(p)
+
+
+def redos_dyn(pattern, data):
+    return re.search(pattern, data)
+
+
+def redos_const(data):
+    return re.search(r'(a+)+$', data)
+
+
+def redos_safe(data):
+    return re.search(r'^[a-z]+$', data)
+
+
+def nested_json(data):
+    return json.loads(data)
+
+
+def const_json():
+    return json.loads('{"a": 1}')
 '''
 
 
@@ -456,6 +478,9 @@ def sinks(tmp_path_factory):
     ("fetch", "requests.get", "ssrf", "canary_connect"),
     ("dial", "socket.create_connection", "ssrf", "canary_connect"),
     ("threaded", "os.stat", "path_traversal", "canary_read"),
+    ("redos_dyn", "re.search", "regex_denial_of_service", "canary_dos"),
+    ("redos_const", "re.search", "regex_denial_of_service", "canary_dos"),
+    ("nested_json", "json.loads", "algorithmic_complexity", "canary_dos"),
 ])
 def test_sinks_carry_their_vulnerability_class(sinks, function, target, vuln_class, effect):
     [hit] = [h for h in sinks[function] if h.target == target]
@@ -478,6 +503,8 @@ def test_safe_calls_are_not_sinks(sinks):
     assert "xxe_lxml_safe_parser" not in sinks
     assert "xxe_etree" not in sinks
     assert "upload_constant" not in sinks
+    assert "redos_safe" not in sinks
+    assert "const_json" not in sinks
 
 
 def test_a_constant_connection_target_is_not_a_sink(sinks):
@@ -492,7 +519,8 @@ def test_a_joined_path_fed_into_a_sink_is_flagged(sinks):
 def test_every_catalog_rule_is_complete():
     for rule in SINKS:
         assert rule.names and rule.category and rule.vuln_class and rule.note
-        assert rule.effect in (None, "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect")
+        assert rule.effect in (None, "canary_read", "canary_write", "canary_exec", "canary_sql",
+                               "canary_connect", "canary_dos")
     assert match_sink("requests.codes") is None
     assert match_sink("httpx.Client.post").vuln_class == "ssrf"
 
