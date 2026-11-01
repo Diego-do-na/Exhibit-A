@@ -83,7 +83,12 @@ const orig = {
   vmRunInNewContext: vm.runInNewContext.bind(vm),
   vmRunInThisContext: vm.runInThisContext.bind(vm),
   emit: EventEmitter.prototype.emit,
+  captureStackTrace: Error.captureStackTrace.bind(Error),
 };
+
+function prepareSites(_error, sites) {
+  return sites;
+}
 
 let installed = false;
 const als = new AsyncLocalStorage();
@@ -198,15 +203,44 @@ function sha256File(filePath) {
 function captureSites() {
   const err = {};
   const prepared = Error.prepareStackTrace;
+  const limit = Error.stackTraceLimit;
+  let installed = false;
   try {
-    Error.prepareStackTrace = function prepare(_error, sites) {
-      return sites;
-    };
-    Error.captureStackTrace(err, captureSites);
+    Error.prepareStackTrace = prepareSites;
+    // Capture with the oracle's own frame budget: a test that lowered
+    // Error.stackTraceLimit must not silently drop the test frame off the
+    // stack (T136), and a test that raised it must not force unbounded work.
+    Error.stackTraceLimit = MAX_FRAMES;
+    // A getter/setter pair (or a frozen property) on either hook can swallow
+    // these assignments and keep serving forged CallSites. Refuse to observe
+    // rather than to report a forged or truncated stack.
+    installed = Error.prepareStackTrace === prepareSites &&
+      Error.stackTraceLimit === MAX_FRAMES;
+  } catch (assignErr) {
+    installed = false;
+  }
+  if (!installed) {
+    return [];
+  }
+  try {
+    orig.captureStackTrace(err, captureSites);
     // Force the getter so prepareStackTrace runs.
     return err.stack || [];
   } finally {
-    Error.prepareStackTrace = prepared;
+    try {
+      Error.prepareStackTrace = prepared;
+    } catch (restoreErr) {
+      // Leave the hook unset rather than installed-but-untrusted.
+    }
+    try {
+      if (limit === undefined) {
+        delete Error.stackTraceLimit;
+      } else {
+        Error.stackTraceLimit = limit;
+      }
+    } catch (restoreErr) {
+      // A hostile descriptor stays as it was; the next capture re-checks.
+    }
   }
 }
 
@@ -577,7 +611,7 @@ function install() {
     return { requested: requested, target: null };
   }
 
-  function recordOpen(userPath, flags, mode) {
+  function recordOpen(userPath, flags, mode, forceAccess) {
     const hit = reachedTarget(userPath);
     if (!hit.target) {
       return;
@@ -588,7 +622,7 @@ function install() {
       mode: mode == null ? String(flags) : String(mode),
       op: 'open',
       flags: typeof flags === 'number' ? flags : (fs.constants.O_RDONLY || 0),
-      access: accessOf(typeof flags === 'number' ? flags : null, typeof mode === 'string' ? mode : null),
+      access: forceAccess || accessOf(typeof flags === 'number' ? flags : null, typeof mode === 'string' ? mode : null),
       requested: requested,
       stack: logicalStack(),
       target: hit.target,
@@ -649,11 +683,11 @@ function install() {
     });
   }
 
-  function wrapFsMethod(obj, name, original, pathIndex, flagIndex, isSync) {
+  function wrapFsMethod(obj, name, original, pathIndex, flagIndex, isSync, forceAccess) {
     const wrapped = function wrappedFs() {
       const args = Array.prototype.slice.call(arguments);
       try {
-        recordOpen(args[pathIndex], args[flagIndex], typeof args[flagIndex] === 'string' ? args[flagIndex] : 'r');
+        recordOpen(args[pathIndex], args[flagIndex], typeof args[flagIndex] === 'string' ? args[flagIndex] : 'r', forceAccess);
       } catch (err) {
         // Observation must never change what the app does.
       }
@@ -679,14 +713,14 @@ function install() {
   }
   wrapRead(fs, 'readFileSync', orig.readFileSync);
   wrapRead(fs, 'readFile', orig.readFile);
-  wrapFsMethod(fs, 'writeFileSync', orig.writeFileSync, 0, 1, true);
+  wrapFsMethod(fs, 'writeFileSync', orig.writeFileSync, 0, 1, true, 'write');
   wrapFsMethod(fs, 'opendirSync', orig.opendirSync, 0, 1, true);
   wrapFsMethod(fs, 'opendir', orig.opendir, 0, 1, false);
   if (typeof fs.writeFile === 'function') {
-    wrapFsMethod(fs, 'writeFile', fs.writeFile.bind(fs), 0, 1, false);
+    wrapFsMethod(fs, 'writeFile', fs.writeFile.bind(fs), 0, 1, false, 'write');
   }
   if (typeof fs.appendFileSync === 'function') {
-    wrapFsMethod(fs, 'appendFileSync', fs.appendFileSync.bind(fs), 0, 1, true);
+    wrapFsMethod(fs, 'appendFileSync', fs.appendFileSync.bind(fs), 0, 1, true, 'write');
   }
 
   freezeProp(fs, 'createReadStream', function wrappedCreateReadStream(file, options) {
@@ -798,6 +832,20 @@ function install() {
       }
       delete target[prop];
       return true;
+    },
+    defineProperty: function defEnv(target, prop, descriptor) {
+      const name = String(prop);
+      if (SENSITIVE_ENV.has(name) || SENSITIVE_PREFIXES.some(function pref(p) { return name.startsWith(p); })) {
+        try {
+          emit({
+            path: canaryReal, mode: 'process.env', op: 'env', flags: null, access: 'exec',
+            requested: null, via_symlink: false, stack: logicalStack(), command: name.slice(0, MAX_FIELD),
+          });
+        } catch (err) {
+          // ignore
+        }
+      }
+      return Reflect.defineProperty(target, prop, descriptor);
     },
   };
   try {

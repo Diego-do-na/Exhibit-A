@@ -38,6 +38,7 @@ import secrets
 import sys
 import threading
 import time
+import webbrowser
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -47,7 +48,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from ..live.replay import Replayer, format_done, parse_speed, select_events
 from .model import EFFECT_SCHEMA, build_graph_view, build_trends, event_view, run_detail, run_row
-from .sources import RUN_ID_RE, RunSource, SourceError, parse_source
+from .export import export_dashboard
+from .sources import RUN_ID_RE, LocalRunsSource, RunSource, SourceError, parse_source
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -457,6 +459,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--web", default=None, help="Directory holding the dashboard UI (default: web/dashboard).")
     parser.add_argument("--verbose", action="store_true", help="Log method, path and status (never queries).")
+    parser.add_argument("--export", default=None, metavar="DIR", help="Write a self-contained static dashboard and exit.")
+    parser.add_argument("--run", default=None, metavar="RUN_ID", help="Run to include in a static export (default: newest).")
+    parser.add_argument("--open", action="store_true", help="Open the live dashboard URL in the default browser.")
     return parser
 
 
@@ -471,6 +476,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SourceError as exc:
         print(f"dashboard: {exc}", file=sys.stderr)
         return 2
+    if args.export:
+        if not isinstance(source, LocalRunsSource):
+            print("dashboard: --export requires a local:<runs> source", file=sys.stderr)
+            return 2
+        try:
+            export_dashboard(source, args.export, run_id=args.run, web_dir=args.web)
+        except (OSError, SourceError, ValueError) as exc:
+            print(f"dashboard: {exc}", file=sys.stderr)
+            return 2
+        print(f"dashboard: exported {source.label} to {Path(args.export).resolve()}")
+        return 0
     try:
         server = create_server(source, port=args.port, web_dir=args.web, verbose=args.verbose)
     except OSError as exc:
@@ -479,6 +495,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"dashboard: serving {source.label} on http://{HOST}:{server.state.port}/ (read-only, ^C to stop)")
     print("dashboard: open this one-time link in your browser (it sets a session cookie):")
     print(f"  {server.state.bootstrap_url()}")
+    if args.open:
+        webbrowser.open(server.state.bootstrap_url())
     sys.stdout.flush()
     try:
         server.serve_forever()

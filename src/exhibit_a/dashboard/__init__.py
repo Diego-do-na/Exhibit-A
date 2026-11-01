@@ -21,6 +21,7 @@ from .model import (
     run_row,
 )
 from .server import DashboardServer, create_server, main, make_handler
+from .export import export_dashboard
 from .sources import (
     GhError,
     GitHubSource,
@@ -45,6 +46,7 @@ __all__ = [
     "SourceError",
     "build_trends",
     "create_server",
+    "export_dashboard",
     "main",
     "make_handler",
     "parse_source",

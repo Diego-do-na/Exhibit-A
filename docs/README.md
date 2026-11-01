@@ -6,11 +6,13 @@ One line per document. Paths are relative to the repository root.
 - [GUIDE.md](GUIDE.md) — Spanish walkthrough of the project, verified against `main` on 2026-10-28.
 - [sprint-review.md](sprint-review.md) — closing review of the sprint: what was built, what is pending, proposed patches.
 - [how-this-was-built.md](how-this-was-built.md) — factual account of the spec-first, multi-agent build workflow.
+- [related-work.md](related-work.md) — positioning against static analyzers, LLM scanners, and exploit tools: what is reported, what is proven, and what Exhibit A does not do.
 - [README.md](README.md) — this index.
 
 ## oracle/ — the proof oracle
 
 - [oracle/oracle-provenance.md](oracle/oracle-provenance.md) — authenticated provenance: admitting only staged application code, threat layers, residual limits R1-R6.
+- [oracle/auto-redteam.md](oracle/auto-redteam.md) — automated red team: cheat prompts on fixed trees classified against R1-R6, replayable findings.
 - [oracle/js-oracle.md](oracle/js-oracle.md) — JavaScript and TypeScript oracle (design): node:test runner, V8 structured stacks, authenticated provenance, and residual limits.
 - [oracle/oracle-a1.md](oracle/oracle-a1.md) — finding A-1: signed oracle events (forged lines are dropped and counted, never proven).
 - [oracle/oracle-eval.md](oracle/oracle-eval.md) — labelled exploit/variant evaluation set with measured precision and recall.

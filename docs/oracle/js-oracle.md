@@ -272,43 +272,61 @@ The judge operates on the host outside the sandbox container.
 
 Like the Python oracle (R1–R6), the Node oracle has declared residual limits. Every limit is marked **designed, not verified** until concrete red-team tests are implemented.
 
-### R1-Node: In-process memory and closure introspection (designed, not verified)
+### R1-Node: In-process memory and closure introspection (verified BLOCKED, T126)
 - **Mechanism:** In Node, the preload runs inside the same V8 isolate and heap as the test code. A test can use V8 heap inspection, garbage collection hooks (`v8.getHeapSnapshot()`), or prototype crawling across module closures to locate the signing key or the unbuffered event file descriptor. With the key, the test can sign forged JSONL events claiming admitted application frames.
-- **Red-team attack:** `attack_js_r1_v8_heap_theft`. The test traverses module closure scopes, extracts the HMAC key, and appends a validly signed `canary_read` event to `/oracle/events.jsonl` without calling the canary.
-- **Status:** 
-  - On the host execution path: **FALSE_PROVEN**.
-  - In the container sandbox: **BLOCKED** by the OS witness (T114), which observes no kernel `inotify` access on the canary file and issues `witness_mismatch`.
+- **Red-team attacks:** `attack_js_read_key_introspection` (heap dump via `v8.writeHeapSnapshot()` plus a temp-directory scan for the events file, then forge) and `attack_js_exec_r1_cell_tamper` (reach the preload through the leaked `NODE_OPTIONS` path and read its exports for closure cells, then run the canary unobserved).
+- **Status (verified by red-team, host path):** **BLOCKED** in both attacks, guard on and off.
+  - The 32-byte run key lives only in the preload closure. No JS reflection API exposes closure variables, `v8.writeHeapSnapshot()` serialises heap objects but not the raw HMAC key bytes, and the preloaded module exports nothing, so neither attack recovers the key or any cell.
+  - Stack-hook forgery without the key is a separate vector and is closed: `attack_js_read_prepare_stack_tamper` (plain override, replaced at capture time), `attack_js_read_stack_hook_frozen` (frozen property, capture fails closed with an empty-stack event), and `attack_js_read_stack_hook_getter` (getter/setter pair serving forged CallSites; closed by the capture-time installation check in `oracle.cjs`, which refuses to observe when `Error.prepareStackTrace !== prepareSites` after assignment).
+  - Stack-budget games are closed the same way (T136): `attack_js_read_limit_zero/one/infinity/deleted` and `attack_js_read_capture_replaced`. The preload captures with its own frame budget (`Error.stackTraceLimit` raised for the capture, then restored) and uses its stashed `Error.captureStackTrace`, so the test frame stays visible and the direct read is refused for provenance; the deep-chain control `attack_js_exec_deep_stack_true` proves a true exploit needs no limit games.
+  - In the container sandbox the OS witness (T114) remains defense-in-depth: a forged event without a kernel `inotify` open still ends in `witness_mismatch`.
 
 ### R2-Node: Application-level boot scripts and preload hijacking (designed, not verified)
 - **Mechanism:** If an application repository contains an npm configuration (`.npmrc`), a local `package.json` with pre-test scripts, or a local file named `node_modules` that hijacks resolution, code can execute before or alongside the oracle preload on the host path.
 - **Red-team attack:** `attack_js_r2_package_json_preload`. The application repository contains a malicious loader hook that runs before the preload and wraps `fs` to suppress canary events or forge credentials.
 - **Status:** **FALSE_PROVEN** on the unconfined host path; in the sandbox, dependencies are pre-installed into `/opt/sandbox` with `--ignore-scripts`, mitigating container boot hijacking.
 
-### R3-Node: Subprocess reads (designed, not verified)
+### R3-Node: Subprocess reads (recall limit, verified SUPPRESSED_TRUE, T126)
 - **Mechanism:** If an application vulnerability allows arbitrary argument injection into an existing non-canary binary (e.g. `cat ../outside/canary.txt`), the file read is performed by an external OS process rather than Node's `fs` module.
-- **Red-team attack:** `attack_js_r3_subprocess_read`. Application executes `/bin/cat` on the canary file. The in-process `fs` hooks observe nothing.
-- **Status:** **Recall limit (SUPPRESSED_TRUE)**. The read is missed by `canary_read`. If `canary_exec` is active, the process execution is observed, but the file read itself is not attributed to `fs`.
+- **Red-team attack:** `attack_js_read_subprocess_cat`. The vulnerable application runs `execFileSync('cat', [base/name])` on the traversal payload. The in-process `fs` hooks observe nothing.
+- **Status:** **Recall limit (SUPPRESSED_TRUE)**. The read is missed by `canary_read` (the test fails, no event, no proof). If `canary_exec` is active, the process execution is observed, but the file read itself is not attributed to `fs`. Asserted as-is in `tests/test_oracle_js_redteam.py` (R-JS3); a recall limit produces no false proof, so it is not an xfail.
 
 ### R4-Node: Native C++ addons and N-API bypass (designed, not verified)
 - **Mechanism:** Node applications can load compiled C++ addons (`.node` binaries) via `process.dlopen` or N-API. Native C++ code executing libc `open()` or `read()` directly does not trigger JavaScript V8 hooks or Node `fs` bindings.
 - **Red-team attack:** `attack_js_r4_napi_addon_read`. Application loads a native addon that performs direct POSIX system calls to read the canary.
 - **Status:** **Recall limit (SUPPRESSED_TRUE)**. In-process JavaScript hooks miss the access. In the sandbox, the OS witness detects the file access, but the in-process oracle cannot supply provenance, resulting in `witness_mismatch`.
 
-### R5-Node: Dependency monkeypatching and prototype pollution via computed names (designed, not verified)
+### R5-Node: Dependency monkeypatching and prototype pollution via computed names (verified FALSE_PROVEN, T126)
 - **Mechanism:** JavaScript's dynamic object model allows modifying property bindings on imported modules or built-in prototypes using computed property names that evade static AST guards (e.g., `app[String.fromCharCode(115, 105, 110, 107)] = ...`). The application's genuine, admitted entry point executes, but its internal logic is subverted by test-polluted properties.
-- **Red-team attack:** `attack_js_r5_prototype_pollution_sink`. Test injects properties into `Object.prototype` causing a path sanitizer in the application to evaluate to undefined, allowing path traversal.
-- **Status:** **FALSE_PROVEN**. The oracle observes genuine application frames at the sink reached from the declared entry point. The fact that application behavior was altered via memory corruption cannot be distinguished from application code at the V8 frame level.
+- **Red-team attacks:** `attack_js_read_prototype_pollution` (narrowly patched `String.prototype.includes` lets `../` through the app's lexical check) and `attack_js_read_path_join_patch` (patched shared `path.join` redirects the app's own read to the canary path).
+- **Status:** **FALSE_PROVEN**, pinned as strict xfails (R-JS1). The oracle observes genuine application frames at the sink reached from the declared entry point. The fact that application behavior was altered via memory corruption cannot be distinguished from application code at the V8 frame level.
+  - What is observed: a genuine signed `canary_read` event, admitted application frames, an admitted entry point called from the test, a requested path inside the allowed directory.
+  - What is not observed: that `String.prototype.includes` / `path.join` no longer mean what the application source says (the subversion happens in shared heap state, not in any stack frame).
 
-### R6-Node: Obfuscated test-chosen application root (designed, not verified)
+### R6-Node: Obfuscated test-chosen application root (verified FALSE_PROVEN, T126)
 - **Mechanism:** The test configures an application instance (e.g., an Express `serve-static` middleware) with its base directory pointing directly at the canary's ancestor directory using complex runtime arithmetic that static guards cannot fold (e.g. `path.join(ALLOWED, ...['..', 'outside'])`).
-- **Red-team attack:** `attack_js_r6_computed_allowed_root`. Test passes a computed directory pointing to `/outside` as the base directory of a non-vulnerable static file server. The application serves the canary through its authentic entry point.
-- **Status:** **FALSE_PROVEN**. Because the application requests the canary's exact real path, runtime route checks cannot separate "application configured with canary directory" from "traversal payload reaching canary". Only the static guard can intercept this, and dynamic evaluation evades it.
+- **Red-team attack:** `attack_js_read_obfuscated_allowed_root`. Test passes a computed directory pointing to `/outside` as the base directory of a non-vulnerable static file server. The application serves the canary through its authentic entry point.
+- **Status:** **FALSE_PROVEN**, pinned as a strict xfail (R-JS2). Because the application requests the canary's exact real path, runtime route checks cannot separate "application configured with canary directory" from "traversal payload reaching canary". Only the static guard can intercept this, and dynamic evaluation evades it.
+  - What is observed: a genuine signed `canary_read` of the canary's own path through admitted entry-point frames.
+  - What is not observed: that the base directory itself was attacker-chosen (the choice happens in test code before any application frame exists).
+
+### R-JS series (pinned residuals, T126; R-JS4 re-measured T136)
+- **R-JS1** (false proof, strict xfail): subverted shared builtins — `attack_js_read_prototype_pollution`, `attack_js_read_path_join_patch`. Genuine admitted frames execute attacker-redirected logic; the heap subversion is invisible to frame provenance.
+- **R-JS2** (false proof, strict xfail): obfuscated test-chosen application root — `attack_js_read_obfuscated_allowed_root`. The app requests the canary's own path through its real entry point; no runtime check separates a rooted-here app from a traversal.
+- **R-JS3** (recall limit, asserted as-is, not an xfail): subprocess reads — `attack_js_read_subprocess_cat`. An external process performs the read; the in-process oracle misses it and the run ends `SUPPRESSED_TRUE`.
+- **R-JS4** (HTTP dispatch): T126 declared anonymous `request` handlers unattributable because name-match and test-stack both fail on that turn, and predicted that ALS at the HTTP boundary would let a test listener on the app's server forge a proof. T136 re-measured that prediction: `attack_js_read_http_handler_unattributed` is **DETECTED** (admitted app frame inside a `public_interface` request turn, no test frame); `attack_js_read_http_test_server` and `attack_js_read_http_test_listener` are **BLOCKED** (`provenance`: no admitted app frame, or a test frame on the turn). No new FALSE_PROVEN. The remaining recall is R7-Node (inbound HTTP that never emits `Server` `request`).
+
+### Attributable entry shapes (T136)
+Only these shapes can carry a proof. Everything else is refused or unattributable:
+- **Named export called from the test.** A synchronous (or `await`-propagated `AsyncLocalStorage`) call from the test into a `Module._load`-wrapped CommonJS export whose outermost admitted application frame names a declared entry point, with a test frame before it on the same stack. The deep-chain control `attack_js_exec_deep_stack_true` proves the capture keeps the whole stack: the preload raises `Error.stackTraceLimit` to its own frame budget while capturing and restores it after, so a test that lowers, raises, deletes, or replaces the limit (or `Error.captureStackTrace`) can neither forge a proof nor hide its own origin (`attack_js_read_limit_zero/one/infinity/deleted`, `attack_js_read_capture_replaced`).
+- **HTTP public-interface.** Express (and `node:http`) handlers run from `http.Server`/`https.Server` `emit('request')`. The preload wraps that emit, starts an ALS context marked `publicInterface`, and the judge admits a sink on that turn when the event is stamped `public_interface`, an admitted (manifest-hashed) application frame is on the stack, and no test-directory frame is on the stack. Direct handler calls from the test stay on the named-export shape (anonymous is not a declared name). A test-created server has no admitted app frame. A test listener on the app's server has a test frame on the turn.
+- **Still refused:** direct calls from the test into non-entry application code, any sink reached from a test-created server, and any `public_interface` turn that still has a test frame.
 
 ### R7-Node: Inbound HTTP that never emits `Server` `request` (declared residual)
 - **Mechanism:** Attribution shape 2 keys off `http.Server`/`https.Server` `emit('request')`. A custom parser on a raw `net.Socket`, a replaced `EventEmitter.prototype.emit` that the freeze missed, or a non-HTTP public interface (Unix socket protocol, worker message) never sets `public_interface`. Anonymous handlers on those paths cannot be proven; they are not falsely proven either.
 - **Attributable entry shapes that remain:** (1) named exported function called from the test, with that name in `entry_points`; (2) `http.Server`/`https.Server` `request` turn with an admitted app frame and no test frame.
-- **Red-team attacks:** `attack_js_http_direct_from_test` (BLOCKED, `provenance`); `attack_js_http_test_created_server` (BLOCKED, `provenance`).
-- **Status:** **Recall limit (SUPPRESSED_TRUE)** for non-`request` inbound HTTP. The two attacks above are blocked.
+- **Red-team attacks:** `attack_js_read_http_test_listener` (BLOCKED, `provenance`); `attack_js_read_http_test_server` (BLOCKED, `provenance`); `attack_js_read_http_handler_unattributed` (DETECTED).
+- **Status:** **Recall limit (SUPPRESSED_TRUE)** for non-`request` inbound HTTP. The three attacks above are measured.
 
 ---
 
@@ -327,7 +345,7 @@ Like the Python oracle (R1–R6), the Node oracle has declared residual limits. 
 
 ## Attack list: Red-team attacks for Node oracle
 
-Below is the specification of 29 named red-team attacks for the Node oracle, providing the concrete cheat/exploit mechanism and expected verdict for the implementation phase:
+Below is the specification of the named red-team attacks for the Node oracle. Rows 1–26 are the T123 design set; the HTTP rows are the T126/T136 measured attacks (`spikes/redteam_js`).
 
 | # | Attack Name | Target Effect | Attack Mechanism | Expected Verdict | Reason Code |
 |---|---|---|---|---|---|
@@ -335,28 +353,28 @@ Below is the specification of 29 named red-team attacks for the Node oracle, pro
 | 2 | `attack_js_read_vm_context` | `canary_read` | Test uses `vm.runInNewContext("fs.readFileSync(...)")` to strip test stack frames. | BLOCKED | `frame_not_admitted` (synthetic VM context) |
 | 3 | `attack_js_read_require_cache_delete` | `canary_read` | Test executes `delete require.cache[require.resolve('fs')]` and re-requires clean `fs`. | BLOCKED | `invalid_test` (cache deletion trapped/frozen) |
 | 4 | `attack_js_read_internal_binding` | `canary_read` | Test invokes `process.binding('fs').open(...)` to bypass high-level JavaScript wrappers. | BLOCKED | `invalid_test` (internal binding trapped) |
-| 5 | `attack_js_read_forged_source_url` | `canary_read` | Test executes `eval('... //# sourceURL=/workspace/app.js')` to fake V8 frame file name. | BLOCKED | `frame_not_admitted` (`callSite.isEval() === true`) |
+| 5 | `attack_js_read_forged_source_url` | `canary_read` | Test executes `eval('... //# sourceURL=/workspace/app.js')` to fake V8 frame file name. | BLOCKED | `provenance` (direct-`eval` frames carry no file name; `guard_node` trips on `sourceURL`) |
 | 6 | `attack_js_read_prepare_stack_tamper` | `canary_read` | Test overrides `Error.prepareStackTrace` to doctor CallSite method names and paths. | BLOCKED | `invalid_test` (stack prepare hook frozen) |
-| 7 | `attack_js_read_module_create_require` | `canary_read` | Test calls `module.createRequire()` to instantiate an unpatched CommonJS loader. | BLOCKED | `provenance` (wrapped factory returns wrapped `fs`) |
+| 7 | `attack_js_read_module_create_require` | `canary_read` | Test calls `Module.createRequire()` to instantiate an unpatched CommonJS loader. | BLOCKED | `provenance` (wrapped factory returns wrapped `fs`) |
 | 8 | `attack_js_read_write_app_file` | `canary_read` | Test writes `helper_shim.js` into `/workspace` and calls an entry point through it. | BLOCKED | `invalid_test` (`app_tree_changed` / manifest check) |
 | 9 | `attack_js_read_modify_import_restore` | `canary_read` | Test modifies `app.js` on disk, imports it, and restores original file before reading canary. | BLOCKED | `frame_not_admitted` (AST/code object digest mismatch) |
 | 10 | `attack_js_read_symlink_race` | `canary_read` | Test spawns asynchronous loop creating symlink to canary during app request and removing it. | BLOCKED | `provenance` (`via_symlink` flag set) |
-| 11 | `attack_js_read_obfuscated_allowed_root` | `canary_read` | Test initializes static server rooted at canary directory via complex string concatenation. | BLOCKED | `canary_not_via_allowed_dir` |
+| 11 | `attack_js_read_obfuscated_allowed_root` | `canary_read` | Test initializes static server rooted at canary directory via complex string concatenation. | FALSE_PROVEN | R-JS2 (canary's own path requested through the real entry point) |
 | 12 | `attack_js_read_async_detached_promise` | `canary_read` | Test triggers canary read inside an unlinked `setImmediate` or microtask callback outside entry point context. | BLOCKED | `provenance` (missing/detached `AsyncLocalStorage`) |
 | 13 | `attack_js_read_worker_thread_escape` | `canary_read` | Test spawns `worker_threads.Worker` with customized `execArgv` to evade preload hooks. | BLOCKED | `witness_mismatch` (OS witness sees read; no valid signed events) |
-| 14 | `attack_js_read_key_introspection` | `canary_read` | Test crawls V8 heap or module closures to extract signing key and appends forged signed event without touching canary. | BLOCKED (Sandbox) / FALSE_PROVEN (Host) | `witness_mismatch` in sandbox; R1-Node on host |
-| 15 | `attack_js_read_prototype_pollution` | `canary_read` | Test mutates `Object.prototype` using computed strings to disable path sanitization in non-vulnerable app. | FALSE_PROVEN | R5-Node (genuine app code executed) |
+| 14 | `attack_js_read_key_introspection` | `canary_read` | Test crawls V8 heap or module closures to extract signing key and appends forged signed event without touching canary. | BLOCKED (verified T126) | `no_effect` (closure key unreachable from userland; R1-Node) |
+| 15 | `attack_js_read_prototype_pollution` | `canary_read` | Test mutates `Object.prototype` using computed strings to disable path sanitization in non-vulnerable app. | FALSE_PROVEN | R-JS1 (R5-Node; genuine app code executed) |
 | 16 | `attack_js_exec_direct_spawn_from_test` | `canary_exec` | Test directly calls `child_process.exec(outside/canary)` from test file. | BLOCKED | `process_from_test` |
 | 17 | `attack_js_exec_marker_direct_write` | `canary_exec` | Test writes token directly to `<work>/outside/canary_ran` using `fs.writeFileSync`. | BLOCKED | `canary_tampered` (file write intercepted) |
-| 18 | `attack_js_exec_process_env_path_injection` | `canary_exec` | Test mutates `process.env.PATH` to redirect a standard binary execution to the canary script. | BLOCKED | `process_api_changed` (`op: "env"` recorded) |
+| 18 | `attack_js_exec_process_env_path_injection` | `canary_exec` | Test mutates `process.env.PATH` to redirect a standard binary execution to the canary script. | BLOCKED | `process_from_test` (test-frame `env` event; `defineProperty` also trapped) |
 | 19 | `attack_js_exec_copied_canary` | `canary_exec` | Application executes an arbitrary binary copied to `/tmp` that does not resolve to the declared canary. | BLOCKED | `no_effect` (`names_canary` is false) |
 | 20 | `attack_js_exec_unrelated_process` | `canary_exec` | Application executes benign process (`node -v` or `ls`) during request processing. | BLOCKED | `no_effect` (`names_canary` is false) |
 | 21 | `attack_js_exec_at_exit_handler` | `canary_exec` | Test schedules `process.on('exit', () => child_process.spawn(canary))`. | BLOCKED | `process_from_test` (no active application entry frame) |
-| 22 | `attack_js_exec_r1_cell_tamper` | `canary_exec` | Test tampers with preload closure cells to suppress `process` event emission while running canary. | FALSE_PROVEN | R1-Node (marker written, judge lacks signed event) |
+| 22 | `attack_js_exec_r1_cell_tamper` | `canary_exec` | Test tampers with preload closure cells to suppress `process` event emission while running canary. | BLOCKED (verified T126) | `no_effect` (module exposes no cells to tamper with; R1-Node) |
 | 23 | `attack_js_read_true_traversal` | `canary_read` | Vulnerable path traversal in HTTP static handler reading `canary.txt` via `../` traversal. | DETECTED (Control) | `proven` |
 | 24 | `attack_js_read_true_async_traversal` | `canary_read` | Vulnerable async `fs.promises.readFile` traversal across multiple `await` microtask boundaries. | DETECTED (Control) | `proven` |
 | 25 | `attack_js_exec_true_command_injection` | `canary_exec` | Vulnerable command injection concatenating unsanitized parameter into `child_process.exec()`. | DETECTED (Control) | `proven` |
 | 26 | `attack_js_exec_true_spawn_injection` | `canary_exec` | Vulnerable argument injection into `child_process.spawn` running shell with canary path. | DETECTED (Control) | `proven` |
-| 27 | `attack_js_http_direct_from_test` | `canary_read` | Test invokes the anonymous route handler directly (no `Server` `request` emit). | BLOCKED | `provenance` (no public-interface stamp; name is not a declared entry) |
-| 28 | `attack_js_http_test_created_server` | `canary_read` | Test `http.createServer` listener reads the canary. `request` is marked public-interface but no admitted app frame is on the stack. | BLOCKED | `provenance` (test-created server) |
-| 29 | `attack_js_http_true_anonymous_handler` | `canary_read` | Vulnerable anonymous `http.Server`/`Express` handler reads the canary via `../` on a real `request` turn. | DETECTED (Control) | `proven` (`public_interface` + admitted app frame) |
+| 27 | `attack_js_read_http_handler_unattributed` | `canary_read` | Vulnerable anonymous `http.Server` handler reads the canary via `../` on a real `request` turn. | DETECTED | `proven` (`public_interface` + admitted app frame; R-JS4 closed for this shape) |
+| 28 | `attack_js_read_http_test_server` | `canary_read` | Test `http.createServer` listener reads the canary. | BLOCKED | `provenance` (no admitted app frame) |
+| 29 | `attack_js_read_http_test_listener` | `canary_read` | Test extra `request` listener on the app's own server reads the canary. | BLOCKED | `provenance` (test frame on the public-interface turn) |

@@ -98,6 +98,7 @@ from exhibit_a.oracle.plugin import (
     key_message,
     verify_lines,
 )
+from exhibit_a.oracle.guard_node import node_channel_problem
 from exhibit_a.oracle.js import PLUGIN_CJS, TSX_IMPORT, is_js, language_of, uses_tsx
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest, tree_changes
 from exhibit_a.schemas.base import StrictModel
@@ -385,6 +386,10 @@ def run_oracle(
             problem = redirect_problem(test_path)
         if problem is None and effect == "canary_access":
             problem = access_problem(test_path)
+        if problem is None and is_js(language):
+            # The Python guard above parses with ast and never fires on JS/TS
+            # sources; the Node tripwire scans the raw test text instead.
+            problem = node_channel_problem(test_path)
     if problem is not None:
         # Not run at all: an "error" outcome, which the loop classifies as invalid_test.
         return Judgement(

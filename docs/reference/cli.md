@@ -305,12 +305,16 @@ Launches a local, read-only web dashboard to explore verification runs, call gra
 ### Help output
 
 ```text
-usage: exhibit-a dashboard [-h] --source SOURCE [--port PORT]
+usage: exhibit-a dashboard [-h] --source SOURCE [--port PORT] [--export DIR]
+                           [--run RUN_ID] [--open]
 
 options:
   -h, --help       show this help message and exit
   --source SOURCE  Dashboard source, such as local:RUNS.
   --port PORT
+  --export DIR     Write a self-contained static dashboard to DIR.
+  --run RUN_ID     Run to include in a static export (default: newest).
+  --open           Open the live dashboard URL in the default browser.
 ```
 
 ### Example
@@ -320,6 +324,14 @@ exhibit-a dashboard --source local:runs --port 8080
 ```
 
 Start the read-only dashboard server on `http://127.0.0.1:8080` reading run data from the `runs` directory.
+
+For a serverless artifact, export one local run (the newest run by default):
+
+```bash
+exhibit-a dashboard --source local:runs --export site --run run-20261029-123456
+```
+
+The resulting `site/index.html` can be opened with `file://` or served by GitHub Pages. It contains the copied dashboard frontend, the selected raw ledger under `runs/<run-id>/`, and deterministic derived JSON under `data/`; it makes no network requests. Use `--open` only with live server mode to open its one-time browser URL automatically.
 
 See docs/design/dashboard.md for security model and architecture.
 
