@@ -35,7 +35,7 @@ Summary
 - Base URL: `BASETEN_BASE_URL` env, else `https://inference.baseten.co/v1`.
 - Key: `BASETEN_API_KEY` env (default name, overridable per role config).
 - Pricing is REQUIRED and explicit: per-model rates from the
-  `BASENTEN_PRICING` table (which the owner fills in per model slug), or
+  `BASETEN_PRICING` table (which the owner fills in per model slug), or
   `EXHIBIT_A_PRICE_IN_PER_MTOK` / `EXHIBIT_A_PRICE_OUT_PER_MTOK` (USD per
   one million tokens). With no known price the provider refuses to run —
   the factory raises `ValueError` so `exhibit-a run` refuses to start, and
@@ -63,7 +63,7 @@ run: cannot build live roles: baseten provider needs the BASETEN_API_KEY environ
 With a key but no known price it refuses to start:
 
 ```text
-run: cannot build live roles: baseten provider has no known price for model '<slug>'; add it to BASENTEN_PRICING in src/exhibit_a/models/baseten.py or set EXHIBIT_A_PRICE_IN_PER_MTOK and EXHIBIT_A_PRICE_OUT_PER_MTOK (USD per million tokens)
+run: cannot build live roles: baseten provider has no known price for model '<slug>'; add it to BASETEN_PRICING in src/exhibit_a/models/baseten.py or set EXHIBIT_A_PRICE_IN_PER_MTOK and EXHIBIT_A_PRICE_OUT_PER_MTOK (USD per million tokens)
 ```
 
 ## Listing Baseten models
@@ -76,7 +76,7 @@ curl -s https://inference.baseten.co/v1/models \
   -H "Authorization: Bearer $BASETEN_API_KEY" | head -c 2000
 ```
 
-Pick a slug from that list, add its rates to `BASENTEN_PRICING` (or export
+Pick a slug from that list, add its rates to `BASETEN_PRICING` (or export
 the `EXHIBIT_A_PRICE_*` overrides), and pass it as `--model`.
 
 ## Comparing models
