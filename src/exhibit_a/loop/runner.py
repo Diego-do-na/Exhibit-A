@@ -54,6 +54,7 @@ from exhibit_a.oracle.oracle import (
     EXEC_CANARY_NAME,
     EXEC_MARKER_NAME,
     REASON_CHANNEL_TRIPWIRE,
+    WITNESS_EFFECTS,
     TestOutcome,
     _judge,
     access_db_problem,
@@ -281,6 +282,15 @@ class SandboxRunner:
                     else None
                 ),
                 access_token=token if effect == "canary_access" else None,
+                # OS witness: sandbox-only. Host path passes None and keeps the in-process
+                # standard. Missing supervisor output fails closed inside _judge.
+                witness=(
+                    {
+                        "status": result.get("witness_status") or "unavailable",
+                        "observed": list(result.get("witness_observed") or []),
+                    }
+                    if effect in WITNESS_EFFECTS else None
+                ),
             )
 
 

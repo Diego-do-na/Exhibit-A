@@ -58,7 +58,7 @@ import tempfile
 import time
 from collections.abc import Collection, Mapping
 from pathlib import Path, PurePath, PurePosixPath
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from exhibit_a.oracle.guard import (
@@ -163,6 +163,14 @@ REASON_REDIRECT_FROM_TEST = "redirect_from_test"
 REASON_REDIRECT_API_CHANGED = "redirect_api_changed"
 REASON_ACCESS_FROM_TEST = "access_from_test"
 REASON_ACCESS_API_CHANGED = "access_api_changed"
+REASON_WITNESS_MISMATCH = "witness_mismatch"
+REASON_WITNESS_UNAVAILABLE = "witness_unavailable"
+
+# Effects an in-container OS supervisor can independently observe. dos/redirect/access
+# have no canary the supervisor can watch and keep the in-process standard.
+WITNESS_EFFECTS = frozenset({
+    "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect",
+})
 
 
 class Frame(StrictModel):
@@ -1199,6 +1207,7 @@ def _judge(
     redirect_meta: bool = False,
     access: Mapping[str, str] | None = None,
     access_token: str | None = None,
+    witness: Mapping[str, Any] | None = None,
 ) -> Judgement:
     """Decide what a run means.
 
@@ -1215,6 +1224,12 @@ def _judge(
     check; the sandbox path cannot yet (the canary_write side of the sandbox is T076, which must
     pass it here), and a direct caller may judge events alone. ``canary_ran`` is the post-run
     check of an exec effect (``marker_holds_token``); there None is not a proof (``_judge_exec``).
+
+    ``witness`` is the in-container OS supervisor's report (sandbox path only). For effects
+    in ``WITNESS_EFFECTS``, a proof requires the plugin and the supervisor to agree on the
+    fact of the effect. ``status != "ok"`` fails closed (``witness_unavailable``).
+    Disagreement is never a proof (``witness_mismatch``). Host-path callers pass None and
+    keep the in-process standard. dos/redirect/access are not in ``WITNESS_EFFECTS``.
     """
     changes = list(app_tree_changes or [])
     tampered = bool(forged_events or changes)
@@ -1254,14 +1269,17 @@ def _judge(
             reason_code=REASON_APP_TREE_CHANGED,
         )
     if effect == "canary_exec":
-        return _judge_exec(outcome, events, app_root, test_path.parent, entry_points, app_tree, canary_ran)
+        judgement = _judge_exec(outcome, events, app_root, test_path.parent, entry_points, app_tree, canary_ran)
+        return _apply_witness(judgement, effect, witness)
     if effect == "canary_sql":
-        return _judge_sql(outcome, events, app_root, test_path.parent, entry_points, app_tree)
+        judgement = _judge_sql(outcome, events, app_root, test_path.parent, entry_points, app_tree)
+        return _apply_witness(judgement, effect, witness)
     if effect == "canary_connect":
-        return _judge_connect(
+        judgement = _judge_connect(
             outcome, events, app_root, test_path.parent, entry_points, app_tree,
             canary_url, connect_log,
         )
+        return _apply_witness(judgement, effect, witness)
     if effect == "canary_dos":
         return _judge_dos(outcome, events, app_root, test_path.parent, entry_points, app_tree)
     if effect == "canary_redirect":
@@ -1283,7 +1301,7 @@ def _judge(
     if relevant and canary_written is False:
         # Opened for writing, but nothing with the token is there after the run: a failed or
         # empty open (e.g. "r+" on the absent canary) is not the escape this effect proves.
-        return Judgement(
+        judgement = Judgement(
             observed_effect=False, provenance_ok=False, test_outcome=outcome, events=events,
             reason=(
                 "the canary was opened for writing but no file holding the run's token was "
@@ -1291,6 +1309,7 @@ def _judge(
             ),
             reason_code=REASON_NO_EFFECT,
         )
+        return _apply_witness(judgement, effect, witness)
     if not relevant:
         reasons = {
             "failed": f"test failed but the canary was never {verb}: it failed for the wrong reason",
@@ -1298,10 +1317,11 @@ def _judge(
             "error": f"test did not run to a result and the canary was never {verb}",
             "timeout": f"test timed out and the canary was never {verb}",
         }
-        return Judgement(
+        judgement = Judgement(
             observed_effect=False, provenance_ok=False, reason=reasons[outcome],
             test_outcome=outcome, events=events, reason_code=REASON_NO_EFFECT,
         )
+        return _apply_witness(judgement, effect, witness)
 
     test_dir = test_path.parent
     problems = []
@@ -1314,19 +1334,69 @@ def _judge(
                 reason = f"canary {verb} by application code reached through an entry point; test failed"
             else:
                 reason = f"canary {verb} through an entry point, but the test did not fail ({outcome})"
-            return Judgement(
+            judgement = Judgement(
                 observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
                 reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
             )
+            return _apply_witness(judgement, effect, witness)
         problems.append(problem)
     code, message = problems[0]
-    return Judgement(
+    judgement = Judgement(
         observed_effect=True,
         provenance_ok=False,
         reason=f"canary {verb} without valid provenance: " + message,
         test_outcome=outcome,
         events=events,
         reason_code=code,
+    )
+    return _apply_witness(judgement, effect, witness)
+
+
+def _apply_witness(judgement: Judgement, effect: str, witness: Mapping[str, Any] | None) -> Judgement:
+    """Require plugin and OS-supervisor agreement for effects the supervisor can see.
+
+    ``witness is None`` is the host path (no supervisor): keep the in-process standard.
+    A missing or tampered supervisor log fails closed. Disagreement is never a proof.
+    """
+    if effect not in WITNESS_EFFECTS or witness is None:
+        return judgement
+    status = witness.get("status")
+    if status != "ok":
+        # Fail closed only when the plugin path would otherwise prove: a missing
+        # supervisor must not rewrite no_effect/provenance reasons, but it must
+        # never let a proof through.
+        if not (judgement.observed_effect and judgement.provenance_ok):
+            return judgement
+        return Judgement(
+            observed_effect=False,
+            provenance_ok=False,
+            reason="OS witness is unavailable; the run cannot prove anything",
+            test_outcome=judgement.test_outcome,
+            events=judgement.events,
+            forged_events=judgement.forged_events,
+            app_tree_changes=judgement.app_tree_changes,
+            reason_code=REASON_WITNESS_UNAVAILABLE,
+        )
+    raw = witness.get("observed") or []
+    observed = {item for item in raw if isinstance(item, str)} if isinstance(raw, (list, set, tuple)) else set()
+    os_saw = effect in observed
+    plugin_saw = judgement.observed_effect
+    if plugin_saw == os_saw:
+        return judgement
+    which = (
+        "in-process plugin observed the effect; OS witness did not"
+        if plugin_saw else
+        "OS witness observed the effect; in-process plugin did not"
+    )
+    return Judgement(
+        observed_effect=False,
+        provenance_ok=False,
+        reason=f"witness_mismatch: {which}",
+        test_outcome=judgement.test_outcome,
+        events=judgement.events,
+        forged_events=judgement.forged_events,
+        app_tree_changes=judgement.app_tree_changes,
+        reason_code=REASON_WITNESS_MISMATCH,
     )
 
 

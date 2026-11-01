@@ -43,6 +43,11 @@ container's stdin (``docker run -i``), never to its environment, command line or
 Only lines that verify are returned in ``oracle_events`` (as their event bodies); the rest
 are dropped and counted in ``oracle_forged_events`` (finding A-1, docs/oracle/oracle-a1.md).
 
+For effects the OS supervisor can see (read, write, exec, sql, connect) a sibling process
+started before pytest watches the canary at the OS level and writes signed observations to
+``witness.jsonl``. The judge requires both witnesses to agree; a missing supervisor fails
+closed. dos, redirect and access have no OS canary and keep the in-process standard.
+
 When the oracle is loaded, the workspace copy is hashed before the container starts and that
 manifest follows the key on stdin, so the plugin can admit only staged application code. The
 test's own directory is left out (``staging_exclude``). After the container exits the copy is
@@ -71,6 +76,7 @@ from .image import build_image
 from exhibit_a.oracle.oracle import (
     SQL_CANARY_COLUMN,
     SQL_CANARY_TABLE,
+    WITNESS_EFFECTS,
     access_db_problem,
     access_shape_problem,
     marker_holds_token,
@@ -92,6 +98,7 @@ from exhibit_a.oracle.plugin import (
     verify_lines,
 )
 from exhibit_a.oracle.provenance import ManifestError, app_manifest, staging_exclude, tree_changes
+from exhibit_a.sandbox.witness import SUPERVISOR_SOURCE, log_status, observed_effects
 
 PYTEST_VERSION = "pytest==7.3.2"
 SECCOMP_PROFILE = Path(__file__).resolve().parent / "seccomp.json"
@@ -207,6 +214,27 @@ DECLARED_MOUNTS: tuple[dict[str, str], ...] = (
         "scope": "canary_sql_seed|canary_access_seed",
         "source": "<tmpdir>/seed (per-run seed output directory)",
     },
+    {
+        "target": "/opt/exhibit_a_plugin/witness.py",
+        "mode": "ro",
+        "kind": "bind",
+        "scope": "oracle_witness",
+        "source": "<tmpdir>/witness.py (per-run copy of the OS supervisor)",
+    },
+    {
+        "target": "/oracle/witness.cfg",
+        "mode": "rw",
+        "kind": "bind",
+        "scope": "oracle_witness",
+        "source": "<tmpdir>/witness.cfg (per-run config and HMAC key; unlinked after read)",
+    },
+    {
+        "target": "/oracle/witness.jsonl",
+        "mode": "rw",
+        "kind": "bind",
+        "scope": "oracle_witness",
+        "source": "<tmpdir>/witness.jsonl (HMAC-signed OS observations)",
+    },
 )
 
 # The oracle plugin is mounted read-only as a single module; only the events file is writable.
@@ -218,6 +246,10 @@ _PLUGIN_DIR = "/opt/exhibit_a_plugin"
 # the only other writable mount. The container keeps --network none: loopback still works.
 _SERVER_MOUNT = f"{_PLUGIN_DIR}/canary_server.py"
 _CONNECT_LOG_MOUNT = "/oracle/connect.jsonl"
+_WITNESS_SCRIPT_MOUNT = f"{_PLUGIN_DIR}/witness.py"
+_WITNESS_CFG_MOUNT = "/oracle/witness.cfg"
+_WITNESS_LOG_MOUNT = "/oracle/witness.jsonl"
+_WITNESS_READY = "/tmp/witness.ready"
 _CONNECT_ENV = ENV_CONNECT
 _REDIRECT_ENV = ENV_REDIRECT
 _ACCESS_ATTACKER_ENV = ENV_ACCESS_ATTACKER
@@ -360,6 +392,47 @@ done
 pytest "${@:6}"; rc=$?; kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; exit $rc
 '''
 
+# OS witness: start the supervisor as a sibling of pytest (not in the test process tree),
+# wait until it is watching, then run pytest. The supervisor reads the config (and key)
+# from $2 and unlinks it before writing the ready file, so pytest never sees the key.
+# $1 supervisor script, $2 config, $3+ pytest argv.
+_WITNESS_SHELL = r'''
+python3 -I -S "$1" "$2" >/tmp/witness.out 2>&1 & WITNESS=$!
+for i in $(seq 1 50); do
+  [ -f /tmp/witness.ready ] && break
+  sleep 0.1
+done
+if [ ! -f /tmp/witness.ready ]; then
+  kill $WITNESS 2>/dev/null
+  wait $WITNESS 2>/dev/null
+  exit 1
+fi
+pytest "${@:3}"; rc=$?
+kill $WITNESS 2>/dev/null
+wait $WITNESS 2>/dev/null
+exit $rc
+'''
+
+# Write effect: the witness runs for the whole pytest, then the outside/ dump, then stop.
+# $1 supervisor, $2 config, $3 dump program, $4 work, $5 canary mount, $6+ pytest argv.
+_WITNESS_WRITE_SHELL = r'''
+python3 -I -S "$1" "$2" >/tmp/witness.out 2>&1 & WITNESS=$!
+for i in $(seq 1 50); do
+  [ -f /tmp/witness.ready ] && break
+  sleep 0.1
+done
+if [ ! -f /tmp/witness.ready ]; then
+  kill $WITNESS 2>/dev/null
+  wait $WITNESS 2>/dev/null
+  exit 1
+fi
+pytest "${@:6}"; rc=$?
+python -I -S -c "$3" "$4" "$5" /oracle/outside.json
+kill $WITNESS 2>/dev/null
+wait $WITNESS 2>/dev/null
+exit $rc
+'''
+
 
 def _read_outside(path: str) -> tuple[bool, list[dict]]:
     """``(canary_written, listing)`` from the in-container dump; anything odd is "not written".
@@ -466,6 +539,9 @@ def _verify_declared_mounts(cmd: list[str], tmpdir: str) -> str | None:
         "/seed/out",
         _SERVER_MOUNT,
         _CONNECT_LOG_MOUNT,
+        _WITNESS_SCRIPT_MOUNT,
+        _WITNESS_CFG_MOUNT,
+        _WITNESS_LOG_MOUNT,
     }
     i = 0
     while i < len(cmd):
@@ -790,6 +866,11 @@ def run(
         events_file = os.path.join(tmpdir, "events.jsonl")
         outside_file = os.path.join(tmpdir, "outside.json")
         outside_dir = os.path.join(tmpdir, "outside")
+        witness_enabled = observe and effect in WITNESS_EFFECTS
+        witness_key = secrets.token_bytes(KEY_BYTES) if witness_enabled else b""
+        witness_file = os.path.join(tmpdir, "witness.jsonl")
+        witness_cfg_file = os.path.join(tmpdir, "witness.cfg")
+        witness_script = os.path.join(tmpdir, "witness.py")
         extra_args: list[str] = []
         plugin_args: list[str] = []
         exclude = staging_exclude(PurePosixPath(rel_test).as_posix())
@@ -876,6 +957,40 @@ def run(
                 # its declared path. The attacker credential and the resource arrive in the
                 # environment (test contract); the victim credential only as the seed argument.
                 extra_args += ["-e", f"EXHIBIT_A_CANARY={_WORKSPACE}/{access_db}"]
+            if witness_enabled:
+                shutil.copyfile(SUPERVISOR_SOURCE, witness_script)
+                Path(witness_file).write_text("")
+                cfg: dict = {
+                    "key": witness_key.hex(),
+                    "effect": effect,
+                    "paths": [],
+                    "log": _WITNESS_LOG_MOUNT,
+                    "ready": _WITNESS_READY,
+                }
+                if effect == "canary_read":
+                    cfg["paths"] = [canary_mount]
+                elif effect == "canary_write":
+                    cfg["paths"] = [canary_mount]
+                elif effect == "canary_exec":
+                    marker_path = str(PurePosixPath(canary_mount).parent / _MARKER_NAME)
+                    cfg["paths"] = [canary_mount, marker_path]
+                elif effect == "canary_sql":
+                    cfg["paths"] = [f"{_WORKSPACE}/{sql_db}"]
+                elif effect == "canary_connect":
+                    parsed = parse_canary_url(connect_url)
+                    assert parsed is not None
+                    _, w_port, w_secret = parsed
+                    cfg["connect"] = {
+                        "port": w_port,
+                        "secret": w_secret,
+                        "token": extra_env[_TOKEN_ENV],
+                        "connect_log": _CONNECT_LOG_MOUNT,
+                        "url": connect_url,
+                    }
+                Path(witness_cfg_file).write_text(json.dumps(cfg, sort_keys=True), encoding="utf-8")
+                extra_args += ["-v", f"{witness_script}:{_WITNESS_SCRIPT_MOUNT}:ro"]
+                extra_args += ["-v", f"{witness_cfg_file}:{_WITNESS_CFG_MOUNT}:rw"]
+                extra_args += ["-v", f"{witness_file}:{_WITNESS_LOG_MOUNT}:rw"]
             plugin_args = ["-p", _PLUGIN_MODULE]
         for env_name, value in extra_env.items():
             if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY", _CONNECT_ENV, ENV_DOS, _REDIRECT_ENV) and observe:
@@ -908,6 +1023,16 @@ def run(
                 # Untrusted listener log: the judge needs signed plugin events for the same
                 # request before it counts (see oracle._judge_connect).
                 payload["connect_log"] = _read_connect_log(os.path.join(tmpdir, "connect.jsonl"))
+            if witness_enabled:
+                try:
+                    with open(witness_file, encoding="utf-8", errors="replace") as fh:
+                        witness_lines = fh.read().splitlines()
+                except OSError:
+                    witness_lines = []
+                bodies, rejected = verify_lines(witness_lines, witness_key)
+                payload["witness_status"] = log_status(bodies, rejected)
+                payload["witness_observations"] = bodies
+                payload["witness_observed"] = observed_effects(bodies)
             return payload
 
         # 1) Resolve the prebuilt image (built once with network, reused across runs).
@@ -969,7 +1094,23 @@ def run(
 
         # 2) Run the image with strict isolation and no network.
         pytest_args = ["-q", "-p", "no:cacheprovider", *plugin_args, f"/workspace/{rel_test}"]
-        if effect == "canary_write":
+        if witness_enabled and effect == "canary_write":
+            # Witness for the whole pytest, then the outside/ dump. Paths and the dump
+            # program reach the shell as arguments, never spliced into its text.
+            pytest_argv = [
+                "bash", "-c", _WITNESS_WRITE_SHELL,
+                "exhibit-a", _WITNESS_SCRIPT_MOUNT, _WITNESS_CFG_MOUNT,
+                _OUTSIDE_DUMP, str(canary_work), str(mount), *pytest_args,
+            ]
+        elif witness_enabled:
+            # Supervisor is a sibling of pytest, started first; connect's listener runs
+            # inside it so accept() is the OS fact (the old _CONNECT_SHELL path is unused
+            # when the witness is on).
+            pytest_argv = [
+                "bash", "-c", _WITNESS_SHELL,
+                "exhibit-a", _WITNESS_SCRIPT_MOUNT, _WITNESS_CFG_MOUNT, *pytest_args,
+            ]
+        elif effect == "canary_write":
             # pytest's own exit status is kept; the dump runs after it, in isolated mode. Every
             # value reaches the shell as a positional parameter, never spliced into its text.
             pytest_argv = [
