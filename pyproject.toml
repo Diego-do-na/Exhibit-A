@@ -20,7 +20,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = [".", "src"]
 markers = [
     "docker: needs a running Docker daemon",
     "ollama: needs a local Ollama server",
