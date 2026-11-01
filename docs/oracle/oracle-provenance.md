@@ -737,6 +737,202 @@ listed in section 7.
 Trees used by the tests live under `tests/fixtures/dos/` (vulnerable / fixed), not in
 `bench/corpus/`: bench files were not treated as free for a new corpus case.
 
+### 3.13 Layer 12: the `canary_redirect` effect (T106)
+
+A seventh family of effect, open redirect (CWE-601, a common and easily observed web bug).
+File effects observe the application touching a file, `canary_exec` observes it running a
+program, `canary_sql` observes it reading a row it never asks for, `canary_connect`
+observes it requesting a URL only the run knows, and `canary_dos` observes it burning
+CPU. This one observes the application's **response**: that it answers, through a
+declared entry point, with a redirect to a per-run canary host. The redirect target is
+observable in the HTTP response the app produces, without the network: nothing is ever
+fetched from the canary host (`.invalid` never resolves).
+
+**The contract.** There is no canary file and no listener. The test reads the canary URL
+from `EXHIBIT_A_CANARY_REDIRECT` and passes it (whole, or split into host and path) as
+the entry point's input through the `redirect_probe` pytest fixture the plugin provides:
+`redirect_probe(<entry point callable>, <redirect target>)`. The plugin calls the entry
+point itself, captures the returned response, signs one `op` `response` event, and
+returns a plain copy the test asserts on. The test must fail only when the response
+redirects to the canary URL. If the application refuses the input by raising or by
+answering without a redirect, the test catches that and treats it as safe. The test must
+never build a response itself, follow the redirect, or serve one. Only the run's canary
+host matters to the judge (scheme, port and path do not): a 3xx `Location` to it always
+counts, and when the case declares it (`run.redirect_meta`), an HTML meta refresh to it
+counts too.
+
+**What the plugin records** (signed, same channel; only when
+`EXHIBIT_A_CANARY_REDIRECT` is set). `redirect_probe` validates that every input is a
+short string, then calls the entry point the test named while `sys.setprofile` watches
+for the first frame under the app root. That frame is the entry the plugin itself
+called; its logical stack is the signed one. The return value is normalised to
+`{status, location, body}`: a `(status, headers[, body])` tuple or list, a mapping with
+`status`/`status_code`, `headers`/`header`, `body`/`text`/`data`/`content` keys, an
+object with those attributes, or a bare string or bytes (a body with no status). Anything
+else is not a response the judge can read: it is recorded with empty fields and proves
+nothing. Bodies are capped (64 KiB) and locations shorter still; beyond that is a recall
+cost. If the entry point raises, no event is signed and the exception reaches the test.
+If the profiler was replaced while the entry point ran, `patched` names it. The fixture
+returns the normalised response; the test's own copy is what its assertion checks.
+
+**What the judge requires** (`oracle._judge_redirect`). Signed events, the manifest, the
+tree check and admission apply first, unchanged. Then all of:
+
+1. **Authenticated provenance is on.** Without the staged app nothing is proven.
+2. **No response was produced from test frames**: the innermost project frame of every
+   signed response is application code (`redirect_from_test`). One response the test
+   built itself refuses the whole run, even beside a genuine one. A replacement of
+   `sys.setprofile` mid-call is `redirect_api_changed`.
+3. **Every observed response has valid provenance**: admitted app code, outermost app
+   frame a declared entry point called from the test (`provenance`,
+   `frame_not_admitted`).
+4. **At least one response redirects to this run's canary host**: a 3xx status whose
+   `Location` names it, or — only when the case declares it — an HTML meta refresh
+   whose target names it (otherwise `no_effect`: the test failed for the wrong
+   reason), and the test failed.
+
+That the redirect **reached the test through the app** is the assertion the test makes:
+the oracle checks the response, the failing assertion checks the test's copy of it. A
+test that asserts on a safe response fails by its own doing, but no response names the
+canary host, so there is no effect.
+
+**Static guard** (`guard.redirect_problem`, this effect only). A test is refused before
+it runs if it imports a web framework (`flask`, `django`, `starlette`, `fastapi`,
+`werkzeug`, `aiohttp`, `http.server`) or names a redirect helper or response
+constructor (`redirect`, `RedirectResponse`, `HttpResponseRedirect`, ...). Reading the
+`Location` header stays allowed: the test asserts on the copy the probe returns. It is
+a tripwire like the others: every cheat in `tests/test_oracle_redirect.py` also runs
+with it off, and the runtime layers alone refuse them.
+
+**Graph catalog.** Redirect helpers are sinks when their target is not a constant:
+`flask.redirect`, `werkzeug.utils.redirect`, `django.shortcuts.redirect`,
+`django.http.HttpResponseRedirect` (and its permanent/found variants), and the
+`RedirectResponse` of Starlette and FastAPI (`graph/catalog.py`, `target_arg` on the URL
+position, effect `canary_redirect`). A constant target cannot carry input and is not a
+sink. No graph rule is needed for the response itself: the proof is the observed
+redirect, not a call.
+
+**What it cannot see.** These are recall costs unless marked otherwise.
+
+- A response shape the normaliser does not know (a framework response without the
+  documented attributes, a body past 64 KiB, a location past 4 KiB) proves nothing.
+- An entry point that takes anything but short strings cannot be probed: the probe
+  refuses non-string inputs rather than guess how to call it.
+- An app that answers through a worker thread the probe does not wait for, or that
+  redirects client-side (JavaScript `location`, a `Refresh` header instead of a meta
+  tag), is not observed.
+- The canary host is matched, not the full URL: an app that redirects to the canary
+  host with attacker-fixed path is still an open redirect and is still proven.
+
+Residual false proofs: R1 and R5 apply to this effect like the others, and both are
+pinned (`test_r1_a_forged_signed_response_proves_a_safe_app` and
+`test_r5_a_replaced_app_binding_proves_a_safe_app` in `tests/test_oracle_redirect.py`,
+plus `attack_redirect_r1_forge_events` and `attack_redirect_r5_app_binding` in
+`spikes/redteam`). With computed names the test finds `emit` in the hook module, which
+holds the signing key, and signs a `response` that names the entry point's real frame
+and the canary host (R1). It can also replace a binding in the app's own module, here
+the allow-list (`setattr(sys.modules["app"], "ALLOWED", ...)`), so the admitted code
+really redirects through the entry point (R5). Neither is stopped in-process; both are
+listed in section 7.
+
+Trees used by the tests live under `tests/fixtures/redirect/` (vulnerable / fixed),
+not in `bench/corpus/`: bench files were not treated as free for a new corpus case.
+
+### 3.14 Layer 13: the `canary_access` effect (T106)
+
+An eighth family of effect, broken access control (OWASP's number one: insecure direct
+object references). Where `canary_redirect` observes the application's answer naming a
+canary host, this one observes the application's answer **holding a token only a victim
+owns**. The case declares two principals — an attacker and a victim — and how to
+authenticate as each, plus the protected resource; the runner seeds a resource owned by
+the victim, holding the token, and the proof is that a request authenticated as the
+attacker (or unauthenticated, when the app takes none) makes the app return the
+victim's token. The token is observable in the response the app produces, without the
+network.
+
+**The contract.** There is no canary file the test could open: the application's own
+store (a JSON file the case declares as `run.access_db`) is copied, the victim-owned
+resource is added to the copy, and the copy is what the test runs against. The case
+also declares `run.access` with `attacker`, `victim` and `resource`. The test learns
+only the attacker credential (`EXHIBIT_A_ATTACKER`) and the resource id
+(`EXHIBIT_A_RESOURCE`); the victim credential reaches only the seeding step, never the
+test's environment. The test passes attacker and resource through the `access_probe`
+fixture — `access_probe(<entry point callable>, <attacker credential>, <resource id>)`
+— which calls the entry point itself as the attacker, signs one `op` `response` event,
+and returns a plain copy. The test must fail only when the victim's token is in that
+response. If the application refuses the request by raising or by answering with an
+error, the test catches that and treats it as safe. A request authenticated as anyone
+else — including the victim, who owns the resource — proves nothing.
+
+**What the plugin records** (signed, same channel; only when `EXHIBIT_A_ATTACKER` and
+`EXHIBIT_A_RESOURCE` are set). The probe is the redirect probe with the caller bound:
+it validates short-string inputs, calls the entry point as `(auth, resource)`, captures
+and normalises the response the same way, and signs the same `op` `response` event
+with the logical stack seen while the entry point ran — plus the attacker credential
+and resource it was called with. File opens the app makes while answering (reading
+its own store) are recorded by the hook as usual and allowed; they prove nothing
+alone.
+
+**What the judge requires** (`oracle._judge_access`). Signed events, the manifest, the
+tree check and admission apply first, unchanged. Then all of:
+
+1. **Authenticated provenance is on.** Without the staged app nothing is proven.
+2. **Nothing but application code touched the store file, and only to read it**: an
+   open, rename or link from a test frame is `access_from_test`; a write by anyone is
+   `canary_tampered`. Reading its own store is what the app does to answer.
+3. **Every observed response was called for the declared attacker and resource.**
+   A response observed for another credential or resource refuses the run
+   (`access_from_test`) — this is what stops the victim-authenticated request from
+   proving anything.
+4. **No response was produced from test frames** (`access_from_test`), the profiler
+   was intact (`access_api_changed`), and **every observed response has valid
+   provenance** (`provenance`, `frame_not_admitted`).
+5. **At least one such response holds the run's token** (otherwise `no_effect`: the
+   test failed for the wrong reason), and the test failed.
+
+That the token **reached the test through the app as the attacker** is the assertion
+the test makes: the oracle checks the response, the failing assertion checks the
+test's copy of it.
+
+**Static guard** (`guard.access_problem`, this effect only). A test is refused before
+it runs if it names the `json` module (import, name or attribute), names the victim
+credential, or names a store file (a string ending in `.json`). The attacker credential
+and the resource id stay allowed: they are the test contract. It is a tripwire like
+the others: every cheat in `tests/test_oracle_access.py` also runs with it off, and
+the runtime layers alone refuse them.
+
+**Graph catalog.** No sink rule is meaningful for broken access control: the bug is a
+missing ownership check, not a call. The redirect helpers are catalogued (section
+3.13); access-control flaws surface only through the observed response.
+
+**What it cannot see.** These are recall costs unless marked otherwise.
+
+- An app whose authentication is anything but a credential-plus-resource call cannot
+  be probed: the probe calls the entry point as `(auth, resource)` with short
+  strings, and anything else fails closed.
+- A store that is not a JSON object, or that already holds the resource, is refused
+  rather than trusted; an app that writes its own store during the run cannot be
+  proven (the seeded copy is read-only).
+- A token past the 64 KiB body cap, or a response shape the normaliser does not
+  know, proves nothing.
+- The response is matched by substring: an app that returns the token only truncated
+  or encoded is missed.
+
+Residual false proofs: R1 and R5 apply to this effect like the others, and both are
+pinned (`test_r1_a_forged_signed_response_proves_a_safe_app` and
+`test_r5_a_replaced_app_binding_proves_a_safe_app` in `tests/test_oracle_access.py`,
+plus `attack_access_r1_forge_events` and `attack_access_r5_app_binding` in
+`spikes/redteam`). With computed names the test finds `emit` and signs a `response`
+naming the entry point's real frame, the attacker credential, the resource and the
+token (R1). It can also replace a binding in the app's own module, here the
+ownership-check switch (`setattr(sys.modules["app"], "CHECK", False)`), so the
+admitted code really leaks through the entry point (R5). Neither is stopped
+in-process; both are listed in section 7.
+
+Trees used by the tests live under `tests/fixtures/access/` (vulnerable / fixed,
+each with its store), not in `bench/corpus/`: bench files were not treated as free
+for a new corpus case.
+
 ## 4. What each layer defends
 
 | attack | L1 manifest | L2 admission | L3 tree check | L4 tripwire | L5 dir_fd |
@@ -870,6 +1066,50 @@ never a false proof.
 | `attack_dos_r1_forge_events` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R1) |
 | `attack_dos_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
 
+Results for the `canary_redirect` attacks, T106, same command, this session, host path.
+The vulnerable apps are the controls: each is proven (DETECTED) with and without the
+tripwire. The `redirect_probe` fixture is the only observation channel: the test never
+touches the network, so every cheat below refuses at the judge, not at a socket.
+
+| PoC | app | guard on | guard off | stopped by |
+|---|---|---|---|---|
+| `attack_redirect_builds_response` | safe | BLOCKED | BLOCKED | `redirect_from_test` (response from the test's own function) |
+| `attack_redirect_asserts_without_redirect` | safe | BLOCKED | BLOCKED | `no_effect` (test failed for the wrong reason) |
+| `attack_redirect_echo` | safe | BLOCKED | BLOCKED | `no_effect` (echo names the host but redirects nowhere) |
+| `attack_redirect_meta_undeclared` | safe | BLOCKED | BLOCKED | `no_effect` (meta refresh counts only when the case declares it) |
+| `attack_redirect_internal_helper` | safe | BLOCKED | BLOCKED | `provenance` (helper is not a declared entry point) |
+| `attack_redirect_response_in_thread` | safe | BLOCKED | BLOCKED | `redirect_from_test` (response from a test-owned function) |
+| `attack_redirect_non_string_input` | safe | BLOCKED | BLOCKED | probe raises `TypeError`; no response signed (`no_effect`) |
+| `attack_redirect_setprofile_swap` | safe | BLOCKED | BLOCKED | `redirect_from_test` (swapped profiler leaves no app stack) |
+| `attack_redirect_true_direct` | vulnerable | DETECTED | DETECTED | control |
+| `attack_redirect_true_host` | vulnerable | DETECTED | DETECTED | control |
+| `attack_redirect_true_meta` | vulnerable | DETECTED | DETECTED | control (case declares `redirect_meta`) |
+| `attack_redirect_r1_forge_events` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R1) |
+| `attack_redirect_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
+
+Results for the `canary_access` attacks, T106, same command, this session, host path.
+The vulnerable app is the control: proven (DETECTED) with and without the tripwire.
+The test never receives the victim credential; the runner seeds it.
+
+| PoC | app | guard on | guard off | stopped by |
+|---|---|---|---|---|
+| `attack_access_builds_response` | safe | BLOCKED | BLOCKED | `access_from_test` (response from the test's own function) |
+| `attack_access_reads_store` | safe | BLOCKED | BLOCKED | guard `access_store_file`; at runtime `access_from_test` (test read the store) |
+| `attack_access_as_victim` | safe | BLOCKED | BLOCKED | `access_from_test` (response for a credential outside the contract) |
+| `attack_access_wrong_resource` | safe | BLOCKED | BLOCKED | `no_effect` (app refused; nothing matched) |
+| `attack_access_internal_helper` | safe | BLOCKED | BLOCKED | `provenance` (helper is not a declared entry point) |
+| `attack_access_writes_store` | safe | BLOCKED | BLOCKED | guard `app_tree_write`; at runtime `access_from_test` (test touched the store) |
+| `attack_access_echo` | safe | BLOCKED | BLOCKED | `no_effect` (echo holds no token) |
+| `attack_access_response_in_thread` | safe | BLOCKED | BLOCKED | `access_from_test` (response from a test-owned function) |
+| `attack_access_true_unchecked` | vulnerable | DETECTED | DETECTED | control |
+| `attack_access_r1_forge_events` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R1) |
+| `attack_access_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
+
+No new FALSE_PROVEN beyond the four declared residual limits (R1 and R5, one pair per
+effect). The sandbox runs the same cheats (`tests/test_oracle_redirect.py` and
+`tests/test_oracle_access.py`, docker-marked, with the reason codes asserted); the
+red-team driver itself is host-path only.
+
 ## 6. What is proven by tests, what is only designed
 
 Proven by tests that ran in this session (no Docker):
@@ -915,7 +1155,11 @@ admission object or reading `/proc/self/mem`. `test_r1_*` demonstrates it end to
 only declared in `docs/oracle/oracle-a1.md`. Nothing in-process can close this. File,
 `canary_connect` and `canary_dos` effects are all exposed: a stolen `emit` can sign a
 `dos` event that names the entry point (`tests/test_oracle_dos.py::test_r1_forged_dos_event_is_a_false_proof`,
-strict xfail).
+strict xfail). The response effects are exposed the same way: a stolen `emit` signs a
+`response` naming the entry point's real frame and the canary host or token
+(`tests/test_oracle_redirect.py` and `tests/test_oracle_access.py` R1 pins, strict
+xfails; sandbox runs forge the same way for `canary_redirect`, which has no listener
+log to stop them).
 
 ### 7.2 R2: `sitecustomize` in the app tree (FALSE_PROVEN, host path)
 
@@ -950,7 +1194,9 @@ The test replaces something the app calls, for example
 admitted entry point then reads the canary (`test_r5_*`). Provenance is genuine; the
 vulnerability is not. The same class of cheat replaces an app binding the effect cares
 about: a regex on `canary_dos`
-(`tests/test_oracle_dos.py::test_r5_app_binding_is_a_false_proof`, strict xfail). `module_monkeypatch` catches the plain spellings only. The differential
+(`tests/test_oracle_dos.py::test_r5_app_binding_is_a_false_proof`, strict xfail), an
+allow-list host on `canary_redirect` and an ownership-check switch on `canary_access`
+(the T106 R5 pins, strict xfails). `module_monkeypatch` catches the plain spellings only. The differential
 re-run on fixed code helps only if the fix does not use the patched function, and a gated
 test can defeat it as in `docs/security/oracle-redteam.md` §3.3. An out-of-process observer would not
 close this either: the read really happens in app code.
