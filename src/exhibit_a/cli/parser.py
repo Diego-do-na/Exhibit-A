@@ -62,6 +62,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--entry-point", action="append", default=None, metavar="NAME",
         help="Declared entry point (Class.method); repeatable. Declared names replace detection.",
     )
+    scan.add_argument(
+        "--lang",
+        choices=("auto", "python", "javascript", "typescript"),
+        default="auto",
+        help="Repository language (default: auto-detect from package.json, tsconfig.json, "
+        "case.json language and file extensions). Also selects the static call graph builder.",
+    )
     scan.set_defaults(func=cmd_scan)
 
     run = sub.add_parser(
@@ -113,6 +120,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         default=None,
         help="Model name to use for every role (overrides EXHIBIT_A_MODEL).",
+    )
+    run.add_argument(
+        "--lang",
+        choices=("auto", "python", "javascript", "typescript"),
+        default="auto",
+        help="Case language (default: auto — the case.json language, else detected from the "
+        "staged clone). Routes baseline, exploit, fix and verify through the matching "
+        "sandbox and oracle.",
     )
     run.add_argument(
         "--profile",

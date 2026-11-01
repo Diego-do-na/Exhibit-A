@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List
@@ -9,6 +10,23 @@ from ..schemas import Baseline, Dependency, RepoProfile
 
 MAX_READ_BYTES = 32 * 1024  # 32 KiB cap per file read
 VENDORED_DIRS = {"node_modules", ".venv", "venv"}
+
+#: Languages the proof loop can verify, for ``--lang`` and ``detect`` overrides.
+LOOP_LANGUAGES = ("python", "javascript", "typescript")
+
+#: File extensions counted as a language signal (capped walk, vendored dirs skipped).
+EXTENSION_LANGUAGES = {
+    ".py": "python",
+    ".js": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".ts": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
+    ".tsx": "typescript",
+}
+MAX_COUNTED_FILES = 500
+CASE_LANGUAGE_KEYS = ("run.language", "language")
 
 
 def _safe_read(path: Path, repo_root: Path) -> str:
@@ -51,8 +69,64 @@ class ScanResult:
     languages: list[str]
 
 
-def detect(repo_root: str) -> ScanResult:
-    """Rule-based detection of language, package manager and test command."""
+def _case_language(root: Path) -> str:
+    """The ``language`` a corpus ``case.json`` declares, or "" when none does.
+
+    A case directory names its own language (``run.language``, else top-level
+    ``language``); only the loop's languages count, anything else is untrusted
+    data and ignored.
+    """
+    try:
+        data = json.loads((root / "case.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    run = data.get("run")
+    candidates = []
+    if isinstance(run, dict):
+        candidates.append(run.get("language"))
+    candidates.append(data.get("language"))
+    for candidate in candidates:
+        if candidate in LOOP_LANGUAGES:
+            return str(candidate)
+    return ""
+
+
+def _extension_languages(root: Path) -> list[str]:
+    """Languages with source files under ``root``, most files first.
+
+    A capped walk that skips vendored directories; symlinks are never followed.
+    """
+    counts: dict[str, int] = {}
+    seen = 0
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in VENDORED_DIRS and not d.startswith(".")]
+        for name in filenames:
+            language = EXTENSION_LANGUAGES.get(Path(name).suffix.lower())
+            if language is None:
+                continue
+            counts[language] = counts.get(language, 0) + 1
+            seen += 1
+            if seen >= MAX_COUNTED_FILES:
+                break
+        if seen >= MAX_COUNTED_FILES:
+            break
+    return sorted(counts, key=lambda lang: (-counts[lang], lang))
+
+
+def detect(repo_root: str, language: str = "auto") -> ScanResult:
+    """Rule-based detection of language, package manager and test command.
+
+    Signals, in order: project markers (``pyproject.toml``/``requirements.txt``,
+    ``package.json``, ``tsconfig.json``, ``pom.xml``), a corpus ``case.json``
+    language, then counted source-file extensions. ``language`` overrides the
+    primary: ``"auto"`` detects, otherwise one of ``LOOP_LANGUAGES``; anything
+    else raises ``ValueError``. The profile's ``language`` field always records
+    the primary.
+    """
+    if language not in ("auto", *LOOP_LANGUAGES):
+        raise ValueError(f"unknown language {language!r}; expected auto or one of {list(LOOP_LANGUAGES)}")
     root = Path(repo_root)
     reasons: list[str] = []
     dependency_manager = "unknown"
@@ -66,11 +140,33 @@ def detect(repo_root: str) -> ScanResult:
         detected.append("python")
     if (root / "package.json").exists():
         detected.append("javascript")
+    if (root / "tsconfig.json").exists():
+        detected.append("typescript")
     if (root / "pom.xml").exists() or (root / "build.gradle").exists():
         detected.append("java")
+    case_language = _case_language(root)
+    if case_language and case_language not in detected:
+        detected.append(case_language)
+    for ext_language in _extension_languages(root):
+        if ext_language not in detected:
+            detected.append(ext_language)
 
     languages = detected or ["unknown"]
-    primary = next((l for l in ("python", "javascript", "java") if l in detected), "unknown")
+    if language != "auto":
+        primary = language
+        if primary not in detected:
+            detected.append(primary)
+            languages = detected
+    else:
+        # A declared case language wins over the package.json guess (a TypeScript
+        # case still ships a package.json); otherwise python first, as before.
+        if case_language:
+            primary = case_language
+        else:
+            primary = next(
+                (l for l in ("python", "typescript", "javascript", "java") if l in detected),
+                "unknown",
+            )
 
     if primary == "python":
         interpreter = "python3"
@@ -116,7 +212,7 @@ def detect(repo_root: str) -> ScanResult:
             reasons.append("only pytest-run Python projects are supported in v1")
         return ScanResult(profile=profile, supported=supported, reasons=reasons, languages=languages)
 
-    if primary == "javascript":
+    if primary in ("javascript", "typescript"):
         txt = _safe_read(root / "package.json", root)
         try:
             data = json.loads(txt) if txt else {}
@@ -127,8 +223,8 @@ def detect(repo_root: str) -> ScanResult:
             install_cmd = "yarn install"
         else:
             dependency_manager = "npm"
-            install_cmd = "npm install"
-        test_cmd = f"{dependency_manager} test"
+            install_cmd = "npm install --ignore-scripts"
+        test_cmd = "node --test"
         deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
         if any(k.lower().startswith("jest") or k == "jest" for k in deps):
             framework = "jest"
@@ -137,11 +233,11 @@ def detect(repo_root: str) -> ScanResult:
         elif any("mocha" in k.lower() for k in deps):
             framework = "mocha"
         else:
-            framework = "npm"
+            framework = "node:test"
 
         profile = RepoProfile(
             commit="unknown",
-            language="javascript",
+            language=primary,
             interpreter="node",
             dependency_manager=dependency_manager,
             install_cmd=install_cmd,
@@ -150,7 +246,7 @@ def detect(repo_root: str) -> ScanResult:
             dependencies=[],
             baseline=Baseline(passed=0, failed=0, seconds=0.0),
         )
-        reasons.append("scanner v1 supports only Python/pytest")
+        reasons.append("the proof loop verifies node:test repositories; only pytest-run Python projects count as scanner-supported")
         return ScanResult(profile=profile, supported=False, reasons=reasons, languages=languages)
 
     if primary == "java":
