@@ -59,8 +59,9 @@ Analyzes repository structure, dependencies, frameworks, static call graph reach
 ### Help output
 
 ```text
-usage: exhibit-a scan [-h] [--graph] [--graph-out FILE] [--pr-diff BASE..HEAD]
-                      [--entry-point NAME]
+usage: exhibit-a scan [-h] [--graph] [--graph-out FILE]
+                      [--pr-diff BASE..HEAD] [--entry-point NAME]
+                      [--lang {auto,python,javascript,typescript}]
                       [repo]
 
 positional arguments:
@@ -77,6 +78,11 @@ options:
                         sink) of the commits' changes.
   --entry-point NAME    Declared entry point (Class.method); repeatable.
                         Declared names replace detection.
+  --lang {auto,python,javascript,typescript}
+                        Repository language (default: auto-detect from
+                        package.json, tsconfig.json, case.json language and
+                        file extensions). Also selects the static call graph
+                        builder.
 ```
 
 ### Example
@@ -98,8 +104,9 @@ Executes the core verification loop over benchmark cases or pull-request diffs i
 ```text
 usage: exhibit-a run [-h] [--case CASE] [--pr-diff BASE..HEAD] [--out OUT]
                      [--repo REPO] [--diff DIFF] [--recording RECORDING]
-                     [--effect {canary_read,canary_write,canary_exec,canary_sql}]
+                     [--effect {canary_read,canary_write,canary_exec,canary_sql,canary_connect,canary_dos,canary_redirect,canary_access}]
                      [--replay] [--provider PROVIDER] [--model MODEL]
+                     [--lang {auto,python,javascript,typescript}]
                      [--profile {standard,compact}] [--slice | --no-slice]
                      [--reasoning-effort {minimal,low,medium,high,max}]
                      [--max-output-tokens N] [--budget-usd BUDGET_USD]
@@ -108,8 +115,8 @@ options:
   -h, --help            show this help message and exit
   --case CASE           Benchmark case.json (or its directory) to run the loop
                         on.
-  --pr-diff BASE..HEAD  Run the proof loop on Python files changed between two
-                        commits.
+  --pr-diff BASE..HEAD  Run the proof loop on source files changed between two
+                        commits (Python, JavaScript, TypeScript).
   --out OUT             Output directory for the clone, ledger and packages
                         (default: runs/case).
   --repo REPO           Path to the target clone.
@@ -126,6 +133,11 @@ options:
                         EXHIBIT_A_PROVIDER).
   --model MODEL         Model name to use for every role (overrides
                         EXHIBIT_A_MODEL).
+  --lang {auto,python,javascript,typescript}
+                        Case language (default: auto — the case.json language,
+                        else detected from the staged clone). Routes baseline,
+                        exploit, fix and verify through the matching sandbox
+                        and oracle.
   --profile {standard,compact}
                         Prompt profile. 'compact' bounds every answer, asks
                         the fixer for search/replace edits, and defaults to

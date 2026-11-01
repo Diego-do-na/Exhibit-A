@@ -298,14 +298,14 @@ def test_default_runner_is_the_sandbox_with_the_case_requirements(tmp_path):
 def test_sandbox_runner_hands_the_baseline_and_requirements_to_the_sandbox(monkeypatch):
     calls = []
 
-    def fake_run(clone_path, test_path, timeout, requirements=None, image=None):
-        calls.append((clone_path, test_path, timeout, requirements, image))
+    def fake_run(clone_path, test_path, timeout, requirements=None, image=None, language="python"):
+        calls.append((clone_path, test_path, timeout, requirements, image, language))
         return {"outcome": "passed", "exit_code": 0, "stdout": "", "stderr": "", "oracle_events": []}
 
     monkeypatch.setattr("exhibit_a.sandbox.run", fake_run)
     result = SandboxRunner(requirements=["anyio>=3.4,<5"]).run_baseline("/clone", "test_baseline.py", 30.0)
     assert result["outcome"] == "passed"
-    assert calls == [("/clone", "test_baseline.py", 30.0, ["anyio>=3.4,<5"], None)]
+    assert calls == [("/clone", "test_baseline.py", 30.0, ["anyio>=3.4,<5"], None, "python")]
 
 
 @pytest.mark.docker

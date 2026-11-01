@@ -179,7 +179,8 @@ def test_case_manifests_match_the_contracts(case_id):
     assert case.effect == EFFECT[case_id]
     assert case.tree == "vulnerable"
     assert case.baseline_test == BASELINE[case_id]
-    assert case.recording == ""
+    assert case.recording == "replay.jsonl"
+    assert (case_dir / case.recording).is_file()
     assert case.requirements == ("express@4.18.2",)
     assert case.source_file == SOURCE[case_id]
     assert (case_dir / case.tree / case.source_file).is_file()
