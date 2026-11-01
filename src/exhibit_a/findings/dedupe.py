@@ -18,15 +18,18 @@ stores (``Evidence.oracle`` and ``Evidence.provenance``) or the same shape rebui
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, get_args
+from urllib.parse import urlsplit
 
+from exhibit_a.oracle.oracle import Effect
 from exhibit_a.schemas.graph import CodeGraph
 
 #: Which observed accesses count for each effect that watches the canary file.
 _ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}
-EFFECTS = ("canary_read", "canary_write", "canary_exec", "canary_sql")
+#: Table-driven from Effect: all effects known to the engine.
+EFFECTS: tuple[str, ...] = tuple(get_args(Effect))
 
 #: Where the observed line comes from.
 FUNCTION_START = "function_start"  # the line the sink caller starts on, as the oracle saw it
@@ -58,6 +61,11 @@ class ProofFacts:
     line_source: str = FUNCTION_START
     sink_call: str = ""  # what the graph says is called there (a dotted name), if refined
     other_sink_lines: tuple[int, ...] = ()
+    target_host: str = ""
+    target_port: int | None = None
+    path_class: str = ""
+    input_family: str = ""
+    cpu_function: str = ""
 
     @property
     def entry(self) -> AppFrame:
@@ -81,7 +89,7 @@ class ProofFacts:
         return out
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "effect": self.effect,
             "access": self.access,
             "entry_point": self.entry.qualname,
@@ -90,6 +98,17 @@ class ProofFacts:
             "chain": [frame.to_dict() for frame in self.chain],
             "observed_location": self.observed_location(),
         }
+        if self.target_host:
+            out["target_host"] = self.target_host
+        if self.target_port is not None:
+            out["target_port"] = self.target_port
+        if self.path_class:
+            out["path_class"] = self.path_class
+        if self.input_family:
+            out["input_family"] = self.input_family
+        if self.cpu_function:
+            out["cpu_function"] = self.cpu_function
+        return out
 
 
 def _relative(file: str, roots: Iterable[str]) -> str:
@@ -100,16 +119,134 @@ def _relative(file: str, roots: Iterable[str]) -> str:
     return file
 
 
-def _relevant(event: Mapping[str, Any], effect: str) -> bool:
-    """Whether the event is a kind this effect is proven with (as the oracle's judge sees it)."""
+def _relevant_file(event: Mapping[str, Any], effect: str) -> bool:
+    return not event.get("via_symlink") and event.get("access") in _ACCESS.get(effect, ())
+
+
+def _relevant_exec(event: Mapping[str, Any], effect: str) -> bool:
+    return not event.get("via_symlink") and event.get("op") == "process" and bool(event.get("names_canary")) and bool(event.get("sink_named"))
+
+
+def _relevant_sql(event: Mapping[str, Any], effect: str) -> bool:
+    return (not event.get("via_symlink") and event.get("op") == "sql_read" and event.get("column") == "token"
+            and bool(event.get("declared_db")) and event.get("database") == "main")
+
+
+def _relevant_connect(event: Mapping[str, Any], effect: str) -> bool:
+    return not event.get("via_symlink") and (
+        event.get("op") in ("request", "connect") or event.get("access") in ("network", "connect")
+    )
+
+
+def _relevant_dos(event: Mapping[str, Any], effect: str) -> bool:
+    return not event.get("via_symlink") and (event.get("op") == "dos" or event.get("access") == "cpu")
+
+
+def _relevant_generic(event: Mapping[str, Any], effect: str) -> bool:
+    """Documented generic fallback for an effect added later.
+
+    Accepts any event that did not traverse a symlink and has admitted stack frames
+    or an access/op matching the effect.
+    """
     if event.get("via_symlink"):
         return False
-    if effect == "canary_exec":
-        return event.get("op") == "process" and bool(event.get("names_canary")) and bool(event.get("sink_named"))
-    if effect == "canary_sql":
-        return (event.get("op") == "sql_read" and event.get("column") == "token"
-                and bool(event.get("declared_db")) and event.get("database") == "main")
-    return event.get("access") in _ACCESS.get(effect, ())
+    if event.get("effect") == effect or event.get("type") == effect or event.get("op") == effect:
+        return True
+    return bool(event.get("access")) or event.get("op") in ("open", "process", "sql_read", "connect", "request", "dos")
+
+
+_RELEVANT_RULES: dict[str, Callable[[Mapping[str, Any], str], bool]] = {
+    "canary_read": _relevant_file,
+    "canary_write": _relevant_file,
+    "canary_exec": _relevant_exec,
+    "canary_sql": _relevant_sql,
+    "canary_connect": _relevant_connect,
+    "canary_dos": _relevant_dos,
+}
+
+
+def _relevant(event: Mapping[str, Any], effect: str) -> bool:
+    """Whether the event is a kind this effect is proven with (as the oracle's judge sees it)."""
+    rule = _RELEVANT_RULES.get(effect, _relevant_generic)
+    return rule(event, effect)
+
+
+def _extract_connect_facts(event: Mapping[str, Any], events: Sequence[Any]) -> dict[str, Any]:
+    host = ""
+    port = None
+    raw_path = ""
+    if event.get("url"):
+        try:
+            u = urlsplit(str(event["url"]))
+            host = u.hostname or ""
+            port = u.port
+            raw_path = u.path or ""
+        except Exception:
+            raw_path = str(event["url"])
+    if event.get("host"):
+        host = host or str(event["host"])
+    if event.get("port") is not None:
+        try:
+            port = port if port is not None else int(event["port"])
+        except (ValueError, TypeError):
+            pass
+    if not host or port is None:
+        for ev in events:
+            if not isinstance(ev, Mapping):
+                continue
+            if not host and ev.get("host"):
+                host = str(ev["host"])
+            if port is None and ev.get("port") is not None:
+                try:
+                    port = int(ev["port"])
+                except (ValueError, TypeError):
+                    pass
+    pclass = str(event.get("path_class") or "")
+    if not pclass:
+        target = raw_path or str(event.get("requested") or event.get("path") or "")
+        p = target
+        if "://" in p:
+            try:
+                p = urlsplit(p).path
+            except Exception:
+                pass
+        parts = [seg for seg in p.strip("/").split("/") if seg]
+        if not parts:
+            pclass = "/"
+        elif len(parts[0]) >= 16 and all(c in "0123456789abcdefABCDEF" for c in parts[0]):
+            sub = "/".join(parts[1:])
+            pclass = "canary" if not sub else f"canary/{sub}"
+        elif "canary" in parts[0].lower():
+            pclass = "canary"
+        else:
+            pclass = "/" + parts[0]
+    return {
+        "target_host": host.lower() if host else "",
+        "target_port": port,
+        "path_class": pclass,
+        "access": str(event.get("access") or "network"),
+    }
+
+
+def _extract_dos_facts(event: Mapping[str, Any], sink: AppFrame) -> dict[str, Any]:
+    family = str(event.get("input_family") or "")
+    if not family:
+        cmd = str(event.get("command") or "")
+        if "=" in cmd:
+            try:
+                m_len = int(cmd.split("=")[0])
+                family = "redos" if m_len <= 100 else "quadratic"
+            except ValueError:
+                family = cmd
+        elif cmd:
+            family = cmd
+        else:
+            family = "dos"
+    return {
+        "input_family": family,
+        "cpu_function": sink.qualname,
+        "access": str(event.get("access") or "cpu"),
+    }
 
 
 def proof_facts(
@@ -117,6 +254,7 @@ def proof_facts(
     *,
     roots: Iterable[str] = (),
     entry_points: Collection[str] | None = None,
+    allow_unregistered: bool = False,
 ) -> ProofFacts | None:
     """The oracle's facts for one proof, or None when the evidence cannot support them.
 
@@ -131,7 +269,9 @@ def proof_facts(
     if not isinstance(oracle, Mapping):
         return None
     effect = oracle.get("effect")
-    if effect not in EFFECTS:
+    if not isinstance(effect, str) or not effect:
+        return None
+    if not allow_unregistered and effect not in EFFECTS:
         return None
     events = oracle.get("events")
     if not isinstance(events, Sequence) or isinstance(events, (str, bytes)):
@@ -163,7 +303,16 @@ def proof_facts(
         if names is not None and chain[0].qualname not in names and chain[0].function not in names:
             continue
         sink = chain[-1]
-        return ProofFacts(effect=effect, access=str(event.get("access") or ""), chain=tuple(chain), line=sink.line)
+        extra: dict[str, Any] = {}
+        if effect == "canary_connect":
+            extra = _extract_connect_facts(event, events)
+        elif effect == "canary_dos":
+            extra = _extract_dos_facts(event, sink)
+        access = extra.pop("access", str(event.get("access") or ""))
+        return ProofFacts(
+            effect=effect, access=access, chain=tuple(chain), line=sink.line,
+            **extra,
+        )
     return None
 
 
@@ -189,9 +338,12 @@ def refine_with_graph(proof: ProofFacts, graph: CodeGraph) -> ProofFacts:
             return proof
         lines = sorted({h.line for h in chosen})
         first = next(h for h in chosen if h.line == lines[0])
+        family = proof.input_family
+        if proof.effect == "canary_dos" and (not family or family == "dos"):
+            family = first.vuln_class
         return replace(
             proof, line=lines[0], line_source=GRAPH_SINK_CALL, sink_call=first.target[:_MAX_TEXT],
-            other_sink_lines=tuple(lines[1:6]),
+            other_sink_lines=tuple(lines[1:6]), input_family=family,
         )
     return proof
 
@@ -199,9 +351,42 @@ def refine_with_graph(proof: ProofFacts, graph: CodeGraph) -> ProofFacts:
 # -- grouping --------------------------------------------------------------------------------
 
 
-def proof_key(facts: Mapping[str, Any] | None) -> tuple | None:
-    """The identity of a proof: effect plus the chain of application frames, or None."""
-    if not isinstance(facts, Mapping) or facts.get("effect") not in EFFECTS:
+def _key_connect(facts: Mapping[str, Any], frames: tuple) -> tuple:
+    host = str(facts.get("target_host") or "")
+    port = facts.get("target_port")
+    pclass = str(facts.get("path_class") or "")
+    return ("canary_connect", host, port, pclass, frames)
+
+
+def _key_dos(facts: Mapping[str, Any], frames: tuple) -> tuple:
+    cpu_fn = str(facts.get("cpu_function") or (frames[-1][1] if frames else ""))
+    family = str(facts.get("input_family") or "")
+    return ("canary_dos", cpu_fn, family, frames)
+
+
+def _key_generic(facts: Mapping[str, Any], frames: tuple) -> tuple:
+    """Explicit generic fallback: effect + observed app frame chain."""
+    return (str(facts.get("effect") or ""), frames)
+
+
+_KEY_BUILDERS: dict[str, Callable[[Mapping[str, Any], tuple], tuple]] = {
+    "canary_read": _key_generic,
+    "canary_write": _key_generic,
+    "canary_exec": _key_generic,
+    "canary_sql": _key_generic,
+    "canary_connect": _key_connect,
+    "canary_dos": _key_dos,
+}
+
+
+def proof_key(facts: Mapping[str, Any] | None, *, allow_unregistered: bool = False) -> tuple | None:
+    """The identity of a proof: table-driven by effect with an explicit documented generic fallback."""
+    if not isinstance(facts, Mapping):
+        return None
+    effect = facts.get("effect")
+    if not isinstance(effect, str) or not effect:
+        return None
+    if not allow_unregistered and effect not in EFFECTS:
         return None
     chain = facts.get("chain")
     if not isinstance(chain, list) or not chain or len(chain) > _MAX_FRAMES:
@@ -214,7 +399,8 @@ def proof_key(facts: Mapping[str, Any] | None) -> tuple | None:
         if not isinstance(file, str) or not isinstance(qualname, str) or not isinstance(line, int):
             return None
         frames.append((file, qualname, line))
-    return (facts["effect"], tuple(frames))
+    builder = _KEY_BUILDERS.get(effect, _key_generic)
+    return builder(facts, tuple(frames))
 
 
 @dataclass(frozen=True)

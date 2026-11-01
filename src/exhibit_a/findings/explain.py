@@ -13,13 +13,17 @@ the code under test.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, get_args
 
-_EFFECTS = {
+from exhibit_a.oracle.oracle import Effect
+
+_EFFECTS: dict[str, str] = {
     "canary_read": "the application read a file outside the allowed directory (the canary file)",
     "canary_write": "the application created or wrote a file outside the allowed directory (the canary file)",
     "canary_exec": "the application ran a program outside the allowed directory (the canary program)",
     "canary_sql": "the application read a row of a database table it never queries (the canary table), through SQL built from input",
+    "canary_connect": "the application requested a URL only the run knows (the canary URL), through an outbound HTTP connection",
+    "canary_dos": "the application spent far more CPU on a malicious input than on a benign input of the same length (algorithmic complexity)",
 }
 _LINE_SOURCES = {
     "graph_sink_call": "the line of the sink call, found by the static call graph inside the function the oracle saw",
@@ -72,8 +76,14 @@ def summarize_patch(patch_text: str) -> dict[str, Any]:
     return {"fix_files": files, "fix_added": added, "fix_removed": removed}
 
 
-_FACT_TEXT = ("effect", "access", "entry_point", "entry_file", "sink_function", "test")
-_FACT_INT = ("runs", "fix_added", "fix_removed", "bypass_tried", "bypass_succeeded")
+_FACT_TEXT = (
+    "effect", "access", "entry_point", "entry_file", "sink_function", "test",
+    "target_host", "path_class", "input_family", "cpu_function",
+)
+_FACT_INT = (
+    "runs", "fix_added", "fix_removed", "bypass_tried", "bypass_succeeded",
+    "target_port",
+)
 _MAX_CHAIN = 64
 
 
@@ -138,6 +148,15 @@ def explain(facts: Mapping[str, Any] | None) -> str:
     if isinstance(effect, str) and effect:
         phrase = _EFFECTS.get(effect, f"the effect '{_text(effect, 60)}'")
         sentences.append(f"The oracle observed that {phrase}.")
+        if effect == "canary_connect" and facts.get("target_host"):
+            host = _text(facts["target_host"], 120)
+            port = _int(facts.get("target_port"))
+            target = f"{host}:{port}" if port is not None else host
+            sentences.append(f"The outbound request targeted '{target}'.")
+        elif effect == "canary_dos" and facts.get("input_family"):
+            sentences.append(
+                f"The algorithmic complexity was observed on the '{_text(facts['input_family'], 60)}' input family."
+            )
 
     entry, sink = facts.get("entry_point"), facts.get("sink_function")
     location = facts.get("observed_location")

@@ -148,6 +148,18 @@ def test_exec_effect_needs_a_process_from_a_sink_that_names_the_canary() -> None
     assert proof_facts(evidence(process, effect="canary_exec")) is None
 
 
+def test_connect_and_dos_events_produce_proof_facts() -> None:
+    connect_ev = read_event(*FULL_CHAIN, extra={"op": "request", "url": "http://127.0.0.1:23456/secret"})
+    proof_c = proof_facts(evidence(connect_ev, effect="canary_connect"))
+    assert proof_c is not None
+    assert proof_c.target_host == "127.0.0.1" and proof_c.target_port == 23456
+
+    dos_ev = read_event(*FULL_CHAIN, extra={"op": "dos", "access": "cpu", "command": "23=23"})
+    proof_d = proof_facts(evidence(dos_ev, effect="canary_dos"))
+    assert proof_d is not None
+    assert proof_d.input_family == "redos" and proof_d.cpu_function == "read_file"
+
+
 def test_the_deciding_event_must_start_at_a_declared_entry_point() -> None:
     event = read_event(DOWNLOAD, READ_FILE)  # reached the sink without the entry point
     assert proof_facts(evidence(event), entry_points={ENTRY}) is None
