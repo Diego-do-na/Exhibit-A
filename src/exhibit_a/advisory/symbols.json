@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "_comment": "Affected symbols for advisories whose OSV record names none. Keyed by advisory id; aliases match too. Each symbol is a dotted name as the code graph resolves it (module.Class, module.Class.method, module.function); a symbol also matches every dotted name below it. served_entry names the method a framework calls with each request when the symbol is an ASGI/WSGI application handed to a route table (Mount, app.mount). Hand-maintained: see docs/reference/dependency-proofs.md for how to add one.",
+  "advisories": {
+    "GHSA-v5gw-mw7f-84px": {
+      "aliases": ["CVE-2023-29159"],
+      "package": "starlette",
+      "symbols": [
+        "starlette.staticfiles.StaticFiles",
+        "fastapi.staticfiles.StaticFiles"
+      ],
+      "served_entry": "StaticFiles.__call__",
+      "vuln_class": "path_traversal",
+      "effect": "canary_read",
+      "note": "StaticFiles.lookup_path checks containment with os.path.commonprefix, so a sibling directory whose name starts with the served directory's name passes; every request a mounted StaticFiles serves goes through it."
+    }
+  }
+}
