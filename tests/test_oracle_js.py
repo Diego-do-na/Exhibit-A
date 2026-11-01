@@ -33,6 +33,7 @@ from exhibit_a.sandbox import runner as runner_mod
 FIXTURES = Path(__file__).parent / "fixtures" / "js"
 READ = FIXTURES / "read"
 EXEC = FIXTURES / "exec"
+HTTP = FIXTURES / "http"
 ENTRY = {"handleRequest"}
 PROVEN = ("failed", True, True)
 
@@ -329,6 +330,78 @@ def test_app_tree_admits_javascript_by_file_path(tmp_path):
     assert py_tree.check(Frame()) is not None
 
 
+def _http_event(*, public_interface, admitted, from_test, function="<anonymous>"):
+    from exhibit_a.oracle.oracle import OracleEvent
+
+    app_frame = {
+        "file": "/workspace/app.js", "function": function, "qualname": function,
+        "line": 8, "admitted": admitted,
+        **({} if admitted else {"admission": "file not in the staged app manifest"}),
+    }
+    test_frame = {
+        "file": "/workspace/_t/test_exploit.js", "function": "listener",
+        "qualname": "listener", "line": 4,
+    }
+    stack = [test_frame, app_frame] if from_test else [app_frame]
+    if from_test and not admitted:
+        stack = [test_frame]
+    return OracleEvent.model_validate({
+        "path": "/tmp/exhibit_a_oracle/outside/canary.txt",
+        "mode": "r",
+        "op": "open",
+        "flags": 0,
+        "access": "read",
+        "requested": "/tmp/exhibit_a_oracle/allowed/../outside/canary.txt",
+        "stack": stack,
+        "public_interface": public_interface,
+    })
+
+
+def test_judge_http_public_interface_admits_anonymous_app_frames(tmp_path):
+    source = tmp_path / "app.js"
+    source.write_text("function createApp() { return null; }\n", encoding="utf-8")
+    digest = __import__("hashlib").sha256(source.read_bytes()).hexdigest()
+    tree = AppTree("/workspace", tmp_path, {"app.js": digest}, language="javascript")
+    event = _http_event(public_interface=True, admitted=True, from_test=False)
+    j = _judge(
+        "failed", [event], Path("/workspace"), Path("/workspace/_t/test_exploit.js"),
+        {"createApp"}, effect="canary_read", app_tree=tree,
+        allowed_dir="/tmp/exhibit_a_oracle/allowed",
+    )
+    assert shape(j) == PROVEN, j.reason
+    assert j.reason_code == ""
+
+
+def test_judge_http_public_interface_refuses_a_test_listener(tmp_path):
+    source = tmp_path / "app.js"
+    source.write_text("function createApp() { return null; }\n", encoding="utf-8")
+    digest = __import__("hashlib").sha256(source.read_bytes()).hexdigest()
+    tree = AppTree("/workspace", tmp_path, {"app.js": digest}, language="javascript")
+    event = _http_event(public_interface=True, admitted=True, from_test=True)
+    j = _judge(
+        "failed", [event], Path("/workspace"), Path("/workspace/_t/test_exploit.js"),
+        {"createApp"}, effect="canary_read", app_tree=tree,
+        allowed_dir="/tmp/exhibit_a_oracle/allowed",
+    )
+    assert shape(j) != PROVEN
+    assert j.reason_code == REASON_PROVENANCE
+
+
+def test_judge_http_public_interface_refuses_a_server_with_no_app_frames(tmp_path):
+    source = tmp_path / "app.js"
+    source.write_text("function createApp() { return null; }\n", encoding="utf-8")
+    digest = __import__("hashlib").sha256(source.read_bytes()).hexdigest()
+    tree = AppTree("/workspace", tmp_path, {"app.js": digest}, language="javascript")
+    event = _http_event(public_interface=True, admitted=False, from_test=True)
+    j = _judge(
+        "failed", [event], Path("/workspace"), Path("/workspace/_t/test_exploit.js"),
+        {"createApp"}, effect="canary_read", app_tree=tree,
+        allowed_dir="/tmp/exhibit_a_oracle/allowed",
+    )
+    assert shape(j) != PROVEN
+    assert j.reason_code == REASON_PROVENANCE
+
+
 def test_judge_refuses_a_js_frame_that_the_plugin_did_not_admit(tmp_path):
     source = tmp_path / "app.js"
     source.write_text("function handleRequest() {}\n", encoding="utf-8")
@@ -488,3 +561,37 @@ def test_fixed_ts_exec_is_not_proven_in_the_sandbox():
         effect="canary_exec", language="typescript",
     )
     assert shape(j) != PROVEN, j.reason
+
+
+@pytest.mark.docker
+def test_http_anonymous_handler_is_proven_in_the_sandbox():
+    j = sandbox_js(
+        HTTP / "vulnerable", HTTP / "exploits" / "exploit_http_traversal.js",
+    )
+    assert shape(j) == PROVEN, j.reason
+    assert j.reason_code == ""
+    assert any(e.public_interface for e in j.events)
+
+
+@pytest.mark.docker
+def test_http_direct_call_from_the_test_is_refused_in_the_sandbox():
+    j = sandbox_js(
+        HTTP / "vulnerable", HTTP / "exploits" / "exploit_direct_from_test.js",
+    )
+    assert shape(j) != PROVEN
+    assert j.observed_effect
+    assert not j.provenance_ok
+    assert j.reason_code == REASON_PROVENANCE
+    assert not any(e.public_interface for e in j.events)
+
+
+@pytest.mark.docker
+def test_http_test_created_server_is_refused_in_the_sandbox():
+    j = sandbox_js(
+        HTTP / "vulnerable", HTTP / "exploits" / "exploit_test_server.js",
+    )
+    assert shape(j) != PROVEN
+    assert j.observed_effect
+    assert not j.provenance_ok
+    assert j.reason_code == REASON_PROVENANCE
+

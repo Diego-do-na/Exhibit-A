@@ -18,6 +18,9 @@ const childProcess = require('node:child_process');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const Module = require('node:module');
 const vm = require('node:vm');
+const http = require('node:http');
+const https = require('node:https');
+const { EventEmitter } = require('node:events');
 
 const ENV_CANARY = 'EXHIBIT_A_CANARY';
 const ENV_EVENTS = 'EXHIBIT_A_EVENTS';
@@ -79,6 +82,7 @@ const orig = {
   vmRunInContext: vm.runInContext.bind(vm),
   vmRunInNewContext: vm.runInNewContext.bind(vm),
   vmRunInThisContext: vm.runInThisContext.bind(vm),
+  emit: EventEmitter.prototype.emit,
 };
 
 let installed = false;
@@ -351,13 +355,13 @@ function namesCanary(parts, cwd, canaryPath) {
   return false;
 }
 
-function freezeProp(obj, name, value) {
+function freezeProp(obj, name, value, enumerable) {
   try {
     Object.defineProperty(obj, name, {
       value: value,
       writable: false,
       configurable: false,
-      enumerable: true,
+      enumerable: enumerable !== false,
     });
   } catch (err) {
     try {
@@ -509,6 +513,19 @@ function install() {
     return !isDigest(manifestFiles[rel]);
   }
 
+  function isHttpServer(server) {
+    try {
+      return server instanceof http.Server || server instanceof https.Server;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function isPublicInterface() {
+    const store = als.getStore();
+    return Boolean(store && store.publicInterface);
+  }
+
   function logicalStack() {
     const physical = captureFrames();
     const store = als.getStore();
@@ -575,6 +592,7 @@ function install() {
       requested: requested,
       stack: logicalStack(),
       target: hit.target,
+      public_interface: isPublicInterface(),
     };
     Object.assign(record, viaSymlink(hit.requested));
     emit(record);
@@ -627,6 +645,7 @@ function install() {
       names_canary: namesCanary(parts, process.cwd(), canaryReal),
       sink_named: named,
       patched: null,
+      public_interface: isPublicInterface(),
     });
   }
 
@@ -717,6 +736,17 @@ function install() {
     };
     freezeProp(childProcess, name, wrapped);
   }
+  freezeProp(EventEmitter.prototype, 'emit', function exhibitEmit(type) {
+    if (type === 'request' && isHttpServer(this)) {
+      const self = this;
+      const argv = arguments;
+      return als.run({ publicInterface: true, kind: 'http_request' }, function runHttpRequest() {
+        return orig.emit.apply(self, argv);
+      });
+    }
+    return orig.emit.apply(this, arguments);
+  }, false);
+
   wrapSpawn('exec', orig.exec, 0);
   wrapSpawn('execSync', orig.execSync, 0);
   wrapSpawn('spawn', orig.spawn, 0);
