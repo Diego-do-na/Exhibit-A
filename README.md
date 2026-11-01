@@ -85,6 +85,8 @@ Naive LLM versus the proof loop on the same corpus, same model (`muse-wonder-1.0
 
 Exhibit A's two reports each ship an exploit that fails on the vulnerable code plus a verified fix; the naive report is a list. Exhibit A cost about 4x the naive reporter here. Limits, stated in full in [docs/bench/bench.md](docs/bench/bench.md): 3 targets, one model sample each, the model is not deterministic, Exhibit A was tuned on these same cases with no held-out case, so recall 1.00 and zero false accusations are an illustration, not a rate.
 
+The generated [coverage matrix](docs/coverage.md) lists every oracle effect, CWE mapping, corpus count, held-out count, and measured status.
+
 ## Meta models used
 
 All model results come from Muse Wonder (`muse-wonder-1.0`), recorded unedited with costs and replayed offline ([docs/bench/meta-run.md](docs/bench/meta-run.md), [tests/test_meta_replay.py](tests/test_meta_replay.py)):
