@@ -24,6 +24,9 @@ TAG_REPOSITORY = "exhibit-a-sandbox-node"
 BUILD_TIMEOUT = 900
 INSTALL_DIR = "/opt/sandbox"
 TSX_VERSION = "tsx@4.19.2"
+# Salt so a Dockerfile change is not confused with a previously tagged image.
+# python3 runs T114's OS witness as a sibling of `node --test`.
+IMAGE_FEATURES = "python3-witness"
 
 
 def _normalize_packages(packages: list[str]) -> list[str]:
@@ -49,7 +52,7 @@ def _normalize_packages(packages: list[str]) -> list[str]:
 def image_tag(packages: list[str] | None = None) -> str:
     """Deterministic tag for the pinned Node base image plus npm packages."""
     pkgs = _normalize_packages(packages or [])
-    payload = "\n".join([BASE_IMAGE, *pkgs])
+    payload = "\n".join([BASE_IMAGE, IMAGE_FEATURES, *pkgs])
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
     return f"{TAG_REPOSITORY}:{digest}"
 
@@ -61,6 +64,7 @@ def _dockerfile(packages: list[str]) -> str:
     lines = [
         f"FROM {BASE_IMAGE}",
         "ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_AUDIT=false",
+        "RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*",
         f"WORKDIR {INSTALL_DIR}",
         f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION}",
     ]
@@ -103,6 +107,7 @@ __all__ = [
     "BASE_IMAGE_DIGEST",
     "BASE_IMAGE_TAG",
     "BUILD_TIMEOUT",
+    "IMAGE_FEATURES",
     "INSTALL_DIR",
     "TAG_REPOSITORY",
     "TSX_VERSION",

@@ -98,6 +98,7 @@ from exhibit_a.oracle.plugin import (
     key_message,
     verify_lines,
 )
+from exhibit_a.oracle.js import PLUGIN_CJS, TSX_IMPORT, is_js, language_of, uses_tsx
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest, tree_changes
 from exhibit_a.schemas.base import StrictModel
 
@@ -295,6 +296,7 @@ def run_oracle(
     access: Mapping[str, str] | None = None,
     redirect_meta: bool = False,
     disabled_layers: Collection[str] | None = None,
+    language: str = "python",
 ) -> Judgement:
     """Run ``test_path`` against the app in ``app_root`` and judge the result.
 
@@ -329,6 +331,11 @@ def run_oracle(
     ``{"attacker": ..., "victim": ..., "resource": ...}``; the test learns only the attacker
     credential and the resource. Raises ``ValueError`` if ``sql_db``, ``access_db``/``access``
     or ``redirect_meta`` is missing, unusable or given for another effect.
+
+    ``language`` selects the in-process observer. ``"python"`` (the default) is unchanged.
+    ``"javascript"`` and ``"typescript"`` load the Node preload and run ``node --test``;
+    v1 of that path only judges ``canary_read`` and ``canary_exec``. The judge itself is
+    shared: Node events are verified and admitted, then fed to ``_judge``.
     """
     parsed = parse_disabled_layers(disabled_layers)
     if disabled_layers:
@@ -337,6 +344,7 @@ def run_oracle(
                 app_root, test_path, entry_points,
                 timeout=timeout, effect=effect, sql_db=sql_db,
                 access_db=access_db, access=access, redirect_meta=redirect_meta,
+                language=language,
             )
     if effect not in (
         "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
@@ -351,6 +359,11 @@ def run_oracle(
         raise ValueError("redirect_meta is only for the canary_redirect effect")
     app_root = Path(app_root).resolve()
     test_path = Path(test_path).resolve()
+    language = language_of(test_path, language)
+    if is_js(language) and effect not in ("canary_read", "canary_exec"):
+        raise ValueError(
+            f"the Node oracle v1 only judges canary_read and canary_exec, not {effect!r}"
+        )
 
     problem = None
     if LAYER_GUARD not in disabled_oracle_layers():
@@ -383,6 +396,8 @@ def run_oracle(
         return _run_redirect(app_root, test_path, set(entry_points), timeout, redirect_meta)
     if effect == "canary_access":
         return _run_access(app_root, test_path, set(entry_points), timeout, access_db, access)
+    if is_js(language):
+        return _run_js(app_root, test_path, set(entry_points), timeout, effect, language)
 
     # The test's own directory is test code even when it sits inside the app root.
     exclude = []
@@ -1085,6 +1100,134 @@ def _file_is(path: Path, content: str) -> bool:
         return stat.S_ISREG(os.lstat(path).st_mode) and path.read_text(encoding="utf-8") == content
     except (OSError, UnicodeDecodeError):
         return False
+
+
+def _run_js(
+    app_root: Path,
+    test_path: Path,
+    entry_points: set[str],
+    timeout: float,
+    effect: Effect,
+    language: str,
+) -> Judgement:
+    """Host-path Node run: same layout and judge as Python, different observer and runner."""
+    exclude = []
+    if test_path.parent.is_relative_to(app_root) and test_path.parent != app_root:
+        exclude.append(test_path.parent.relative_to(app_root).as_posix())
+    elif test_path.parent == app_root:
+        exclude += [test_path.name]
+    try:
+        manifest = app_manifest(app_root, exclude)
+    except ManifestError as exc:
+        return Judgement(
+            observed_effect=False, provenance_ok=False, test_outcome="error",
+            reason=f"the application tree could not be hashed before the run: {exc}",
+            reason_code=REASON_MANIFEST_FAILED,
+        )
+    key = secrets.token_bytes(KEY_BYTES)
+    with tempfile.TemporaryDirectory(prefix="exhibit_a_oracle_") as tmp:
+        work = Path(tmp).resolve()
+        allowed = work / "allowed"
+        outside = work / "outside"
+        allowed.mkdir()
+        outside.mkdir()
+        (allowed / "public.txt").write_text("public file\n", encoding="utf-8")
+        token = "CANARY-" + secrets.token_hex(16)
+        canary = outside / (EXEC_CANARY_NAME if effect == "canary_exec" else "canary.txt")
+        marker = outside / EXEC_MARKER_NAME
+        script = exec_canary_script(marker, token)
+        if effect == "canary_read":
+            canary.write_text(token + "\n", encoding="utf-8")
+        elif effect == "canary_exec":
+            canary.write_text(script, encoding="utf-8")
+            canary.chmod(0o555)
+        events_path = work / "events.jsonl"
+        events_path.write_text("", encoding="utf-8")
+        outcome = _run_node_test(
+            app_root, test_path, work, allowed, canary, token, events_path, timeout,
+            key=key, manifest=manifest,
+            marker=marker if effect == "canary_exec" else None,
+            language=language,
+        )
+        events, forged, forged_reason = _read_events(events_path, key)
+        ran = None
+        if effect == "canary_exec":
+            ran = marker_holds_token(marker, token) and _file_is(canary, script)
+    changes = tree_changes(app_root, manifest, exclude)
+    return _judge(
+        outcome, events, app_root, test_path, set(entry_points),
+        effect=effect, forged_events=forged, forged_reason=forged_reason,
+        app_tree=AppTree(str(app_root), app_root, manifest, language=language),
+        app_tree_changes=changes,
+        allowed_dir=str(allowed), canary_ran=ran,
+    )
+
+
+def _run_node_test(
+    app_root: Path,
+    test_path: Path,
+    work: Path,
+    allowed: Path,
+    canary: Path | str,
+    token: str,
+    events_path: Path,
+    timeout: float,
+    *,
+    key: bytes | None,
+    manifest: dict[str, str] | None = None,
+    marker: Path | None = None,
+    language: str = "javascript",
+) -> TestOutcome:
+    """Run ``node --test`` with the CJS preload; ``key`` goes on stdin, never elsewhere."""
+    plugin_dir = Path(work) / "plugin"
+    plugin_dir.mkdir()
+    plugin_copy = plugin_dir / "oracle.cjs"
+    shutil.copyfile(PLUGIN_CJS, plugin_copy)
+    plugin_copy.chmod(0o400)
+    plugin_dir.chmod(0o500)
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "NODE_PATH": os.pathsep.join([str(app_root), os.environ.get("NODE_PATH", "")]),
+        ENV_ALLOWED_DIR: str(allowed),
+        ENV_CANARY: str(canary),
+        ENV_CANARY_TOKEN: token,
+        ENV_EVENTS: str(events_path),
+        "NODE_OPTIONS": f"--require={plugin_copy}",
+        "HOME": str(work),
+    }
+    if marker is not None:
+        env[ENV_MARKER] = str(marker)
+    cmd = ["node"]
+    if uses_tsx(language, test_path):
+        cmd += ["--import", TSX_IMPORT]
+    cmd += [
+        "--test", "--experimental-test-isolation=none",
+        "--test-concurrency=1", "--test-reporter=tap", str(test_path),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=app_root,
+            env=env,
+            input=(
+                key_message(key, app_root=str(app_root), manifest=manifest)
+                if key is not None and manifest is not None
+                else key_message(key) if key is not None else None
+            ),
+            stdin=subprocess.DEVNULL if key is None else None,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return "timeout"
+    except FileNotFoundError:
+        return "error"
+    if proc.returncode == 0:
+        return "passed"
+    if proc.returncode == 1:
+        return "failed"
+    return "error"
 
 
 def _run_test(

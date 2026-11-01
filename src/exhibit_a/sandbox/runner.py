@@ -73,6 +73,8 @@ from pathlib import Path, PurePosixPath
 from typing import Dict, Any, Mapping
 
 from .image import build_image
+from .image_node import build_node_image
+from exhibit_a.oracle.js import PLUGIN_CJS, PLUGIN_MOUNT, is_js, language_of, node_test_argv, uses_tsx
 from exhibit_a.oracle.oracle import (
     SQL_CANARY_COLUMN,
     SQL_CANARY_TABLE,
@@ -136,6 +138,13 @@ DECLARED_MOUNTS: tuple[dict[str, str], ...] = (
         "kind": "bind",
         "scope": "oracle",
         "source": "<tmpdir>/exhibit_a_oracle_plugin.py (per-run copy of plugin.py)",
+    },
+    {
+        "target": "/opt/exhibit_a_plugin/oracle.cjs",
+        "mode": "ro",
+        "kind": "bind",
+        "scope": "oracle_node",
+        "source": "<tmpdir>/oracle.cjs (per-run copy of the Node preload)",
     },
     {
         "target": "/oracle/events.jsonl",
@@ -413,6 +422,25 @@ wait $WITNESS 2>/dev/null
 exit $rc
 '''
 
+# Node: same supervisor (T114, python3 in the Node image), then `node --test`.
+# $1 supervisor script, $2 config, $3+ node argv (the binary is included).
+_WITNESS_NODE_SHELL = r'''
+python3 -I -S "$1" "$2" >/tmp/witness.out 2>&1 & WITNESS=$!
+for i in $(seq 1 50); do
+  [ -f /tmp/witness.ready ] && break
+  sleep 0.1
+done
+if [ ! -f /tmp/witness.ready ]; then
+  kill $WITNESS 2>/dev/null
+  wait $WITNESS 2>/dev/null
+  exit 1
+fi
+"${@:3}"; rc=$?
+kill $WITNESS 2>/dev/null
+wait $WITNESS 2>/dev/null
+exit $rc
+'''
+
 # Write effect: the witness runs for the whole pytest, then the outside/ dump, then stop.
 # $1 supervisor, $2 config, $3 dump program, $4 work, $5 canary mount, $6+ pytest argv.
 _WITNESS_WRITE_SHELL = r'''
@@ -532,6 +560,7 @@ def _verify_declared_mounts(cmd: list[str], tmpdir: str) -> str | None:
     static_targets = {
         _WORKSPACE,
         f"{_PLUGIN_DIR}/{_PLUGIN_MODULE}.py",
+        PLUGIN_MOUNT,
         _EVENTS_MOUNT,
         _CANARY_MOUNT,
         _OUTSIDE_MOUNT,
@@ -727,6 +756,8 @@ def run(
     access_db: str | None = None,
     access_victim: str | None = None,
     runtime: str | None = None,
+    language: str = "python",
+    packages: list[str] | None = None,
 ) -> Dict[str, Any]:
     """
     Execute pytest inside an ephemeral, hardened docker container.
@@ -758,6 +789,11 @@ def run(
             resource's owner. It travels as a seed argument only, never in the test's environment.
         runtime: optional Docker runtime name (defaults to `EXHIBIT_A_DOCKER_RUNTIME`, e.g. `runsc` for gVisor).
             Fails closed with `env_failure` if set and not installed.
+        language: ``"python"`` (default) runs pytest on the Python image. ``"javascript"``
+            and ``"typescript"`` run ``node --test`` on the pinned Node image with the CJS
+            preload. v1 of the Node path only observes ``canary_read`` and ``canary_exec``.
+        packages: extra npm packages baked into the Node image when ``language`` is JS/TS
+            and ``image`` is omitted.
 
     Returns:
         dict with outcome, exit_code, stdout, stderr, oracle_events, oracle_forged_events,
@@ -789,6 +825,13 @@ def run(
             rel_test = os.path.relpath(test_path, clone_path)
         else:
             rel_test = test_path
+
+        language = language_of(rel_test, language)
+        js_mode = is_js(language)
+        if js_mode and effect not in ("canary_read", "canary_exec"):
+            return _env_failure(
+                f"the Node oracle v1 only judges canary_read and canary_exec, not {effect}"
+            )
 
         run_name = f"exhibit_a_run_{uuid.uuid4().hex[:8]}"
 
@@ -885,13 +928,21 @@ def run(
                 return _env_failure("the staged workspace does not match the caller's manifest")
             # Private copies under tmpdir keep every mount bind-able and the host originals untouched.
             Path(events_file).write_text("")
-            plugin_copy = os.path.join(tmpdir, f"{_PLUGIN_MODULE}.py")
-            shutil.copyfile(_PLUGIN_SOURCE, plugin_copy)
-            extra_args += ["-v", f"{plugin_copy}:{_PLUGIN_DIR}/{_PLUGIN_MODULE}.py:ro"]
+            extra_args += ["-v", f"{events_file}:{_EVENTS_MOUNT}:rw"]
+            extra_args += ["-e", f"EXHIBIT_A_EVENTS={_EVENTS_MOUNT}"]
+            if js_mode:
+                plugin_js = os.path.join(tmpdir, "oracle.cjs")
+                shutil.copyfile(PLUGIN_CJS, plugin_js)
+                extra_args += ["-v", f"{plugin_js}:{PLUGIN_MOUNT}:ro"]
+                extra_args += ["-e", f"NODE_OPTIONS=--require={PLUGIN_MOUNT}"]
+                extra_args += ["-e", "NODE_PATH=/workspace:/opt/sandbox/node_modules"]
+            else:
+                plugin_copy = os.path.join(tmpdir, f"{_PLUGIN_MODULE}.py")
+                shutil.copyfile(_PLUGIN_SOURCE, plugin_copy)
+                extra_args += ["-v", f"{plugin_copy}:{_PLUGIN_DIR}/{_PLUGIN_MODULE}.py:ro"]
+                extra_args += ["-e", f"PYTHONPATH={_PLUGIN_DIR}"]
             # Still a known path inside the container (a bind mount cannot be hidden from the
             # test); the plugin signs every line, and unverified lines are dropped in collect().
-            extra_args += ["-v", f"{events_file}:{_EVENTS_MOUNT}:rw"]
-            extra_args += ["-e", f"PYTHONPATH={_PLUGIN_DIR}", "-e", f"EXHIBIT_A_EVENTS={_EVENTS_MOUNT}"]
             if canary_path is not None:
                 canary_copy = os.path.join(tmpdir, "canary")
                 shutil.copyfile(canary_path, canary_copy)
@@ -991,7 +1042,8 @@ def run(
                 extra_args += ["-v", f"{witness_script}:{_WITNESS_SCRIPT_MOUNT}:ro"]
                 extra_args += ["-v", f"{witness_cfg_file}:{_WITNESS_CFG_MOUNT}:rw"]
                 extra_args += ["-v", f"{witness_file}:{_WITNESS_LOG_MOUNT}:rw"]
-            plugin_args = ["-p", _PLUGIN_MODULE]
+            if not js_mode:
+                plugin_args = ["-p", _PLUGIN_MODULE]
         for env_name, value in extra_env.items():
             if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY", _CONNECT_ENV, ENV_DOS, _REDIRECT_ENV) and observe:
                 continue
@@ -1038,7 +1090,10 @@ def run(
         # 1) Resolve the prebuilt image (built once with network, reused across runs).
         if image is None:
             try:
-                image = build_image([PYTEST_VERSION, *(requirements or [])])
+                if js_mode:
+                    image = build_node_image(list(packages or []))
+                else:
+                    image = build_image([PYTEST_VERSION, *(requirements or [])])
             except (RuntimeError, ValueError, subprocess.SubprocessError, OSError) as e:
                 return _env_failure(f"failed to prepare sandbox image: {e}")
 
@@ -1093,39 +1148,49 @@ def run(
             extra_args += ["-v", f"{seeded}:{_WORKSPACE}/{access_db}:ro"]
 
         # 2) Run the image with strict isolation and no network.
-        pytest_args = ["-q", "-p", "no:cacheprovider", *plugin_args, f"/workspace/{rel_test}"]
-        if witness_enabled and effect == "canary_write":
-            # Witness for the whole pytest, then the outside/ dump. Paths and the dump
-            # program reach the shell as arguments, never spliced into its text.
-            pytest_argv = [
-                "bash", "-c", _WITNESS_WRITE_SHELL,
-                "exhibit-a", _WITNESS_SCRIPT_MOUNT, _WITNESS_CFG_MOUNT,
-                _OUTSIDE_DUMP, str(canary_work), str(mount), *pytest_args,
-            ]
-        elif witness_enabled:
-            # Supervisor is a sibling of pytest, started first; connect's listener runs
-            # inside it so accept() is the OS fact (the old _CONNECT_SHELL path is unused
-            # when the witness is on).
-            pytest_argv = [
-                "bash", "-c", _WITNESS_SHELL,
-                "exhibit-a", _WITNESS_SCRIPT_MOUNT, _WITNESS_CFG_MOUNT, *pytest_args,
-            ]
-        elif effect == "canary_write":
-            # pytest's own exit status is kept; the dump runs after it, in isolated mode. Every
-            # value reaches the shell as a positional parameter, never spliced into its text.
-            pytest_argv = [
-                "bash", "-c",
-                'pytest "${@:4}"; rc=$?; python -I -S -c "$1" "$2" "$3" ' + _OUTSIDE_MOUNT + '; exit $rc',
-                "exhibit-a", _OUTSIDE_DUMP, str(canary_work), str(mount), *pytest_args,
-            ]
-        elif effect == "canary_connect":
-            pytest_argv = [
-                "bash", "-c", _CONNECT_SHELL,
-                "exhibit-a", _SERVER_MOUNT, str(connect_port), connect_secret, extra_env[_TOKEN_ENV],
-                _CONNECT_LOG_MOUNT, *pytest_args,
-            ]
+        if js_mode:
+            node_cmd = node_test_argv(PurePosixPath(rel_test).as_posix(), typescript=uses_tsx(language, rel_test))
+            if witness_enabled:
+                pytest_argv = [
+                    "bash", "-c", _WITNESS_NODE_SHELL,
+                    "exhibit-a", _WITNESS_SCRIPT_MOUNT, _WITNESS_CFG_MOUNT, *node_cmd,
+                ]
+            else:
+                pytest_argv = node_cmd
         else:
-            pytest_argv = ["pytest", *pytest_args]
+            pytest_args = ["-q", "-p", "no:cacheprovider", *plugin_args, f"/workspace/{rel_test}"]
+            if witness_enabled and effect == "canary_write":
+                # Witness for the whole pytest, then the outside/ dump. Paths and the dump
+                # program reach the shell as arguments, never spliced into its text.
+                pytest_argv = [
+                    "bash", "-c", _WITNESS_WRITE_SHELL,
+                    "exhibit-a", _WITNESS_SCRIPT_MOUNT, _WITNESS_CFG_MOUNT,
+                    _OUTSIDE_DUMP, str(canary_work), str(mount), *pytest_args,
+                ]
+            elif witness_enabled:
+                # Supervisor is a sibling of pytest, started first; connect's listener runs
+                # inside it so accept() is the OS fact (the old _CONNECT_SHELL path is unused
+                # when the witness is on).
+                pytest_argv = [
+                    "bash", "-c", _WITNESS_SHELL,
+                    "exhibit-a", _WITNESS_SCRIPT_MOUNT, _WITNESS_CFG_MOUNT, *pytest_args,
+                ]
+            elif effect == "canary_write":
+                # pytest's own exit status is kept; the dump runs after it, in isolated mode. Every
+                # value reaches the shell as a positional parameter, never spliced into its text.
+                pytest_argv = [
+                    "bash", "-c",
+                    'pytest "${@:4}"; rc=$?; python -I -S -c "$1" "$2" "$3" ' + _OUTSIDE_MOUNT + '; exit $rc',
+                    "exhibit-a", _OUTSIDE_DUMP, str(canary_work), str(mount), *pytest_args,
+                ]
+            elif effect == "canary_connect":
+                pytest_argv = [
+                    "bash", "-c", _CONNECT_SHELL,
+                    "exhibit-a", _SERVER_MOUNT, str(connect_port), connect_secret, extra_env[_TOKEN_ENV],
+                    _CONNECT_LOG_MOUNT, *pytest_args,
+                ]
+            else:
+                pytest_argv = ["pytest", *pytest_args]
         cmd = [
             "docker",
             "run",
