@@ -98,6 +98,11 @@ class ProvenFinding:
     sink_line: int = 0  # observed line in the sink caller (graph-refined when the loop could)
     sink_call: str = ""  # the dotted sink the graph placed on that line, if any
     fix_verified: bool = False
+    target_host: str = ""
+    target_port: int | None = None
+    path_class: str = ""
+    input_family: str = ""
+    cpu_function: str = ""
 
     @property
     def entry(self) -> Frame:
@@ -109,7 +114,18 @@ class ProvenFinding:
 
     def facts(self) -> dict[str, Any]:
         """The shape ``findings.proof_key`` reads, to compare a variant's proof with this one."""
-        return {"effect": self.effect, "chain": [f.to_json() for f in self.chain]}
+        out: dict[str, Any] = {"effect": self.effect, "chain": [f.to_json() for f in self.chain]}
+        if self.target_host:
+            out["target_host"] = self.target_host
+        if self.target_port is not None:
+            out["target_port"] = self.target_port
+        if self.path_class:
+            out["path_class"] = self.path_class
+        if self.input_family:
+            out["input_family"] = self.input_family
+        if self.cpu_function:
+            out["cpu_function"] = self.cpu_function
+        return out
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -158,6 +174,11 @@ def finding_from_evidence(finding_id: str, package: str, evidence: Mapping[str, 
     return ProvenFinding(
         finding_id=finding_id[:_MAX_TEXT], package=package, effect=str(facts["effect"]), chain=chain,
         sink_line=line, sink_call=call, fix_verified=evidence.get("fix_verified") is True,
+        target_host=str(facts.get("target_host") or ""),
+        target_port=facts.get("target_port") if isinstance(facts.get("target_port"), int) else None,
+        path_class=str(facts.get("path_class") or ""),
+        input_family=str(facts.get("input_family") or ""),
+        cpu_function=str(facts.get("cpu_function") or ""),
     )
 
 
@@ -536,25 +557,38 @@ def find_variants(
             proven_hit = SinkHit(node="", target=finding.sink_call, line=0, category=rule.category,
                                  vuln_class=rule.vuln_class, effect=rule.effect, access=rule.access)
     if proven_hit is None:
-        out.note = ("the graph has no sink call of this effect in the proven sink function "
-                    "and evidence names no sink call: no rule to match variants against")
-        return out
-    rule = sink_rule(proven_hit)
-    out.rule = _rule_name(rule, proven_hit)
+        if finding.effect == "canary_dos" and sink_node is not None:
+            rule = None
+            out.rule = "cpu/algorithmic_complexity"
+        else:
+            out.note = ("the graph has no sink call of this effect in the proven sink function "
+                        "and evidence names no sink call: no rule to match variants against")
+            return out
+    else:
+        rule = sink_rule(proven_hit)
+        out.rule = _rule_name(rule, proven_hit)
+
+    # Check if the calls inside sink_node are constant-only
+    if own:
+        own_edges = [_edge_for(edges, h) for h in own]
+        if all(e is not None and not e.ref and constant_call(e, sink_rule(h)) for e, h in zip(own_edges, own)):
+            out.constant_sites += len(own)
+            return out
 
     # Every non-constant call site of the same rule (the proven function's own included).
     sites: list[SinkHit] = []
-    for node_id in sorted(hits):
-        for hit in hits[node_id]:
-            if not _same_rule(proven_hit, rule, hit):
-                continue
-            edge = _edge_for(edges, hit)
-            if edge is None or edge.ref:
-                continue  # a sink handed over as a callback: no call site to argue about
-            if constant_call(edge, sink_rule(hit)):
-                out.constant_sites += 1
-                continue
-            sites.append(hit)
+    if rule is not None:
+        for node_id in sorted(hits):
+            for hit in hits[node_id]:
+                if not _same_rule(proven_hit, rule, hit):
+                    continue
+                edge = _edge_for(edges, hit)
+                if edge is None or edge.ref:
+                    continue  # a sink handed over as a callback: no call site to argue about
+                if constant_call(edge, sink_rule(hit)):
+                    out.constant_sites += 1
+                    continue
+                sites.append(hit)
 
     # Structure of the proven sink caller, to compare same-rule callers with.
     cache: dict[str, list[str] | None] = {}
@@ -575,6 +609,8 @@ def find_variants(
         entries = [*entries, EntryPoint(node=entry_node.id, kind="proven", oracle_name=entry_node.name,
                                         detail="the entry point of the proven finding")]
     site_nodes = sorted({h.node for h in sites})
+    if finding.effect == "canary_dos" and sink_node is not None and sink_node.id not in site_nodes:
+        site_nodes = sorted({*site_nodes, sink_node.id})
     report = find_paths(graph, site_nodes, entries=entries, max_paths=100_000) if site_nodes else None
     by_site: dict[tuple[str, int, str], list[ReachPath]] = {}
     for path in report.paths if report else []:
@@ -582,38 +618,60 @@ def find_variants(
             by_site.setdefault((path.sink.node, path.sink.line, path.sink.target), []).append(path)
 
     candidates: list[Variant] = []
-    for hit in sites:
-        node = nodes.get(hit.node)
-        if node is None:
-            continue
-        paths = [p for p in by_site.get((hit.node, hit.line, hit.target), [])
-                 if (p.entry, hit.node) not in excluded]
-        base = dict(finding_id=finding.finding_id, effect=finding.effect, vuln_class=hit.vuln_class,
-                    rule=out.rule, sink_node=hit.node, sink_target=hit.target, sink_line=hit.line,
-                    source_file=node.file, weak_sink=hit.weak)
-        if sink_node is not None and hit.node == sink_node.id:
-            # Two routes into one helper: every other entry point is its own candidate.
-            seen_entries: set[str] = set()
-            for path in sorted(paths, key=_path_rank):
+    if finding.effect == "canary_dos" and sink_node is not None:
+        # canary_dos variants: same function reached from other entry points only.
+        node = nodes.get(sink_node.id)
+        if node is not None:
+            paths_to_sink = [p for p in (report.paths if report else [])
+                             if p.returns == 0 and p.sink.node == sink_node.id
+                             and (p.entry, sink_node.id) not in excluded]
+            seen_entries = set()
+            for path in sorted(paths_to_sink, key=_path_rank):
                 if path.entry in seen_entries:
                     continue
                 seen_entries.add(path.entry)
-                candidates.append(Variant(kinds=[SAME_SINK_FUNCTION], path=path, **base))
-            continue
-        kinds = [SAME_SINK_RULE]
-        sim: float | None = None
-        flow: list[int] = []
-        shape = shape_of(node, [hit.line]) if proven_shape is not None else None
-        if shape is not None and proven_shape is not None:
-            sim = similarity(proven_shape, shape)
-            flow = sorted(shape.flow)
-            if sim >= SIMILARITY_THRESHOLD and shape.flow and shape.flow == proven_shape.flow:
-                kinds = [SIMILAR_CALLER, SAME_SINK_RULE]
-        ordered = sorted(paths, key=_path_rank)
-        if not ordered and by_site.get((hit.node, hit.line, hit.target)):
-            continue  # every entry point reaching it is an already proven path
-        candidates.append(Variant(kinds=kinds, path=ordered[0] if ordered else None, similarity=sim,
-                                  param_flow=flow, other_entries=max(0, len(ordered) - 1), **base))
+                target_name = proven_hit.target if proven_hit else sink_node.name
+                line_no = proven_hit.line if proven_hit else sink_node.start
+                vc = proven_hit.vuln_class if proven_hit else "algorithmic_complexity"
+                candidates.append(Variant(
+                    finding_id=finding.finding_id, kinds=[SAME_SINK_FUNCTION], effect=finding.effect,
+                    vuln_class=vc, rule=out.rule, sink_node=sink_node.id, sink_target=target_name,
+                    sink_line=line_no, source_file=node.file, path=path,
+                    weak_sink=proven_hit.weak if proven_hit else False,
+                ))
+    else:
+        for hit in sites:
+            node = nodes.get(hit.node)
+            if node is None:
+                continue
+            paths = [p for p in by_site.get((hit.node, hit.line, hit.target), [])
+                     if (p.entry, hit.node) not in excluded]
+            base = dict(finding_id=finding.finding_id, effect=finding.effect, vuln_class=hit.vuln_class,
+                        rule=out.rule, sink_node=hit.node, sink_target=hit.target, sink_line=hit.line,
+                        source_file=node.file, weak_sink=hit.weak)
+            if sink_node is not None and hit.node == sink_node.id:
+                # Two routes into one helper: every other entry point is its own candidate.
+                seen_entries = set()
+                for path in sorted(paths, key=_path_rank):
+                    if path.entry in seen_entries:
+                        continue
+                    seen_entries.add(path.entry)
+                    candidates.append(Variant(kinds=[SAME_SINK_FUNCTION], path=path, **base))
+                continue
+            kinds = [SAME_SINK_RULE]
+            sim: float | None = None
+            flow: list[int] = []
+            shape = shape_of(node, [hit.line]) if proven_shape is not None else None
+            if shape is not None and proven_shape is not None:
+                sim = similarity(proven_shape, shape)
+                flow = sorted(shape.flow)
+                if sim >= SIMILARITY_THRESHOLD and shape.flow and shape.flow == proven_shape.flow:
+                    kinds = [SIMILAR_CALLER, SAME_SINK_RULE]
+            ordered = sorted(paths, key=_path_rank)
+            if not ordered and by_site.get((hit.node, hit.line, hit.target)):
+                continue  # every entry point reaching it is an already proven path
+            candidates.append(Variant(kinds=kinds, path=ordered[0] if ordered else None, similarity=sim,
+                                      param_flow=flow, other_entries=max(0, len(ordered) - 1), **base))
 
     unique: dict[tuple, Variant] = {}
     for cand in candidates:
