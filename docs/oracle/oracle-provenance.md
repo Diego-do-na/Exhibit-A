@@ -536,6 +536,118 @@ point's real frame (R1). It can also replace a name in the app's own module, her
 (`setattr(sys.modules["app"], "quote", str)`), so the admitted code really builds an injected
 statement (R5). Neither is stopped in-process; both are listed in section 7.
 
+### 3.11 Layer 10: the `canary_connect` effect (T104)
+
+A fifth family of effect, server-side request forgery. A file effect observes the application
+touching a file, `canary_exec` observes it running a program, and `canary_sql` observes it
+reading a row it never asks for; this one observes the application **requesting a URL only
+the run knows**. The proof is that the app, handling input the test sent through its entry
+point, fetched a per-run loopback URL.
+
+**The canary.** A loopback HTTP listener (`oracle/canary_server.py`, stdlib only), started per
+run on 127.0.0.1 at a random port (20000–59999). It serves the run's token at exactly one
+unguessable path (16 random hex characters, also matched with anything under it, so an app
+that appends to the URL still proves it knew the secret); every other path answers 404
+without the token. The listener records every accepted TCP connection and every HTTP
+request as JSON lines in a log file, each tagged with the token.
+
+- host path (`run_oracle`): the listener is a separate child process (`python -I -S`), bound
+  before the test runs and killed after; it never loads the oracle plugin, so its own
+  sockets produce no events.
+- sandbox: the listener runs *inside* the test's container from a read-only mount, started
+  by the container shell next to pytest with a readiness probe, and killed after it. The
+  container keeps `--network none`: loopback still works, and a probe test
+  (`test_the_container_has_no_network_interface_besides_loopback`) asserts the container
+  exposes no interface besides `lo`. The log lands in a read-only-for-the-host file
+  (`/oracle/connect.jsonl`, the only other writable mount); the test can name it only
+  through a computed path (the guard refuses the literal, and `/oracle` is already
+  refused).
+
+The test gets `EXHIBIT_A_CANARY_URL` (the full URL, secret path included) and
+`EXHIBIT_A_CANARY_TOKEN` (for the assertion, as with the other effects). The token is
+served by the listener only as the body of the secret path: any request for it from test
+frames refuses the whole run (`connect_from_test`), so the test can never benefit from
+fetching it directly. The listener's log is untrusted (the test shares the machine and
+could append to it): the oracle never proves from the log alone.
+
+**What the plugin records** (signed, same channel; only when `EXHIBIT_A_CANARY_URL` is
+present), each with the logical stack:
+
+| `op` | audit event | also records |
+|---|---|---|
+| `connect` | `socket.connect` (the peer address), `socket.getaddrinfo` (host, port), `http.client.connect` (host, port) | `host`, `port` |
+| `request` | `urllib.Request` (the full URL), `http.client.send` (the request line's target) | `url` |
+
+These events fire in the real implementation, so nothing is wrapped: a fake that never
+connects produces no event, and a replacement (monkeypatched `socket.connect`, a stubbed
+`urlopen`) either still fires them from the app's frames or produces none at all. A forked
+child shares the event sequence with its parent (anonymous shared memory and a pipe-based
+mutex), as for `canary_exec` and `canary_sql`.
+
+**What the judge requires** (`oracle._judge_connect`). Signed events, the manifest, the
+tree check and admission apply first, unchanged (no route check: there is no file path,
+and every event carries `requested: None`). Then all of:
+
+1. **Authenticated provenance is on.** Without the staged app nothing is proven.
+2. **Nothing connected or requested from test frames**: one `connect` or `request` event
+   whose innermost project frame is the test's (or nobody's) refuses the whole run, even
+   beside a genuine one (`connect_from_test`). A raw socket the test opens, a lookup it
+   resolves, or a request it sends are all the test's.
+3. **The listener's log shows a request for this run's secret path.** Without it (a
+   connection the app opened but never requested, a refusal, a timeout) nothing is proven
+   (`no_effect`).
+4. **A signed `request` event shows the application itself requested that path** (a full
+   URL on a loopback host with the run's port and secret path, or a bare target equal to
+   it) **with valid provenance**: admitted app code, outermost app frame a declared entry
+   point, called from the test. A raw-socket app that never builds a URL object is not
+   provable (a recall cost, below).
+5. **A signed `connect` event shows the application itself connected to the listener**
+   (a loopback host and the run's port) with valid provenance.
+6. **The test failed**, as for every effect.
+
+That the token **reached the test through the app** is the assertion the test makes: the
+oracle checks the request, the failing assertion checks the exfiltration. A test that
+fetches the URL itself makes its own assertion fail, but its own `connect` event refuses
+the run first.
+
+**Static guard** (`guard.connect_problem`, this effect only). A test is refused before it
+runs if it imports or names a network module (`socket`, `urllib.request`, `urllib3`,
+`http.client`, `requests`, `httpx`, `aiohttp`), names a connect or fetch API
+(`create_connection`, `getaddrinfo`, `urlopen`, `HTTPConnection`, ...), or names the
+listener's implementation or its log (`canary_server`, `connect.jsonl`). `urllib.parse`
+stays allowed: tests build no request with it. It is a tripwire like the others: every
+cheat in `tests/test_oracle_connect.py` also runs with it off, and the runtime layers
+alone refuse them.
+
+**What it cannot see.** These are recall costs unless marked otherwise.
+
+- An app that speaks HTTP over a raw socket (hand-crafted request, no `urllib` or
+  `http.client` call) connects observably but requests nothing the plugin can see: the
+  listener logs it, but no signed `request` event names the path, so it is not proven.
+- UDP, Unix sockets and non-HTTP protocols are not observed and never match.
+- A connection the app opens but never requests (a port scan, a refused SYN, a DNS
+  lookup alone) is not SSRF and is not proven.
+- An app whose HTTP client runs in a child process is observed (fork-safe sequence), but
+  one whose client runs in a *grandchild* that re-executes is not: a new process image
+  has no hook.
+- As with every effect, the graph flags a call as an SSRF sink only when its target may
+  carry input: `urllib.request.urlopen`, `http.client`, `requests`/`httpx` and
+  `aiohttp` calls always, `socket.create_connection` only with a non-constant target
+  (`graph/catalog.py`).
+
+Residual false proofs: R1 and R5 apply to this effect like the others, and both are
+pinned (`test_r5_*` in `tests/test_oracle_connect.py` on the host path,
+`test_r1_key_theft_and_log_forgery_forge_a_proof_in_the_sandbox` in the sandbox, plus
+`attack_connect_r1_forge_events` and `attack_connect_r5_app_binding` in
+`spikes/redteam`). With computed names the test finds `emit` in the hook module and signs
+a `connect` and a `request` that name the entry point's real frame (R1): on the host path
+the listener's log stops it (the test cannot learn the log's path, so nothing it signs
+matches a recorded request), but in the sandbox the log path is fixed and one forged line
+completes the forgery. It can also replace a binding in the app's own module, here the
+canary host (`setattr(sys.modules["app"], "HOST", ...)`), so the admitted code really
+requests the canary through the entry point (R5). Neither is stopped in-process; both are
+listed in section 7.
+
 ## 4. What each layer defends
 
 | attack | L1 manifest | L2 admission | L3 tree check | L4 tripwire | L5 dir_fd |
@@ -623,8 +735,30 @@ apps are the controls: each is proven (DETECTED) with and without the tripwire.
 | `attack_sql_r1_forge_events` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R1) |
 | `attack_sql_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
 
+Results for the `canary_connect` attacks, T104, same command, this session, host path. The
+vulnerable apps are the controls: each is proven (DETECTED) with and without the tripwire.
+
+| PoC | app | guard on | guard off | stopped by |
+|---|---|---|---|---|
+| `attack_connect_from_test` | safe | BLOCKED | BLOCKED | `connect_from_test` (test connected itself) |
+| `attack_connect_request_from_test` | safe | BLOCKED | BLOCKED | `connect_from_test` (urllib request from the test) |
+| `attack_connect_http_client_from_test` | safe | BLOCKED | BLOCKED | `connect_from_test` (http.client request from the test) |
+| `attack_connect_requests_from_test` | safe | BLOCKED | BLOCKED | `connect_from_test` (requests call from the test) |
+| `attack_connect_resolve_from_test` | safe | BLOCKED | BLOCKED | `connect_from_test` (test resolved the host itself) |
+| `attack_connect_raw_socket` | safe | BLOCKED | BLOCKED | `connect_from_test` (raw socket opened by the test) |
+| `attack_connect_read_log` | safe | BLOCKED | BLOCKED | guard `connect_log`; at runtime no app request (`no_effect`) |
+| `attack_connect_internal_helper` | safe | BLOCKED | BLOCKED | `provenance` (entry point not called from the test) |
+| `attack_connect_thread` | safe | BLOCKED | BLOCKED | `provenance` (thread stack holds no entry point) |
+| `attack_connect_copied_token` | safe | BLOCKED | BLOCKED | `no_effect` (no request happened) |
+| `attack_connect_true_fetch` | vulnerable | DETECTED | DETECTED | control |
+| `attack_connect_true_host` | vulnerable | DETECTED | DETECTED | control |
+| `attack_connect_true_redirect` | vulnerable | DETECTED | DETECTED | control (test serves the 302, the app follows) |
+| `attack_connect_true_localhost` | vulnerable | DETECTED | DETECTED | control (`localhost` names the same loopback service) |
+| `attack_connect_r1_forge_events` | safe | BLOCKED | BLOCKED | `no_effect` on the host path: signed events alone match no listener record (in the sandbox the fixed log path completes the forgery: R1, pinned xfail) |
+| `attack_connect_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
+
 No new FALSE_PROVEN beyond the two declared residual limits. The sandbox runs the same cheats
-(`tests/test_oracle_sql.py`, docker-marked, with the reason codes asserted); the red-team driver
+(`tests/test_oracle_connect.py`, docker-marked, with the reason codes asserted); the red-team driver
 itself is host-path only.
 
 ## 6. What is proven by tests, what is only designed
