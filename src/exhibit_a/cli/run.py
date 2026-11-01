@@ -25,6 +25,7 @@ from ..loop import pipeline as _loop_pipeline
 from ..loop import runner as _loop_runner
 from ..models import BudgetExceeded, CostMeter, ModelError, ModelRole, ReplayProvider, Role
 from ..models.config import RoleConfig, build_roles
+from ..oracle.js import JS_SUFFIXES
 from ..schemas import Event, EventType, RunRecord, VerdictCounts
 from ..schemas.graph import CodeGraph, ReachReport
 
@@ -48,7 +49,11 @@ class DiffEntry:
     binary: bool = False
 
 
-def _validate_changed_path(raw: str, repo: Path) -> Path:
+#: Source suffixes a PR-diff run ever opens (Python, JavaScript, TypeScript).
+PR_SUFFIXES = frozenset({".py", *JS_SUFFIXES})
+
+
+def _validate_changed_path(raw: str, repo: Path, language: str = "python") -> Path:
     """Validate a Git path before it is opened as untrusted PR data."""
     path = Path(raw)
     if not raw or path.is_absolute() or ".." in path.parts:
@@ -60,7 +65,10 @@ def _validate_changed_path(raw: str, repo: Path) -> Path:
         raise ValueError(f"changed path escapes repository: {raw!r}")
     if candidate.is_symlink() or not candidate.is_file():
         raise ValueError(f"changed path is not a regular file: {raw!r}")
-    if path.suffix.lower() != ".py":
+    if language in JS_LANGUAGES:
+        if path.suffix.lower() not in JS_SUFFIXES:
+            raise ValueError(f"changed path is not JavaScript/TypeScript: {raw!r}")
+    elif path.suffix.lower() != ".py":
         raise ValueError(f"changed path is not Python: {raw!r}")
     if candidate.stat().st_size > PR_MAX_FILE_BYTES:
         raise ValueError(f"changed file is too large: {raw!r}")
@@ -200,28 +208,77 @@ def _slice(args: argparse.Namespace) -> bool:
     return _profile(args) == "compact"
 
 
+#: Source languages verified through the Node sandbox and oracle.
+JS_LANGUAGES = ("javascript", "typescript")
+
+
+def _resolve_language(flag: str | None, declared: str = "", clone: Path | None = None) -> str:
+    """The loop language: an explicit --lang wins, then the case's own declaration.
+
+    Otherwise the staged clone is auto-detected (package.json, tsconfig.json, case.json
+    language, file extensions). Anything the loop cannot verify falls back to python,
+    the historical behaviour for every repository.
+    """
+    if flag and flag != "auto":
+        return flag
+    if declared in ("python", *JS_LANGUAGES):
+        return declared
+    if clone is not None:
+        try:
+            from ..scan import detect as _detect
+
+            seen = _detect(str(clone)).profile.language
+        except (OSError, ValueError):
+            seen = ""
+        if seen in ("python", *JS_LANGUAGES):
+            return seen
+    return "python"
+
+
+def _baseline_name(case_baseline: str, language: str) -> str:
+    """The staged baseline file name: the historical test_baseline.py for Python."""
+    if language in JS_LANGUAGES:
+        return "test_baseline.ts" if language == "typescript" else "test_baseline.js"
+    return "test_baseline.py"
+
+
 NOTHING_REACHABLE = "nothing_reachable"
 
 
 def _slice_plans(
     clone: Path, sources: list[str], effect: str, *, diff: str | None = None,
     declared: list[str] | tuple[str, ...] = (),
+    language: str = "python",
 ) -> tuple[CodeGraph, ReachReport, dict[str, SlicePlan], float]:
     """Build the graph of the staged clone and one slice plan per source file with a path.
 
     The changed functions are those the diff touches, or every function of the source
     files when there is no diff (a benchmark case names a file, not a change). Only paths
     to a sink the oracle can prove with ``effect`` count: a path to any other sink could
-    never end in a proof, so it is not worth a model call.
+    never end in a proof, so it is not worth a model call. Node repositories use the
+    JavaScript graph (``--slice`` on a Node repository needs Docker for its builder).
     """
     started = time.perf_counter()
-    graph = build_graph(clone)
-    seconds = round(time.perf_counter() - started, 3)
-    if diff is None:
-        changed = [node for source in sources for node in functions_in(graph, source)]
-        report = find_paths(graph, changed, declared_entries=declared)
+    if language in JS_LANGUAGES:
+        from ..graph.js_graph import build_js_graph, find_paths as js_paths
+        from ..graph.js_graph import functions_in as js_functions
+        from ..graph.js_graph import reach_from_diff as js_reach
+
+        graph = build_js_graph(clone)
+        seconds = round(time.perf_counter() - started, 3)
+        if diff is None:
+            changed = [node for source in sources for node in js_functions(graph, source)]
+            report = js_paths(graph, changed, declared_entries=declared)
+        else:
+            report = js_reach(graph, diff, declared_entries=declared)
     else:
-        report = reach_from_diff(graph, diff, declared_entries=declared)
+        graph = build_graph(clone)
+        seconds = round(time.perf_counter() - started, 3)
+        if diff is None:
+            changed = [node for source in sources for node in functions_in(graph, source)]
+            report = find_paths(graph, changed, declared_entries=declared)
+        else:
+            report = reach_from_diff(graph, diff, declared_entries=declared)
     files = {node.id: node.file for node in graph.nodes}
     plans: dict[str, SlicePlan] = {}
     for source in sources:
@@ -283,29 +340,34 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
         total = 0
         for path in candidates:
             _validate_path_shape(path)
-            if Path(path).suffix.lower() != ".py":
+            if Path(path).suffix.lower() not in PR_SUFFIXES:
                 continue
             changed.append(path)
         if len(changed) > PR_MAX_FILES:
-            raise ValueError("PR changes too many Python files")
+            raise ValueError("PR changes too many source files")
         clone = _stage_head(repo, head, out)
+        language = _resolve_language(getattr(args, "lang", None), clone=clone)
+        wanted = JS_SUFFIXES if language in JS_LANGUAGES else frozenset({".py"})
         safe_changed: list[str] = []
         total = 0
         for path in changed:
-            resolved = _validate_changed_path(path, clone)
+            if Path(path).suffix.lower() not in wanted:
+                continue
+            resolved = _validate_changed_path(path, clone, language)
             total += resolved.stat().st_size
             if total > PR_MAX_TOTAL_BYTES:
-                raise ValueError("changed Python files exceed the total size cap")
+                raise ValueError("changed source files exceed the total size cap")
             safe_changed.append(path)
         changed = safe_changed
         ledger = Ledger(out / "ledger.jsonl")
         run_id = f"pr-{head[:12]}"
         if not changed:
+            kind = "JavaScript/TypeScript" if language in JS_LANGUAGES else "Python"
             ledger.append(Event(
                 ts=datetime.now(timezone.utc).isoformat(),
                 run_id=run_id, type=EventType.SCAN_DONE,
-                payload={"status": "not_applicable", "reason": "no changed regular Python files",
-                         "entries": len(entries)},
+                payload={"status": "not_applicable", "reason": f"no changed regular {kind} files",
+                         "entries": len(entries), "language": language},
             ))
             result = _write_result(out, ledger, run_id, 0)
             _append_run_index(out, result, repo, head, started)
@@ -316,7 +378,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
 
             effect = args.effect
             graph, report, plans, seconds = _slice_plans(
-                clone, changed, effect, diff=git_unified_diff(repo, spec))
+                clone, changed, effect, diff=git_unified_diff(repo, spec), language=language)
             if not plans:
                 _emit_nothing_reachable(ledger, run_id, graph, report, seconds, effect)
                 result = _write_result(out, ledger, run_id, 0)
@@ -326,7 +388,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
                 return 0
             changed = [source for source in changed if source in plans]
         roles = _pr_roles(args) if args.replay else _live_roles(args, _cost_meter(args))
-        runner = _sandbox_runner_cls()()
+        runner = _sandbox_runner_cls()(language=language)
         baseline = "."
         any_proven = False
         incomplete = False
@@ -334,6 +396,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
             loop = VerificationLoop(
                 clone, out, ledger, roles, baseline, run_id=run_id,
                 runner=runner, prompt_profile=_profile(args), effect=args.effect,
+                language=language,
                 **({"slice_plan": plans[source]} if source in plans else {}),
             )
             try:
@@ -469,14 +532,21 @@ def _run_case(args: argparse.Namespace) -> int:
         source_tree = root / settings.get("tree", ".")
     if source_tree.exists():
         shutil.copytree(source_tree, clone, dirs_exist_ok=True)
+    # --lang wins; otherwise the case's own declaration, else the staged clone.
+    declared_language = str(settings.get("language") or spec.get("language") or "")
+    language = _resolve_language(getattr(args, "lang", None), declared_language, clone)
     requirements = [str(item) for item in settings.get("requirements", [])]
-    if requirements:
+    if requirements and language == "python":
+        # Pip pins install on the host only for Python cases: Node pins
+        # (express@4.18.2 and friends) belong to the Node sandbox image, which
+        # the runner builds once with the network and reuses across runs.
         try:
             _install_requirements(clone, requirements)
         except RuntimeError as exc:
             print(f"run: cannot install case requirements: {exc}", file=sys.stderr)
             return 1
-    shutil.copyfile(root / settings["baseline_test"], clone / "test_baseline.py")
+    staged_baseline = _baseline_name(str(settings.get("baseline_test", "test_baseline.py")), language)
+    shutil.copyfile(root / settings["baseline_test"], clone / staged_baseline)
 
     ledger = Ledger(out / "ledger.jsonl")
     slice_plan: SlicePlan | None = None
@@ -484,7 +554,8 @@ def _run_case(args: argparse.Namespace) -> int:
         effect = settings.get("effect", "canary_read")
         source_file = settings["source_file"]
         graph, report, plans, seconds = _slice_plans(
-            clone, [source_file], effect, declared=list(settings.get("entry_points") or []))
+            clone, [source_file], effect, declared=list(settings.get("entry_points") or []),
+            language=language)
         slice_plan = plans.get(source_file)
         if slice_plan is None:
             _emit_nothing_reachable(ledger, case_id, graph, report, seconds, effect)
@@ -530,7 +601,7 @@ def _run_case(args: argparse.Namespace) -> int:
     redirect_meta = bool(settings.get("redirect_meta", False))
     runner_cls = _sandbox_runner_cls()
     loop = VerificationLoop(
-        clone, out, ledger, roles, "test_baseline.py",
+        clone, out, ledger, roles, staged_baseline,
         run_id=case_id,
         runner=runner_cls(
             requirements=req_tuple,
@@ -538,6 +609,7 @@ def _run_case(args: argparse.Namespace) -> int:
             access_db=access_db,
             access=access,
             redirect_meta=redirect_meta,
+            language=language,
         ),
         requirements=req_tuple,
         sql_db=sql_db,
@@ -547,6 +619,7 @@ def _run_case(args: argparse.Namespace) -> int:
         effect=settings.get("effect", "canary_read"),
         prompt_profile=_profile(args),
         slice_plan=slice_plan,
+        language=language,
     )
     try:
         result = loop.run(settings["source_file"])
