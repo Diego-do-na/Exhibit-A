@@ -88,7 +88,14 @@ implementation, so nothing is wrapped: a fake that never connects produces no ev
 real connection from test frames refuses the whole run. The URL stays in the environment:
 it is the test contract, and the judge checks every event against the run's canary.
 
-The module stays self-contained (stdlib only): the sandbox mounts it as a single file.
+For the ``canary_dos`` effect (``EXHIBIT_A_CANARY_DOS`` set; docs/oracle/oracle-provenance.md,
+section 3.12) the plugin does not watch a file. It exposes a ``dos_probe`` pytest fixture.
+The test supplies a callable (the entry point) and two same-length inputs; the plugin calls
+both several times, attributes CPU with ``sys.setprofile`` to admitted application frames vs
+test frames, and signs one ``op`` ``dos`` event. The test must not time anything itself.
+
+The module stays self-contained (stdlib only, plus pytest which loads it): the sandbox mounts
+it as a single file.
 """
 
 from __future__ import annotations
@@ -121,6 +128,19 @@ ENV_CONNECT = "EXHIBIT_A_CANARY_URL"
 # canary_sql: the name of the canary table in the application's database (EXHIBIT_A_CANARY is
 # the database file for this effect). Its one column is _SQL_COLUMN.
 ENV_SQL = "EXHIBIT_A_CANARY_SQL"
+# canary_dos: any non-empty value turns on CPU sampling of the entry point. Popped after
+# install; the test is never told it exists. Inputs come through the dos_probe fixture.
+ENV_DOS = "EXHIBIT_A_CANARY_DOS"
+# Conservative statistical bar (docs/oracle/oracle-provenance.md, section 3.12). A timing
+# effect is noisier than a canary file: these numbers are high on purpose so a noisy
+# machine cannot mint a proof. 5 + 5 samples, same container, sandbox CPU/time unchanged.
+DOS_SAMPLES = 5
+DOS_RATIO = 50.0
+DOS_FLOOR = 0.015  # seconds of application CPU on the malicious input
+DOS_MAX_INPUT = 65536
+DOS_MIN_APP_FRACTION = 0.80
+DOS_SPREAD = 4.0  # max/min among malicious app-CPU samples; above this is flaky
+_DOS: list = []
 
 # What the orchestrator writes to stdin: the magic, the key in hex, a newline. Nothing else.
 KEY_MAGIC = b"EXHIBIT-A-KEY "
@@ -1045,9 +1065,176 @@ def _patch_os_open() -> None:
     os.open = open_
 
 
+def _median(values: list[float]) -> float:
+    """Median of a non-empty list of floats."""
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def _bind_dos(emit, admission, stack_fn) -> None:
+    """Expose ``dos_probe``: the runner, not the test, times the entry point.
+
+    Bound primitives (thread CPU clock, setprofile) are captured here, at install,
+    so a later rebinding of ``time.thread_time`` does not change what is measured.
+    """
+    thread_time = time.thread_time
+    setprofile = sys.setprofile
+    getprofile = sys.getprofile
+    getframe = sys._getframe
+    realpath = os.path.realpath
+
+    def kind_of(frame, test_dir: str, cache: dict) -> str:
+        """Innermost project frame: ``test``, admitted ``app``, or ``other``."""
+        while frame is not None:
+            name = frame.f_code.co_filename
+            real = name if name.startswith("<") else realpath(name)
+            if test_dir and (real == test_dir or real.startswith(test_dir.rstrip("/") + "/")):
+                return "test"
+            if admission is not None:
+                rel = admission.relative(real)
+                if rel is not None:
+                    key = id(frame.f_code)
+                    if key not in cache:
+                        cache[key] = admission.check(rel, frame.f_code) is None
+                    if cache[key]:
+                        return "app"
+            frame = frame.f_back
+        return "other"
+
+    def timed_call(fn, argument, test_dir: str):
+        app_cpu = test_cpu = other_cpu = 0.0
+        last_t = thread_time()
+        last_kind = "other"
+        captured: list = []
+        cache: dict = {}
+
+        def profile(frame, event, arg):
+            nonlocal last_t, last_kind, app_cpu, test_cpu, other_cpu
+            now = thread_time()
+            dt = now - last_t
+            last_t = now
+            if dt > 0.0:
+                if last_kind == "app":
+                    app_cpu += dt
+                elif last_kind == "test":
+                    test_cpu += dt
+                else:
+                    other_cpu += dt
+            last_kind = kind_of(frame, test_dir, cache)
+            if last_kind == "app" and not captured:
+                captured.append(stack_fn(frame, admission))
+            return profile
+
+        setprofile(profile)
+        stolen = False
+        try:
+            try:
+                fn(argument)
+            except Exception:  # noqa: BLE001 - the app raising is not a cheat; CPU still counts
+                pass
+            now = thread_time()
+            dt = now - last_t
+            if dt > 0.0:
+                if last_kind == "app":
+                    app_cpu += dt
+                elif last_kind == "test":
+                    test_cpu += dt
+                else:
+                    other_cpu += dt
+            stolen = getprofile() is not profile
+        finally:
+            setprofile(None)
+        return app_cpu, test_cpu, other_cpu, (captured[0] if captured else []), stolen
+
+    def probe(fn, malicious=None, benign=None):
+        """Call ``fn`` with both inputs, several times, and sign the measurement.
+
+        On a clear slowdown the assertion fails so the pytest outcome is ``failed``
+        (the judge still has to accept the signed numbers and the provenance).
+        """
+        if not _DOS:
+            raise RuntimeError("dos_probe is only provided for the canary_dos effect")
+        if _DOS[0].get("used"):
+            raise RuntimeError("dos_probe can be called only once per test")
+        if not callable(fn):
+            raise TypeError("dos_probe needs the entry point callable as its first argument")
+        if not isinstance(malicious, (str, bytes)) or not isinstance(benign, (str, bytes)):
+            raise TypeError("malicious and benign must be str or bytes")
+        if type(malicious) is not type(benign) or len(malicious) != len(benign):
+            raise ValueError("malicious and benign must be the same type and the same length")
+        if not (1 <= len(malicious) <= DOS_MAX_INPUT):
+            raise ValueError(f"input length must be between 1 and {DOS_MAX_INPUT}")
+        _DOS[0]["used"] = True
+        try:
+            test_dir = os.path.dirname(realpath(getframe(1).f_code.co_filename))
+        except (ValueError, TypeError, OSError):
+            test_dir = ""
+        mal_app: list[float] = []
+        ben_app: list[float] = []
+        mal_test: list[float] = []
+        mal_other: list[float] = []
+        stacks: list = []
+        stolen = False
+        for _ in range(DOS_SAMPLES):
+            a, t, o, _stack, s = timed_call(fn, benign, test_dir)
+            ben_app.append(a)
+            stolen = stolen or s
+            a, t, o, stack, s = timed_call(fn, malicious, test_dir)
+            mal_app.append(a)
+            mal_test.append(t)
+            mal_other.append(o)
+            if stack:
+                stacks.append(stack)
+            stolen = stolen or s
+        med_m = _median(mal_app)
+        med_b = _median(ben_app)
+        ratio = med_m / max(med_b, 1e-9)
+        totals = [mal_app[i] + mal_test[i] + mal_other[i] for i in range(DOS_SAMPLES)]
+        med_total = _median(totals)
+        fraction = (med_m / med_total) if med_total > 0.0 else 0.0
+        spread = max(mal_app) / max(min(mal_app), 1e-9) if mal_app else 0.0
+        noisy = spread > DOS_SPREAD
+        emit({
+            "path": "dos",
+            "mode": "dos_probe",
+            "op": "dos",
+            "flags": None,
+            "access": "cpu",
+            "requested": None,
+            "via_symlink": False,
+            "stack": stacks[0] if stacks else [],
+            "ratio": ratio,
+            "malicious_cpu": med_m,
+            "benign_cpu": med_b,
+            "app_fraction": fraction,
+            "samples": DOS_SAMPLES,
+            "noisy": noisy,
+            "patched": "sys.setprofile" if stolen else None,
+            "command": f"{len(malicious)}={len(benign)}",
+        })
+        hit = (
+            not stolen and not noisy
+            and ratio > DOS_RATIO
+            and med_m >= DOS_FLOOR
+            and fraction >= DOS_MIN_APP_FRACTION
+            and bool(stacks)
+        )
+        if hit:
+            assert False, (
+                "application CPU on the malicious input exceeded the benign baseline "
+                f"(ratio {ratio:.1f}x)"
+            )
+
+    _DOS.append({"probe": probe, "used": False})
+
+
 def _install(
     canary: str, events_path: str, key: bytes | None, app: dict | None = None, marker: str | None = None,
-    sql_table: str | None = None, connect_url: str | None = None,
+    sql_table: str | None = None, connect_url: str | None = None, dos: bool = False,
 ) -> None:
     global _installed
     if _installed:
@@ -1091,6 +1278,9 @@ def _install(
             line = json.dumps(sign_event(key, seq[0], record)) + "\n"
             seq[0] += 1
             os.write(fd, line.encode("utf-8"))
+
+    if dos:
+        _bind_dos(emit, admission, _stack)
 
     def drift() -> str | None:
         """The first watched API or sensitive variable that changed since install."""
@@ -1406,11 +1596,12 @@ def _install_from_env() -> None:
     marker = os.environ.get(ENV_MARKER)
     sql_table = os.environ.get(ENV_SQL)
     connect_url = os.environ.get(ENV_CONNECT)
+    dos_flag = os.environ.get(ENV_DOS)
     if canary and events_path:
         # stdin is read only in a run the orchestrator set up (both variables present), so
         # importing this module elsewhere (the orchestrator itself) never touches its stdin.
         key, app = _read_channel()
-        _install(canary, events_path, key, app, marker, sql_table, connect_url)
+        _install(canary, events_path, key, app, marker, sql_table, connect_url, bool(dos_flag))
         # Neither path is left for the test. The canary path is not part of the test contract
         # (finding A-11 F2: a test that knows it can root a safe app at the canary's
         # directory); a real exploit reaches it from the allowed directory. /proc/self/environ
@@ -1423,6 +1614,7 @@ def _install_from_env() -> None:
         os.environ.pop(ENV_CANARY, None)
         os.environ.pop(ENV_MARKER, None)
         os.environ.pop(ENV_SQL, None)
+        os.environ.pop(ENV_DOS, None)
 
 
 # Install on import, not only at configure time: ``-p`` plugins are imported before
@@ -1434,3 +1626,27 @@ _install_from_env()
 
 def pytest_configure(config) -> None:
     _install_from_env()
+
+
+def pytest_runtest_setup(item) -> None:
+    """Reset the one-shot probe so a file with several tests cannot reuse a measurement."""
+    if _DOS:
+        _DOS[0]["used"] = False
+
+
+try:
+    import pytest as _pytest
+except ImportError:
+    _pytest = None  # orchestrator import of this module never needs the fixture
+
+
+if _pytest is not None:
+
+    @_pytest.fixture(name="dos_probe")
+    def _dos_probe_fixture():
+        """The runner times the entry point; the test only supplies the two inputs."""
+        if not _DOS:
+            def missing(fn, malicious=None, benign=None):
+                raise RuntimeError("dos_probe is only provided for the canary_dos effect")
+            return missing
+        return _DOS[0]["probe"]

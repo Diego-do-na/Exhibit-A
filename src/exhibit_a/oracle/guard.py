@@ -27,6 +27,9 @@ itself: it names ``sqlite3``, calls or references a method that runs SQL or conf
 (``SQL_METHODS``), names a database file (``SQL_FILE_SUFFIXES``), or hands a function it defines to
 an attribute of another object, which is how the app's query builder is swapped for the test's own.
 
+For the ``canary_dos`` effect, ``dos_problem`` also rejects a test that times anything itself
+(``DOS_TIME_NAMES``): the runner measures CPU, the test only supplies the two inputs.
+
 This is a tripwire, not a security boundary. It catches the naive and model-generated ways
 of tampering with the events file or the plugin, and forces any remaining attempt to be
 deliberately obfuscated (``getattr`` with computed names, ``exec`` of decoded strings,
@@ -846,6 +849,56 @@ def connect_problem(test_path: Path) -> str | None:
         rule = _connect_rule(tree)
         if rule:
             return f"test connects itself: {path.name} matches rule '{rule}'"
+    return None
+
+
+# --- Timing the entry point from the test (canary_dos) ---------------------------------------
+
+#: Names a canary_dos test must never mention: the runner measures CPU, the test only
+#: supplies the two inputs. Sleeps, clocks, profilers, alarms and slow hashes are how a
+#: test fakes a slowdown.
+DOS_TIME_NAMES = frozenset({
+    "sleep", "process_time", "thread_time", "perf_counter", "monotonic", "monotonic_ns",
+    "clock", "timeit", "getrusage", "setprofile", "settrace", "alarm", "setitimer",
+    "cpu_times", "pbkdf2_hmac", "pbkdf2", "scrypt", "bcrypt",
+})
+DOS_MODULES = frozenset({"timeit", "resource", "cProfile", "profile"})
+
+
+def _dos_rule(tree: ast.AST) -> str | None:
+    """The rule a canary_dos test breaks by timing, sleeping or hashing itself."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name in DOS_MODULES or a.name.startswith(tuple(m + "." for m in DOS_MODULES))
+                   for a in node.names):
+                return "dos_timer"
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and (node.module in DOS_MODULES
+                                or node.module.startswith(tuple(m + "." for m in DOS_MODULES))):
+                return "dos_timer"
+        elif isinstance(node, ast.Name) and node.id in DOS_TIME_NAMES:
+            return "dos_timer"
+        elif isinstance(node, ast.Attribute) and node.attr in DOS_TIME_NAMES:
+            return "dos_timer"
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.value in DOS_TIME_NAMES or node.value in DOS_MODULES:
+                return "dos_timer"
+    return None
+
+
+def dos_problem(test_path: Path) -> str | None:
+    """Why a canary_dos test (or its conftest) is rejected for timing itself, or None."""
+    test_path = Path(test_path)
+    for path in (test_path, test_path.parent / "conftest.py"):
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, UnicodeDecodeError, SyntaxError, ValueError, RecursionError):
+            continue
+        rule = _dos_rule(tree)
+        if rule:
+            return f"test times the entry point itself: {path.name} matches rule '{rule}'"
     return None
 
 
