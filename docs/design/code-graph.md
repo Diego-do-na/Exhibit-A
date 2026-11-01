@@ -74,6 +74,8 @@ effect that can prove it today:
 | `code_injection` | `eval`, `exec`, `compile`, `__import__`, `importlib.import_module` | none |
 | `insecure_deserialization` | `pickle.load(s)`, `marshal.loads`, `yaml.load` without a `SafeLoader` | none |
 | `ssrf` | `urllib.request.urlopen`, `http.client`, `requests.*`, `httpx.*`, `socket.create_connection` (non-constant target only) | `canary_connect` |
+| `regex_denial_of_service` | `re.match` / `search` / `fullmatch` / `sub` / `findall` / `compile` (non-constant pattern, or a constant with nested quantifiers) | `canary_dos` |
+| `algorithmic_complexity` | `json.loads` / `json.load` / `json.JSONDecoder.decode` of a non-constant source; `xml.etree.ElementTree.iterparse`, `xml.parsers.expat.ParserCreate` | `canary_dos` |
 
 A sink argument built with `os.path.join` is flagged (`joined_path`) and breaks ranking ties.
 A method name such as `.extractall` or `.read_text` on a receiver nothing resolved is a

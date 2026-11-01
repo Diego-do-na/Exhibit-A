@@ -95,6 +95,7 @@ def test_dashboard_groups_duplicate_proofs_and_keeps_locations_as_data():
         "canary_exec",
         "canary_sql",
         "canary_connect",
+        "canary_dos",
     }
 
 

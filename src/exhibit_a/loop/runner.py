@@ -37,7 +37,7 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import ValidationError
 
 from exhibit_a.oracle import Judgement, OracleEvent, run_oracle
-from exhibit_a.oracle.guard import channel_problem, connect_problem, exec_problem, sql_problem
+from exhibit_a.oracle.guard import channel_problem, connect_problem, dos_problem, exec_problem, sql_problem
 from exhibit_a.oracle.oracle import (
     ENV_ALLOWED_DIR,
     ENV_CANARY_TOKEN,
@@ -52,6 +52,7 @@ from exhibit_a.oracle.oracle import (
     pick_connect_port,
     sql_db_problem,
 )
+from exhibit_a.oracle.plugin import ENV_DOS
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest
 
 # Where the sandbox mounts the clone; frames recorded inside the container use these paths.
@@ -134,6 +135,8 @@ class SandboxRunner:
             problem = sql_problem(Path(test_path))
         if problem is None and effect == "canary_connect":
             problem = connect_problem(Path(test_path))
+        if problem is None and effect == "canary_dos":
+            problem = dos_problem(Path(test_path))
         if problem is not None:
             # Not run at all, as on the host path: the loop classifies "error" as invalid_test.
             return Judgement(
@@ -185,6 +188,7 @@ class SandboxRunner:
                     ENV_CANARY_TOKEN: token,
                     ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed",
                     **({ENV_CONNECT_URL: canary_url} if canary_url is not None else {}),
+                    **({ENV_DOS: "1"} if effect == "canary_dos" else {}),
                 },
                 manifest=manifest,
                 effect=effect,

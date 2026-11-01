@@ -76,6 +76,18 @@ ATTACKS = [
     "attack_connect_copied_token",
     "attack_connect_r1_forge_events",
     "attack_connect_r5_app_binding",
+    "attack_dos_true_redos",
+    "attack_dos_true_nested",
+    "attack_dos_true_quadratic",
+    "attack_dos_sleep",
+    "attack_dos_busy_loop",
+    "attack_dos_slow_benign",
+    "attack_dos_times_itself",
+    "attack_dos_helper",
+    "attack_dos_no_probe",
+    "attack_dos_noise",
+    "attack_dos_r1_forge_events",
+    "attack_dos_r5_app_binding",
 ]
 
 if __name__ == "__main__":

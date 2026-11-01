@@ -7,10 +7,11 @@ graph resolved: ``builtins.open``, ``os.path.realpath``, ``subprocess.run``,
 reaches first: an ASGI/WSGI callable, a route handler, a CLI main, or a name declared by
 the case (``case.json`` ``run.entry_points``), which always wins over detection.
 
-Five families can be proven by the oracle today: path traversal through a read
+Six families can be proven by the oracle today: path traversal through a read
 (``canary_read``) and through a write (``canary_write``), code or command execution
-(``canary_exec``), SQL injection (``canary_sql``) and server-side request forgery
-(``canary_connect``). The other sinks are listed so a reach report can say what a path
+(``canary_exec``), SQL injection (``canary_sql``), server-side request forgery
+(``canary_connect``) and algorithmic complexity (``canary_dos``: ReDoS, quadratic
+parsing). The other sinks are listed so a reach report can say what a path
 leads to; their ``effect`` is None, so the loop never pretends it can prove them.
 """
 
@@ -23,7 +24,9 @@ from exhibit_a.schemas.graph import CodeGraph, EntryPoint, GraphEdge, GraphNode,
 
 from .build import MAIN_GUARD, SQL_RUN_METHODS
 
-READ, WRITE, EXEC, SQL, CONNECT = "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect"
+READ, WRITE, EXEC, SQL, CONNECT, DOS = (
+    "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
+)
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,10 @@ class SinkRule:
     #: False and no custom resolver is set. ``etree``: a sink only when a parser argument
     #: is supplied (the stdlib parser does not resolve entities on its own).
     xml_mode: str | None = None
+    #: Where a regex call takes its pattern: (position, keyword names). The call is a
+    #: sink when that argument is not a constant, or is a constant with nested
+    #: quantifiers (a known-catastrophic pattern). A linear constant pattern is not.
+    pattern_arg: tuple[int, tuple[str, ...]] | None = None
 
 
 #: Write-side class and effect for open-like sinks called with a write mode.
@@ -164,6 +171,17 @@ SINKS: tuple[SinkRule, ...] = (
              "outbound_request", "ssrf", CONNECT, "network",
              "opens a connection; only a non-constant target can carry input",
              target_arg=(0, ("address", "host", "port"))),
+    SinkRule(("re.match", "re.search", "re.fullmatch", "re.sub", "re.findall", "re.compile"),
+             "regex", "regex_denial_of_service", DOS, "cpu",
+             "regex on attacker input; a non-constant or nested-quantifier pattern is ReDoS",
+             pattern_arg=(0, ("pattern",))),
+    SinkRule(("json.loads", "json.load", "json.JSONDecoder.decode"),
+             "parsing", "algorithmic_complexity", DOS, "cpu",
+             "JSON parse of attacker input; unbounded nesting is quadratic or worse",
+             source_arg=(0, ("s", "fp", "document", "text"))),
+    SinkRule(("xml.etree.ElementTree.iterparse", "xml.parsers.expat.ParserCreate"),
+             "parsing", "algorithmic_complexity", DOS, "cpu",
+             "XML parse of attacker input; unbounded nesting is quadratic or worse"),
 )
 
 _SQL_RULE = next(rule for rule in SINKS if rule.query_arg is not None)
@@ -299,6 +317,98 @@ def _xml_entities_on(rule: SinkRule, edge: GraphEdge) -> bool:
     return True
 
 
+def _constant_string(text: str) -> str | None:
+    """The string value of a constant argument, or None if it is not a fixed string."""
+    try:
+        node = ast.parse(text.strip(), mode="eval").body
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr) and all(isinstance(v, ast.Constant) for v in node.values):
+        return "".join("" if v.value is None else str(v.value) for v in node.values)
+    return None
+
+
+def _matching_paren(pattern: str, start: int) -> int | None:
+    """Index of the ``)`` that closes the group at ``start``, or None."""
+    depth = 0
+    i = start
+    n = len(pattern)
+    while i < n:
+        ch = pattern[i]
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+def _has_quantifier(text: str) -> bool:
+    """Whether ``text`` contains a regex quantifier ``*``, ``+`` or ``{n,}``."""
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if text[i] in "*+":
+            return True
+        if text[i] == "{":
+            return True
+        i += 1
+    return False
+
+
+def _catastrophic_regex(pattern: str) -> bool:
+    """Whether ``pattern`` has nested quantifiers, the usual ReDoS shape.
+
+    ``(a+)+``, ``(a*)*``, ``(?:a+)+`` and the same with a trailing ``$`` count.
+    A linear pattern such as ``^[a-z]+$`` does not.
+    """
+    i = 0
+    n = len(pattern)
+    while i < n:
+        if pattern[i] == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if pattern[i] == "(":
+            end = _matching_paren(pattern, i)
+            if end is None:
+                return False
+            inner = pattern[i + 1:end]
+            rest = pattern[end + 1:]
+            quantified = bool(rest) and (rest[0] in "*+" or rest[0] == "{")
+            if quantified and _has_quantifier(inner):
+                return True
+            if _catastrophic_regex(inner):
+                return True
+            i = end + 1
+            continue
+        i += 1
+    return False
+
+
+def _regex_is_dos(rule: SinkRule, edge: GraphEdge) -> bool:
+    """Whether a regex call may carry a ReDoS pattern: non-constant or nested quantifiers."""
+    assert rule.pattern_arg is not None
+    position, keywords = rule.pattern_arg
+    value = edge.args[position] if len(edge.args) > position else next(
+        (edge.kwargs[k] for k in keywords if k in edge.kwargs), None)
+    if value is None:
+        return bool(edge.args or edge.kwargs)
+    constant = _constant_string(value)
+    if constant is None:
+        return True
+    return _catastrophic_regex(constant)
+
+
 def _dynamic_address(rule: SinkRule, edge: GraphEdge) -> bool:
     """Whether a connection-opening call may carry input: its target is not a constant.
 
@@ -347,6 +457,8 @@ def _edge_hit(edge: GraphEdge) -> SinkHit | None:
         if rule.source_arg is not None and (edge.ref or not _dynamic_payload(edge, rule.source_arg)):
             return None
         if rule.target_arg is not None and (edge.ref or not _dynamic_address(rule, edge)):
+            return None
+        if rule.pattern_arg is not None and (edge.ref or not _regex_is_dos(rule, edge)):
             return None
         if rule.xml_mode is not None and not edge.ref and not _xml_entities_on(rule, edge):
             return None

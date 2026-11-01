@@ -33,7 +33,9 @@ instead; ``_judge_exec`` and section 3.9 of that document say what proves it. Th
 effect (SQL injection) adds a table with the token to a copy of the application's own SQLite
 database; ``_judge_sql`` and section 3.10 say what proves it. The ``canary_connect`` effect (SSRF)
 starts a loopback HTTP listener that serves the token at one unguessable path; ``_judge_connect``
-and section 3.11 say what proves it.
+and section 3.11 say what proves it. The ``canary_dos`` effect (algorithmic complexity: ReDoS,
+quadratic parsing) has the runner time the entry point on a malicious input against a benign
+input of the same length; ``_judge_dos`` and section 3.12 say what proves it.
 """
 
 from __future__ import annotations
@@ -54,10 +56,14 @@ from pathlib import Path, PurePath, PurePosixPath
 from typing import Literal
 from urllib.parse import urlsplit
 
-from exhibit_a.oracle.guard import channel_problem, connect_problem, exec_problem, sql_problem
+from exhibit_a.oracle.guard import channel_problem, connect_problem, dos_problem, exec_problem, sql_problem
 from exhibit_a.oracle.plugin import (
+    DOS_FLOOR,
+    DOS_MIN_APP_FRACTION,
+    DOS_RATIO,
     ENV_CANARY,
     ENV_CONNECT,
+    ENV_DOS,
     ENV_EVENTS,
     ENV_MARKER,
     ENV_SQL,
@@ -83,7 +89,7 @@ TestOutcome = Literal["passed", "failed", "error", "timeout"]
 # execution: the app runs an executable outside the allowed directory, which leaves the token in
 # a marker file beside it; it has its own judge (_judge_exec). "canary_sql" is SQL injection: the
 # app reads a row of a table it never queries, in its own SQLite database (_judge_sql).
-Effect = Literal["canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect"]
+Effect = Literal["canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos"]
 # Which accesses count for each effect: "r+" or O_RDWR is both a read and a write.
 _ACCEPTED_ACCESS = {"canary_read": {"read", "read_write"}, "canary_write": {"write", "read_write"}}
 # A write effect reads at most this much of the canary after the run to find the token.
@@ -128,6 +134,9 @@ REASON_CONNECT_FROM_TEST = "connect_from_test"
 REASON_SQL_FROM_TEST = "sql_from_test"
 REASON_SQL_API_CHANGED = "sql_api_changed"
 REASON_SQL_UNPLACED = "sql_unplaced"
+REASON_FLAKY = "flaky"
+REASON_DOS_FROM_TEST = "dos_from_test"
+REASON_DOS_API_CHANGED = "dos_api_changed"
 
 
 class Frame(StrictModel):
@@ -154,10 +163,10 @@ class OracleEvent(StrictModel):
     # Missing in events from older plugins, which classify as "unknown": never a proof.
     op: Literal[
         "open", "rename", "link", "process", "native", "env", "chdir", "codegen",
-        "sql_connect", "sql_read", "sql_text", "connect", "request",
+        "sql_connect", "sql_read", "sql_text", "connect", "request", "dos",
     ] = "open"
     flags: int | None = None
-    access: Literal["read", "write", "read_write", "unknown", "exec", "sql"] | None = None
+    access: Literal["read", "write", "read_write", "unknown", "exec", "sql", "cpu"] | None = None
     # The path as the code asked for it, absolute but not resolved; None if unknown.
     requested: str | None = None
     # Set when the opened path went through a symlink created during the run; such a read
@@ -186,6 +195,15 @@ class OracleEvent(StrictModel):
     host: str | None = None
     port: int | None = None
     url: str | None = None
+    # canary_dos only. Median malicious/benign application CPU, the fraction of malicious
+    # CPU spent in admitted app frames, how many pairs were sampled, and whether the
+    # malicious samples were too spread to trust (``noisy``: never a proof).
+    ratio: float | None = None
+    malicious_cpu: float | None = None
+    benign_cpu: float | None = None
+    app_fraction: float | None = None
+    samples: int | None = None
+    noisy: bool = False
     connection: int | None = None
     declared_db: bool = False
     instrumented: bool = False
@@ -235,9 +253,12 @@ def run_oracle(
     table added; the app must read it through an entry point (see ``_judge_sql``). Raises
     ``ValueError`` if ``sql_db`` is missing or unusable. ``"canary_connect"`` starts a loopback
     HTTP listener serving the token at one unguessable path; the app must request that URL
-    through an entry point (see ``_judge_connect``).
+    through an entry point (see ``_judge_connect``). ``"canary_dos"`` times the entry point
+    on a malicious input against a same-length benign input (see ``_judge_dos``).
     """
-    if effect not in ("canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect"):
+    if effect not in (
+        "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
+    ):
         raise ValueError(f"unknown effect {effect!r}")
     if sql_db is not None and effect != "canary_sql":
         raise ValueError("sql_db is only for the canary_sql effect")
@@ -251,6 +272,8 @@ def run_oracle(
         problem = sql_problem(test_path)
     if problem is None and effect == "canary_connect":
         problem = connect_problem(test_path)
+    if problem is None and effect == "canary_dos":
+        problem = dos_problem(test_path)
     if problem is not None:
         # Not run at all: an "error" outcome, which the loop classifies as invalid_test.
         return Judgement(
@@ -261,6 +284,8 @@ def run_oracle(
         return _run_sql(app_root, test_path, set(entry_points), timeout, sql_db)
     if effect == "canary_connect":
         return _run_connect(app_root, test_path, set(entry_points), timeout)
+    if effect == "canary_dos":
+        return _run_dos(app_root, test_path, set(entry_points), timeout)
 
     # The test's own directory is test code even when it sits inside the app root.
     exclude = []
@@ -583,6 +608,50 @@ def _run_connect(app_root: Path, test_path: Path, entry_points: set[str], timeou
     )
 
 
+def _run_dos(app_root: Path, test_path: Path, entry_points: set[str], timeout: float) -> Judgement:
+    """The host path of ``canary_dos``: no canary file, the plugin times the entry point.
+
+    The test supplies two same-length inputs through the ``dos_probe`` fixture; the plugin
+    calls the entry point with each, several times, and signs the CPU ratio. Nothing is
+    planted on disk. Sandbox CPU and time limits are unchanged on the other path.
+    """
+    key = secrets.token_bytes(KEY_BYTES)
+    token = "CANARY-" + secrets.token_hex(16)
+    with tempfile.TemporaryDirectory(prefix="exhibit_a_oracle_") as tmp:
+        work = Path(tmp).resolve()
+        allowed = work / "allowed"
+        allowed.mkdir()
+        (allowed / "public.txt").write_text("public file\n", encoding="utf-8")
+        exclude = []
+        if test_path.parent.is_relative_to(app_root) and test_path.parent != app_root:
+            exclude.append(test_path.parent.relative_to(app_root).as_posix())
+        elif test_path.parent == app_root:
+            exclude += [test_path.name, "conftest.py"]
+        try:
+            manifest = app_manifest(app_root, exclude)
+        except ManifestError as exc:
+            return Judgement(
+                observed_effect=False, provenance_ok=False, test_outcome="error",
+                reason=f"the application tree could not be hashed before the run: {exc}",
+                reason_code=REASON_MANIFEST_FAILED,
+            )
+        events_path = work / "events.jsonl"
+        ini = work / "pytest.ini"
+        ini.write_text("[pytest]\n", encoding="utf-8")
+        outcome = _run_test(
+            app_root, test_path, work, ini, allowed, "dos", token, events_path, timeout,
+            key=key, manifest=manifest, dos=True,
+        )
+        events, forged, forged_reason = _read_events(events_path, key)
+    changes = tree_changes(app_root, manifest, exclude)
+    return _judge(
+        outcome, events, app_root, test_path, entry_points,
+        effect="canary_dos", forged_events=forged, forged_reason=forged_reason,
+        app_tree=AppTree(str(app_root), app_root, manifest), app_tree_changes=changes,
+        allowed_dir=str(allowed),
+    )
+
+
 def _wait_for_port(port: int, timeout: float) -> bool:
     """Whether 127.0.0.1:``port`` accepts a connection within ``timeout`` seconds."""
     import socket
@@ -677,6 +746,7 @@ def _run_test(
     marker: Path | None = None,
     sql_table: str | None = None,
     connect_url: str | None = None,
+    dos: bool = False,
 ) -> TestOutcome:
     """Run the test with the plugin; ``key`` goes to the plugin on stdin, never elsewhere.
 
@@ -708,6 +778,8 @@ def _run_test(
         env[ENV_SQL] = sql_table  # ENV_CANARY above is the application's database file
     if connect_url is not None:
         env[ENV_CONNECT_URL] = connect_url  # the test contract; ENV_CANARY carries it too
+    if dos:
+        env[ENV_DOS] = "1"
     cmd = [
         sys.executable,
         "-m",
@@ -856,6 +928,8 @@ def _judge(
             outcome, events, app_root, test_path.parent, entry_points, app_tree,
             canary_url, connect_log,
         )
+    if effect == "canary_dos":
+        return _judge_dos(outcome, events, app_root, test_path.parent, entry_points, app_tree)
     # Only opens of the kind this effect looks for count. A write-effect run ignores a read of
     # the canary path, and a read-effect run ignores a write: the wrong access never proves the
     # intended vulnerability. The full event list is still returned for the record.
@@ -1205,6 +1279,97 @@ def _judge_connect(
         reason = "canary URL requested by application code reached through an entry point; test failed"
     else:
         reason = f"canary URL requested through an entry point, but the test did not fail ({outcome})"
+    return Judgement(
+        observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
+        reason_code="" if outcome == "failed" else REASON_NO_EFFECT,
+    )
+
+
+def _finite(value: float | None) -> bool:
+    """Whether ``value`` is a usable finite measurement (NaN/inf never prove)."""
+    return isinstance(value, (int, float)) and value == value and abs(value) != float("inf")
+
+
+def _judge_dos(
+    outcome: TestOutcome,
+    events: list[OracleEvent],
+    app_root: Path,
+    test_dir: Path,
+    entry_points: set[str],
+    app_tree: AppTree | None,
+) -> Judgement:
+    """Decide a canary_dos run (docs/oracle/oracle-provenance.md, section 3.12).
+
+    Proven only if all hold: authenticated provenance is on; nothing timed from test
+    frames (the probe itself is the plugin); ``sys.setprofile`` was intact; one signed
+    ``dos`` event shows a median malicious/benign application-CPU ratio above the
+    documented threshold, malicious application CPU above the absolute floor, and that
+    CPU spent in admitted app frames reached through a declared entry point called from
+    the test; the samples were not noisy; and the test failed. A noisy machine is
+    ``flaky``, never a proof.
+    """
+
+    def refuse(code: str, why: str, observed: bool = False) -> Judgement:
+        return Judgement(
+            observed_effect=observed, provenance_ok=False, reason=f"canary_dos not proven: {why}; test {outcome}",
+            test_outcome=outcome, events=events, reason_code=code,
+        )
+
+    if app_tree is None:
+        return refuse(REASON_PROVENANCE, "provenance cannot be authenticated without the staged app")
+    probes = [event for event in events if event.op == "dos"]
+    if not probes:
+        why = {
+            "failed": "test failed but the runner never timed the entry point: it failed for the wrong reason",
+            "passed": "test passed and the runner never timed the entry point: nothing was proven",
+            "error": "test did not run to a result and the runner never timed the entry point",
+            "timeout": "test timed out and the runner never timed the entry point",
+        }[outcome]
+        return Judgement(
+            observed_effect=False, provenance_ok=False, reason=why, test_outcome=outcome, events=events,
+            reason_code=REASON_NO_EFFECT,
+        )
+    for event in probes:
+        who = _started_from(event, app_root, test_dir)
+        if who == "test":
+            return refuse(REASON_DOS_FROM_TEST, "CPU was sampled from a test frame, not the application")
+        if event.patched is not None:
+            return refuse(REASON_DOS_API_CHANGED, f"{event.patched} changed while the entry point was timed")
+        problem = _provenance_problem(event, app_root, test_dir, entry_points, app_tree)
+        if problem is not None:
+            return refuse(problem[0], f"entry point timed without valid provenance: {problem[1]}", observed=True)
+        if event.noisy or not all(
+            _finite(v) for v in (event.ratio, event.malicious_cpu, event.benign_cpu, event.app_fraction)
+        ):
+            return refuse(
+                REASON_FLAKY,
+                "the CPU samples were too noisy or not finite to prove algorithmic complexity",
+            )
+        ratio = float(event.ratio)
+        malicious_cpu = float(event.malicious_cpu)
+        fraction = float(event.app_fraction)
+        if fraction < DOS_MIN_APP_FRACTION:
+            return refuse(
+                REASON_DOS_FROM_TEST,
+                f"only {fraction:.0%} of malicious CPU was in application frames (busy loop, sleep, hashing)",
+            )
+        if ratio <= DOS_RATIO or malicious_cpu < DOS_FLOOR:
+            return Judgement(
+                observed_effect=False, provenance_ok=False,
+                reason=(
+                    f"canary_dos not proven: median ratio {ratio:.1f}x "
+                    f"(need >{DOS_RATIO:.0f}x) and malicious app CPU {malicious_cpu:.4f}s "
+                    f"(need >={DOS_FLOOR:.3f}s); test {outcome}"
+                ),
+                test_outcome=outcome, events=events, reason_code=REASON_NO_EFFECT,
+            )
+    if outcome == "failed":
+        reason = (
+            f"application CPU on the malicious input was {probes[0].ratio:.1f}x the benign "
+            "input of the same length, spent in application frames through an entry point; test failed"
+        )
+    else:
+        reason = f"algorithmic complexity observed through an entry point, but the test did not fail ({outcome})"
     return Judgement(
         observed_effect=True, provenance_ok=True, reason=reason, test_outcome=outcome, events=events,
         reason_code="" if outcome == "failed" else REASON_NO_EFFECT,

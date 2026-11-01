@@ -71,7 +71,7 @@ from exhibit_a.oracle.oracle import (
     read_connect_log,
     sql_db_problem,
 )
-from exhibit_a.oracle.plugin import ENV_CONNECT, ENV_MARKER, ENV_SQL, KEY_BYTES, key_message, verify_lines
+from exhibit_a.oracle.plugin import ENV_CONNECT, ENV_DOS, ENV_MARKER, ENV_SQL, KEY_BYTES, key_message, verify_lines
 from exhibit_a.oracle.provenance import ManifestError, app_manifest, staging_exclude, tree_changes
 
 PYTEST_VERSION = "pytest==7.3.2"
@@ -615,7 +615,9 @@ def run(
         ):
             return _env_failure(f"invalid canary_mount: {canary_mount!r}")
 
-        if effect not in ("canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect"):
+        if effect not in (
+            "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
+        ):
             return _env_failure(f"unknown oracle effect: {effect}")
         if effect == "canary_write":
             if canary_path is not None:
@@ -639,7 +641,13 @@ def run(
             connect_url = extra_env.get(_CONNECT_ENV)
             if not _valid_connect_url(connect_url):
                 return _env_failure("a connect effect needs a loopback EXHIBIT_A_CANARY_URL in env")
-        observe = canary_path is not None or events_path is not None or effect in ("canary_write", "canary_connect")
+        if effect == "canary_dos":
+            if canary_path is not None or events_path is None:
+                return _env_failure("a dos effect mounts no canary file and needs events_path")
+        observe = (
+            canary_path is not None or events_path is not None
+            or effect in ("canary_write", "canary_connect", "canary_dos")
+        )
         oracle_key = secrets.token_bytes(KEY_BYTES)
         events_file = os.path.join(tmpdir, "events.jsonl")
         outside_file = os.path.join(tmpdir, "outside.json")
@@ -715,9 +723,13 @@ def run(
                 Path(connect_file).write_text("")
                 extra_args += ["-v", f"{connect_file}:{_CONNECT_LOG_MOUNT}:rw"]
                 extra_args += ["-e", f"EXHIBIT_A_CANARY={connect_url}", "-e", f"{_CONNECT_ENV}={connect_url}"]
+            elif effect == "canary_dos":
+                # DOS effect: NO canary file is mounted. The plugin times the entry point
+                # inside the same container; CPU and time limits stay the sandbox defaults.
+                extra_args += ["-e", "EXHIBIT_A_CANARY=dos", "-e", f"{ENV_DOS}=1"]
             plugin_args = ["-p", _PLUGIN_MODULE]
         for env_name, value in extra_env.items():
-            if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY", _CONNECT_ENV) and observe:
+            if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY", _CONNECT_ENV, ENV_DOS) and observe:
                 continue
             extra_args += ["-e", f"{env_name}={value}"]
 

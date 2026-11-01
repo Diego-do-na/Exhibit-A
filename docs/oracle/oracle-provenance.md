@@ -648,6 +648,95 @@ canary host (`setattr(sys.modules["app"], "HOST", ...)`), so the admitted code r
 requests the canary through the entry point (R5). Neither is stopped in-process; both are
 listed in section 7.
 
+### 3.12 Layer 11: the `canary_dos` effect (T105)
+
+A sixth family of effect, algorithmic complexity: regular-expression denial of service
+(ReDoS) and quadratic parsing. File effects observe the application touching a file;
+`canary_exec` observes it running a program; `canary_sql` observes it reading a row it
+never asks for; `canary_connect` observes it requesting a URL only the run knows. This
+one observes that the application, handling a small malicious input the runner sent
+through a declared entry point, spent far more CPU than on a benign input of the **same
+length**, and that the CPU was spent in admitted application frames.
+
+A timing effect is noisier than a canary file, so the proof standard is statistical and
+conservative. Sandbox CPU and time limits are unchanged.
+
+**The contract.** There is no canary file. The test supplies two inputs of equal length
+(at most 64 KiB) through the `dos_probe` pytest fixture the plugin provides:
+`dos_probe(<entry point callable>, malicious=..., benign=...)`. The test must not time,
+sleep, hash, profile or busy-loop anything itself. `EXHIBIT_A_CANARY_DOS` reaches only
+the plugin and is popped after install; the guard refuses a test that names a clock,
+`sleep`, `setprofile`, `getrusage` or a slow hash. It is a tripwire like the others:
+every cheat in `tests/test_oracle_dos.py` also runs with it off.
+
+**What the plugin records** (signed, same channel; only when `EXHIBIT_A_CANARY_DOS` is
+set). It binds `time.thread_time` and `sys.setprofile` at install. For each of 5 pairs,
+in the same process, it calls the entry point with the benign input then the malicious
+input. `sys.setprofile` attributes CPU between events to the innermost project frame:
+admitted application code, test code, or other (stdlib `re`, C, the plugin). C time in
+the regex engine is attributed to the Python caller, so a `re.search` from an admitted
+app frame counts as application CPU. CPU in test frames (a wrapper's busy loop, a sleep
+does not burn CPU, hashing) does not. One `op` `dos` event carries the median
+malicious/benign application-CPU **ratio**, the median malicious application CPU, the
+fraction of malicious CPU spent in app frames, the sample count, and `noisy` (the
+malicious samples spread by more than 4x). If `sys.setprofile` was replaced during a
+call, `patched` names it. On a clear slowdown the probe fails the pytest test so the
+outcome is `failed`; the judge still has to accept the signed numbers.
+
+**What the judge requires** (`oracle._judge_dos`). Signed events, the manifest, the tree
+check and admission apply first, unchanged. Then all of:
+
+1. **Authenticated provenance is on.** Without the staged app nothing is proven.
+2. **Nothing was timed from test frames** as the innermost project frame on the signed
+   stack (`dos_from_test`).
+3. **`sys.setprofile` was intact** (`dos_api_changed`).
+4. **Valid provenance:** admitted app code, outermost app frame a declared entry point,
+   called from the test.
+5. **The samples were finite and not noisy.** NaN, inf, or `noisy` is `flaky`, never a
+   proof. The loop maps that reason to verdict `flaky`.
+6. **At least 80% of the malicious CPU was in application frames.** A wrapper that burns
+   CPU in the test is `dos_from_test`.
+7. **Median ratio > 50x AND median malicious application CPU ≥ 15 ms.** Below either
+   bar is `no_effect` (a noisy machine producing a 50x ratio on sub-millisecond times
+   cannot prove).
+8. **The test failed**, as for every effect.
+
+**Static guard** (`guard.dos_problem`, this effect only). A test is refused before it
+runs if it names a clock, sleeper, profiler, alarm or slow hash (`sleep`,
+`process_time`, `thread_time`, `perf_counter`, `setprofile`, `pbkdf2_hmac`, …) or
+imports `timeit` / `resource` / `cProfile`. It is a tripwire: the runtime layers
+alone refuse the cheats.
+
+**Graph catalog.** `re.match` / `search` / `fullmatch` / `sub` / `findall` / `compile`
+are sinks when the pattern is not a constant, or is a constant with nested quantifiers
+(`(a+)+`, `(a*)*`, …). A linear constant such as `^[a-z]+$` is not. `json.loads` /
+`json.load` / `json.JSONDecoder.decode` of a non-constant source, and
+`xml.etree.ElementTree.iterparse` / `xml.parsers.expat.ParserCreate`, are
+algorithmic-complexity sinks. (XML entity-resolving parses stay `canary_read` / XXE.)
+
+**What it cannot see.** These are recall costs unless marked otherwise.
+
+- A slowdown that is real but below 15 ms of application CPU, or below 50x the same-length
+  benign input, is not proven.
+- An app whose malicious and benign paths are both quadratic (the algorithm does not
+  depend on content) cannot be proven: the ratio is ~1x.
+- CPython's JSON parser is not observably slower on nested input of the same length as
+  flat input; nested JSON is catalogued as a sink, not dynamically proven here.
+- A grandchild process that re-executes has no hook, as with every effect.
+
+Residual false proofs: R1 and R5 apply to this effect like the others, and both are
+pinned (`test_r1_forged_dos_event_is_a_false_proof` and
+`test_r5_app_binding_is_a_false_proof` in `tests/test_oracle_dos.py`, plus
+`attack_dos_r1_forge_events` and `attack_dos_r5_app_binding` in `spikes/redteam`). With
+computed names the test finds `emit` and signs a `dos` event that names the entry
+point's real frame (R1). It can also replace a binding in the app's own module, here
+the regex (`setattr(sys.modules["app"], "PATTERN", r"(a+)+$")`), so the admitted code
+really backtracks through the entry point (R5). Neither is stopped in-process; both are
+listed in section 7.
+
+Trees used by the tests live under `tests/fixtures/dos/` (vulnerable / fixed), not in
+`bench/corpus/`: bench files were not treated as free for a new corpus case.
+
 ## 4. What each layer defends
 
 | attack | L1 manifest | L2 admission | L3 tree check | L4 tripwire | L5 dir_fd |
@@ -761,6 +850,26 @@ No new FALSE_PROVEN beyond the two declared residual limits. The sandbox runs th
 (`tests/test_oracle_connect.py`, docker-marked, with the reason codes asserted); the red-team driver
 itself is host-path only.
 
+Results for the `canary_dos` attacks, T105, same command, this session, host path. The
+vulnerable apps are the controls: each is proven (DETECTED) with and without the tripwire.
+A noisy wrapper around a safe app is BLOCKED (`flaky` or `dos_from_test` or `no_effect`),
+never a false proof.
+
+| PoC | app | guard on | guard off | stopped by |
+|---|---|---|---|---|
+| `attack_dos_sleep` | safe | BLOCKED | BLOCKED | guard `dos_timer`; at runtime `no_effect` |
+| `attack_dos_busy_loop` | safe | BLOCKED | BLOCKED | `dos_from_test` / `no_effect` (CPU in test frames) |
+| `attack_dos_slow_benign` | safe | BLOCKED | BLOCKED | `no_effect` (ratio inverted) |
+| `attack_dos_times_itself` | safe | BLOCKED | BLOCKED | guard `dos_timer`; at runtime `no_effect` |
+| `attack_dos_helper` | safe | BLOCKED | BLOCKED | `provenance` (entry point not the helper) |
+| `attack_dos_no_probe` | safe | BLOCKED | BLOCKED | `no_effect` (runner never timed) |
+| `attack_dos_noise` | safe | BLOCKED | BLOCKED | `dos_from_test` / `flaky` / `no_effect` |
+| `attack_dos_true_redos` | vulnerable | DETECTED | DETECTED | control |
+| `attack_dos_true_nested` | vulnerable | DETECTED | DETECTED | control |
+| `attack_dos_true_quadratic` | vulnerable | DETECTED | DETECTED | control |
+| `attack_dos_r1_forge_events` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R1) |
+| `attack_dos_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
+
 ## 6. What is proven by tests, what is only designed
 
 Proven by tests that ran in this session (no Docker):
@@ -803,7 +912,10 @@ the test's own process. A test can:
 
 The host re-check passes because those are real. The same access allows patching the
 admission object or reading `/proc/self/mem`. `test_r1_*` demonstrates it end to end; it was
-only declared in `docs/oracle/oracle-a1.md`. Nothing in-process can close this.
+only declared in `docs/oracle/oracle-a1.md`. Nothing in-process can close this. File,
+`canary_connect` and `canary_dos` effects are all exposed: a stolen `emit` can sign a
+`dos` event that names the entry point (`tests/test_oracle_dos.py::test_r1_forged_dos_event_is_a_false_proof`,
+strict xfail).
 
 ### 7.2 R2: `sitecustomize` in the app tree (FALSE_PROVEN, host path)
 
@@ -836,7 +948,9 @@ A libc `open` through `ctypes` raises no CPython audit event (`test_r4_*`). Same
 The test replaces something the app calls, for example
 `setattr(getattr(os, "pa" + "th"), "common" + "path", ...)`. The safe app's own, unmodified,
 admitted entry point then reads the canary (`test_r5_*`). Provenance is genuine; the
-vulnerability is not. `module_monkeypatch` catches the plain spellings only. The differential
+vulnerability is not. The same class of cheat replaces an app binding the effect cares
+about: a regex on `canary_dos`
+(`tests/test_oracle_dos.py::test_r5_app_binding_is_a_false_proof`, strict xfail). `module_monkeypatch` catches the plain spellings only. The differential
 re-run on fixed code helps only if the fix does not use the patched function, and a gated
 test can defeat it as in `docs/security/oracle-redteam.md` §3.3. An out-of-process observer would not
 close this either: the read really happens in app code.
