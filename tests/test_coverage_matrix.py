@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from bench import coverage as coverage_t103
 from bench.coverage_matrix import update_document
 
 
@@ -52,3 +53,45 @@ def test_generator_is_idempotent(tmp_path: Path) -> None:
     update_document(document, corpus)
 
     assert document.read_text(encoding="utf-8") == first
+
+
+def test_t103_synthetic_corpus_renders_cwe_rows(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    _case(corpus, "xxe-case", "xml_external_entity", "canary_read")
+    _case(corpus, "ssti-case", "server_side_template_injection", "canary_exec")
+    document = tmp_path / "coverage.md"
+
+    coverage_t103.update_document(document, corpus)
+    output = document.read_text(encoding="utf-8")
+
+    assert "| CWE id and name | effect | corpus case | proven live | notes |" in output
+    assert "`xxe-case`" in output and "`ssti-case`" in output
+    assert "not yet recorded" in output
+    assert "Weak cryptography" in output
+    assert "Hard-coded secrets" in output
+    assert "Logic bugs without an observable effect" in output
+
+
+def test_t103_generator_is_idempotent(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    _case(corpus, "case", "path_traversal", "canary_read")
+    document = tmp_path / "coverage.md"
+
+    coverage_t103.update_document(document, corpus)
+    first = document.read_text(encoding="utf-8")
+    coverage_t103.update_document(document, corpus)
+
+    assert document.read_text(encoding="utf-8") == first
+
+
+def test_committed_coverage_matches_the_generator() -> None:
+    committed = coverage_t103.DOC.read_text(encoding="utf-8")
+    generated = coverage_t103.render()
+    start = committed.find(coverage_t103.BEGIN_MARKER)
+    end = committed.find(coverage_t103.END_MARKER)
+    assert start >= 0 and end > start
+    block = committed[start:end + len(coverage_t103.END_MARKER)] + "\n"
+    assert block == generated
+    cwes = {line.split("|")[1].strip().split()[0]
+            for line in generated.splitlines() if line.startswith("| CWE-")}
+    assert len(cwes) >= 10, sorted(cwes)

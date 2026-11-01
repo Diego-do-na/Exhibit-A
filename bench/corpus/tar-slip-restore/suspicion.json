@@ -1,0 +1,11 @@
+{
+  "id": "tar-slip-restore-extractall",
+  "class": "archive_extraction_path_traversal",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 26
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The restore helper extracts a tar archive with filter='fully_trusted', so a member whose name contains '..' or is absolute is written outside the destination (tar slip).",
+  "source": "manual (case author); real-world analog CVE-2007-4559"
+}

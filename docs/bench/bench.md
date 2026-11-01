@@ -64,6 +64,21 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Naive LLM (reports everything) | sql-trunc-kind-injection/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 | Naive LLM (reports everything) | docsuite-large-command-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Naive LLM (reports everything) | docsuite-large-command-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | xxe-catalog | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | xxe-catalog/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | xxe-catalog/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | ssti-jinja-preview | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | ssti-jinja-preview/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | ssti-jinja-preview/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | yaml-job-load | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | yaml-job-load/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | yaml-job-load/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | tar-slip-restore | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | tar-slip-restore/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | tar-slip-restore/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | upload-avatar | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | upload-avatar/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | upload-avatar/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | starlette-cve-2023-29159 | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.1106 | 0.1106 | 34.2 |
 | Exhibit A, compact profile | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 3 | 4 | 0.1358 | 0.2834 | 60.5 |
 | Exhibit A, compact profile | archive-extraction-pathtraversal | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.0597 | 0.0597 | 65.7 |
@@ -84,6 +99,21 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Exhibit A, compact profile | sql-trunc-kind-injection/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | docsuite-large-command-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | docsuite-large-command-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | xxe-catalog | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | xxe-catalog/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | xxe-catalog/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | ssti-jinja-preview | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | ssti-jinja-preview/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | ssti-jinja-preview/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | yaml-job-load | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | yaml-job-load/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | yaml-job-load/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | tar-slip-restore | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | tar-slip-restore/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | tar-slip-restore/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | upload-avatar | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | upload-avatar/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | upload-avatar/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159 | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 1.9052 | 1.9052 | 980.7 |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 7 | 8 | 2.1415 | 2.1415 | 1054.0 |
 | Exhibit A, standard profile (nothing proven live) | archive-extraction-pathtraversal | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 0.7357 | 0.7357 | 339.0 |
@@ -104,6 +134,21 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Exhibit A, standard profile (nothing proven live) | sql-trunc-kind-injection/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | docsuite-large-command-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | docsuite-large-command-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | xxe-catalog | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | xxe-catalog/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | xxe-catalog/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | ssti-jinja-preview | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | ssti-jinja-preview/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | ssti-jinja-preview/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | yaml-job-load | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | yaml-job-load/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | yaml-job-load/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | tar-slip-restore | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | tar-slip-restore/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | tar-slip-restore/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | upload-avatar | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | upload-avatar/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | upload-avatar/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 <!-- END GENERATED -->
 
 Columns:

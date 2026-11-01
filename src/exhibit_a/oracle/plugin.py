@@ -165,7 +165,7 @@ _SINK_NAMES = frozenset({
     "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
     "posix_spawn", "posix_spawnp", "fork", "forkpty", "spawn", "create_subprocess_shell",
     "create_subprocess_exec", "loads", "load", "Unpickler", "unsafe_load", "full_load", "shelve",
-    "eval", "exec",
+    "eval", "exec", "Template", "from_string",
 })
 # What must still be the object it was at install when a process starts: replacing one of these
 # changes what the application's own, unmodified code does.

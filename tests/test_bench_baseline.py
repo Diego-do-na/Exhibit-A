@@ -74,6 +74,19 @@ def test_other_classes_do_not_become_sql_injection(name):
     assert canonical_class(name) != "sql_injection"
 
 
+@pytest.mark.parametrize("name,expected", [
+    ("ssti", "server_side_template_injection"),
+    ("template_injection", "server_side_template_injection"),
+    ("xml_external_entity", "xml_external_entity"),
+    ("XXE", "xml_external_entity"),
+    ("unrestricted_file_upload", "unrestricted_file_upload"),
+    ("file_upload", "unrestricted_file_upload"),
+    ("unsafe_yaml_load", "insecure_deserialization"),
+])
+def test_mapped_class_wordings_share_one_class(name, expected):
+    assert canonical_class(name) == expected
+
+
 def test_file_is_compared_relative_to_the_tree():
     assert canonical_file("vulnerable/archive.py", "vulnerable") == "archive.py"
     assert canonical_file("./archive.py", "vulnerable") == "archive.py"

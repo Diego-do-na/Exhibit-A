@@ -1,0 +1,20 @@
+{
+  "language": "python",
+  "interpreter": "python3.11",
+  "dependency_manager": "pip",
+  "install_cmd": "python -m pip install PyYAML",
+  "test_cmd": "python -m pytest baseline_test.py",
+  "framework": "none (PyYAML)",
+  "dependencies": [
+    {
+      "name": "PyYAML",
+      "version": "*"
+    }
+  ],
+  "commit": "",
+  "baseline": {
+    "passed": 3,
+    "failed": 0,
+    "seconds": 0.0
+  }
+}
