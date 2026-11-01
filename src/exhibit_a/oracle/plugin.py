@@ -94,6 +94,14 @@ The test supplies a callable (the entry point) and two same-length inputs; the p
 both several times, attributes CPU with ``sys.setprofile`` to admitted application frames vs
 test frames, and signs one ``op`` ``dos`` event. The test must not time anything itself.
 
+For the ``canary_redirect`` effect (``EXHIBIT_A_CANARY_REDIRECT`` set; section 3.13) the
+plugin exposes a ``redirect_probe`` fixture, and for ``canary_access`` (``EXHIBIT_A_ATTACKER``
+and ``EXHIBIT_A_RESOURCE`` set; section 3.14) an ``access_probe`` fixture. The test supplies
+the entry point and the input; the plugin calls the entry point itself, captures the returned
+response, and signs one ``op`` ``response`` event with the logical stack seen while it ran.
+The test only asserts on the copy the fixture returns. A response the test builds itself is
+signed with the test on the stack, which the judge refuses.
+
 The module stays self-contained (stdlib only, plus pytest which loads it): the sandbox mounts
 it as a single file.
 """
@@ -128,6 +136,15 @@ ENV_CONNECT = "EXHIBIT_A_CANARY_URL"
 # canary_sql: the name of the canary table in the application's database (EXHIBIT_A_CANARY is
 # the database file for this effect). Its one column is _SQL_COLUMN.
 ENV_SQL = "EXHIBIT_A_CANARY_SQL"
+# canary_redirect: the full canary URL for the run. Only its host matters to the judge;
+# nothing is ever fetched from it. Kept in the environment: it is the test contract.
+ENV_REDIRECT = "EXHIBIT_A_CANARY_REDIRECT"
+# canary_access: how to authenticate as the attacker and which victim-owned resource to
+# ask for. Both are the test contract and stay in the environment. The victim credential
+# is never in the test's environment: the runner uses it only to seed the store. The
+# store itself is EXHIBIT_A_CANARY, popped after install like every other effect's.
+ENV_ACCESS_ATTACKER = "EXHIBIT_A_ATTACKER"
+ENV_ACCESS_RESOURCE = "EXHIBIT_A_RESOURCE"
 # canary_dos: any non-empty value turns on CPU sampling of the entry point. Popped after
 # install; the test is never told it exists. Inputs come through the dos_probe fixture.
 ENV_DOS = "EXHIBIT_A_CANARY_DOS"
@@ -141,6 +158,16 @@ DOS_MAX_INPUT = 65536
 DOS_MIN_APP_FRACTION = 0.80
 DOS_SPREAD = 4.0  # max/min among malicious app-CPU samples; above this is flaky
 _DOS: list = []
+# canary_redirect / canary_access: the runner, not the test, calls the entry point and
+# observes the response. An entry in each list means the fixture of that effect is on.
+_REDIRECT: list = []
+_ACCESS: list = []
+# A response the probe records is bounded: the judge matches the canary host or token in
+# it, and anything beyond these caps is a recall cost, never a proof.
+_RESPONSE_MAX_ARGS = 8
+_RESPONSE_MAX_ARG = 4096
+_RESPONSE_MAX_LOCATION = 4096
+_RESPONSE_MAX_BODY = 65536
 
 # What the orchestrator writes to stdin: the magic, the key in hex, a newline. Nothing else.
 KEY_MAGIC = b"EXHIBIT-A-KEY "
@@ -1232,9 +1259,196 @@ def _bind_dos(emit, admission, stack_fn) -> None:
     _DOS.append({"probe": probe, "used": False})
 
 
+def _normalize_response(value: object) -> tuple[dict[str, object] | None, bool]:
+    """The observed response as ``{"status", "location", "body"}``, or ``(None, False)``.
+
+    Recognised shapes, in order: a ``(status, headers)`` or ``(status, headers, body)``
+    tuple or list; a mapping with ``status``/``status_code``, ``headers``/``header`` and
+    ``body``/``text``/``data``/``content`` keys; or an object with those attributes (such
+    as a framework response). A bare string (or bytes) is a body with no status, such
+    as an API that returns content directly or an HTML page carrying a meta refresh.
+    ``status`` must be an HTTP status or absent; ``location``
+    is the ``Location`` header when one is present; ``body`` is text (bytes are decoded,
+    mappings and sequences are serialised). Anything else is not a response the judge can
+    read: it proves nothing.
+    """
+    import json as _json
+
+    status: object = None
+    headers: object = None
+    body: object = None
+    try:
+        if isinstance(value, (tuple, list)):
+            if len(value) == 2:
+                status, headers = value
+            elif len(value) == 3:
+                status, headers, body = value
+            else:
+                return None, False
+        elif isinstance(value, dict):
+            status = value.get("status", value.get("status_code"))
+            headers = value.get("headers", value.get("header"))
+            body = value.get("body", value.get("text", value.get("data", value.get("content"))))
+        elif value is None:
+            return None, False
+        elif isinstance(value, str):
+            return {"status": None, "location": None, "body": value[:_RESPONSE_MAX_BODY]}, True
+        elif isinstance(value, (bytes, bytearray)):
+            try:
+                return {
+                    "status": None, "location": None,
+                    "body": bytes(value).decode("utf-8", "replace")[:_RESPONSE_MAX_BODY],
+                }, True
+            except Exception:  # noqa: BLE001 - undecodable bytes prove nothing
+                return None, False
+        else:
+            found = False
+            for name in ("status_code", "status"):
+                if hasattr(value, name):
+                    status = getattr(value, name)
+                    found = True
+                    break
+            for name in ("headers", "header"):
+                if hasattr(value, name):
+                    headers = getattr(value, name)
+                    found = True
+                    break
+            for name in ("body", "text", "data", "content"):
+                if hasattr(value, name):
+                    body = getattr(value, name)
+                    found = True
+                    break
+            if not found:
+                return None, False
+    except Exception:  # noqa: BLE001 - reading a hostile test double must not break the run
+        return None, False
+    if status is not None and (isinstance(status, bool) or not isinstance(status, int)
+                               or not 100 <= status <= 599):
+        return None, False
+    seen: dict[str, str] = {}
+    try:
+        items = headers.items() if isinstance(headers, dict) else (headers or [])
+        for pair in items:
+            key, val = pair
+            if isinstance(key, str):
+                seen[key.lower()] = val if isinstance(val, str) else str(val)
+    except Exception:  # noqa: BLE001 - hostile headers prove nothing
+        return None, False
+    location = seen.get("location")
+    if location is not None and not isinstance(location, str):
+        return None, False
+    if isinstance(body, (bytes, bytearray)):
+        try:
+            body = bytes(body).decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001 - undecodable bytes prove nothing
+            return None, False
+    elif isinstance(body, (dict, list, tuple)):
+        try:
+            body = _json.dumps(body, sort_keys=True, default=str)
+        except Exception:  # noqa: BLE001 - unserialisable bodies prove nothing
+            return None, False
+    elif body is not None and not isinstance(body, str):
+        return None, False
+    text = body if isinstance(body, str) else ""
+    return {
+        "status": status,
+        "location": (location[:_RESPONSE_MAX_LOCATION] if location else None),
+        "body": text[:_RESPONSE_MAX_BODY],
+    }, True
+
+
+def _bind_response(emit, admission, stack_fn, canary: str) -> object:
+    """Expose a probe that calls the entry point and signs the observed response.
+
+    The probe is the only observation channel for the redirect and access effects: it
+    calls the entry point itself with the test's input, captures the returned response,
+    and signs one ``op`` ``response`` event with the logical stack seen while the entry
+    point ran. The stack is captured with ``sys.setprofile`` at the first frame under
+    the app root, so it names the entry point the plugin itself called. The test only
+    gets a plain copy of the response to assert on. If the entry point raises, no event
+    is signed and the exception reaches the test, which treats a refusal as safe.
+    """
+    setprofile = sys.setprofile
+    getprofile = sys.getprofile
+    realpath = os.path.realpath
+
+    def call_observed(fn, call_args: tuple):
+        """``(result, raised, stack, stolen)`` of calling ``fn`` with ``call_args``."""
+        captured: list = []
+
+        def profile(frame, event, arg):
+            if event == "call" and not captured and admission is not None:
+                name = frame.f_code.co_filename
+                real = name if name.startswith("<") else realpath(name)
+                if admission.relative(real) is not None:
+                    captured.append(stack_fn(frame, admission))
+            return profile
+
+        result: object = None
+        error: Exception | None = None
+        setprofile(profile)
+        try:
+            try:
+                result = fn(*call_args)
+            except Exception as exc:  # noqa: BLE001 - the app refusing is not a cheat
+                error = exc
+            stolen = getprofile() is not None and getprofile() is not profile
+        finally:
+            setprofile(None)
+        if captured:
+            stack = captured[0]
+        else:
+            try:
+                stack = stack_fn(sys._getframe(1), admission)
+            except ValueError:
+                stack = []
+        return result, error, stack, stolen
+
+    def probe(fn, *args: object, auth: object = None, resource: object = None):
+        """Call the entry point, sign the observed response, return a plain copy."""
+        if not callable(fn):
+            raise TypeError("the probe needs the entry point callable as its first argument")
+        if len(args) > _RESPONSE_MAX_ARGS:
+            raise ValueError(f"the probe takes at most {_RESPONSE_MAX_ARGS} inputs")
+        for arg in args:
+            if not isinstance(arg, str):
+                raise TypeError("the probe passes only strings to the entry point")
+            if len(arg) > _RESPONSE_MAX_ARG:
+                raise ValueError(f"an input longer than {_RESPONSE_MAX_ARG} characters proves nothing")
+        for label, extra in (("auth", auth), ("resource", resource)):
+            if extra is not None and (not isinstance(extra, str) or len(extra) > _RESPONSE_MAX_ARG):
+                raise TypeError(f"the probe's {label} must be a short string")
+        result, error, stack, stolen = call_observed(fn, tuple(args))
+        if error is not None:
+            raise error
+        response, ok = _normalize_response(result)
+        if not ok or response is None:
+            response = {"status": None, "location": None, "body": ""}
+        emit({
+            "path": canary,
+            "mode": "response_probe",
+            "op": "response",
+            "flags": None,
+            "access": None,
+            "requested": None,
+            "via_symlink": False,
+            "stack": stack,
+            "status": response["status"],
+            "location": response["location"],
+            "body": response["body"],
+            "auth": auth if isinstance(auth, str) else None,
+            "resource": resource if isinstance(resource, str) else None,
+            "patched": "sys.setprofile" if stolen else None,
+        })
+        return dict(response)
+
+    return probe
+
+
 def _install(
     canary: str, events_path: str, key: bytes | None, app: dict | None = None, marker: str | None = None,
     sql_table: str | None = None, connect_url: str | None = None, dos: bool = False,
+    redirect_url: str | None = None, access: bool = False,
 ) -> None:
     global _installed
     if _installed:
@@ -1242,8 +1456,9 @@ def _install(
     _installed = True
     since = time.time() - _SYMLINK_SLACK
     # For canary_connect the "canary" is a URL, not a file: keep it verbatim for the event
-    # path instead of resolving it against the working directory.
+    # path instead of resolving it against the working directory. Same for canary_redirect.
     service_url = canary if connect_url is not None else None
+    service_url = redirect_url if redirect_url is not None else service_url
     canary = os.path.realpath(canary)
     try:
         st = os.stat(canary)
@@ -1281,6 +1496,23 @@ def _install(
 
     if dos:
         _bind_dos(emit, admission, _stack)
+    if redirect_url is not None:
+        label = redirect_url
+        observe = _bind_response(emit, admission, _stack, label)
+
+        def redirect_probe(fn, *targets):  # noqa: ANN001, ANN202
+            """Call the entry point with the redirect target and sign the observed response."""
+            return observe(fn, *targets)
+
+        _REDIRECT.append({"probe": redirect_probe})
+    if access:
+        observe_access = _bind_response(emit, admission, _stack, canary)
+
+        def access_probe(fn, auth, resource):  # noqa: ANN001, ANN202
+            """Call the entry point as the attacker and sign the observed response."""
+            return observe_access(fn, auth, resource, auth=auth, resource=resource)
+
+        _ACCESS.append({"probe": access_probe})
 
     def drift() -> str | None:
         """The first watched API or sensitive variable that changed since install."""
@@ -1597,11 +1829,17 @@ def _install_from_env() -> None:
     sql_table = os.environ.get(ENV_SQL)
     connect_url = os.environ.get(ENV_CONNECT)
     dos_flag = os.environ.get(ENV_DOS)
+    redirect_url = os.environ.get(ENV_REDIRECT)
+    access_attacker = os.environ.get(ENV_ACCESS_ATTACKER)
+    access_resource = os.environ.get(ENV_ACCESS_RESOURCE)
     if canary and events_path:
         # stdin is read only in a run the orchestrator set up (both variables present), so
         # importing this module elsewhere (the orchestrator itself) never touches its stdin.
         key, app = _read_channel()
-        _install(canary, events_path, key, app, marker, sql_table, connect_url, bool(dos_flag))
+        _install(
+            canary, events_path, key, app, marker, sql_table, connect_url, bool(dos_flag),
+            redirect_url=redirect_url, access=bool(access_attacker and access_resource),
+        )
         # Neither path is left for the test. The canary path is not part of the test contract
         # (finding A-11 F2: a test that knows it can root a safe app at the canary's
         # directory); a real exploit reaches it from the allowed directory. /proc/self/environ
@@ -1609,7 +1847,10 @@ def _install_from_env() -> None:
         # environment, and why the static guard also rejects any mention of them.
         # The canary URL stays: for canary_connect it IS the test contract (the service the
         # test must make the application request), and the judge refuses any run where a
-        # test frame connected or requested anything.
+        # test frame connected or requested anything. The redirect URL and the attacker
+        # credential and resource stay for the same reason: they are the test contract of
+        # the canary_redirect and canary_access effects, and the judge refuses any run
+        # where a response was produced from test frames.
         os.environ.pop(ENV_EVENTS, None)
         os.environ.pop(ENV_CANARY, None)
         os.environ.pop(ENV_MARKER, None)
@@ -1650,3 +1891,21 @@ if _pytest is not None:
                 raise RuntimeError("dos_probe is only provided for the canary_dos effect")
             return missing
         return _DOS[0]["probe"]
+
+    @_pytest.fixture(name="redirect_probe")
+    def _redirect_probe_fixture():
+        """The runner calls the entry point and observes the response; the test asserts on it."""
+        if not _REDIRECT:
+            def missing(fn, *targets):
+                raise RuntimeError("redirect_probe is only provided for the canary_redirect effect")
+            return missing
+        return _REDIRECT[0]["probe"]
+
+    @_pytest.fixture(name="access_probe")
+    def _access_probe_fixture():
+        """The runner calls the entry point as the attacker; the test asserts on the response."""
+        if not _ACCESS:
+            def missing(fn, auth=None, resource=None):
+                raise RuntimeError("access_probe is only provided for the canary_access effect")
+            return missing
+        return _ACCESS[0]["probe"]
