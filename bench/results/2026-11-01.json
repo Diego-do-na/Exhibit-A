@@ -277,6 +277,222 @@
       "target": "upload-avatar/fixed_incomplete"
     },
     {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "open-redirect-next"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "open-redirect-next/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "open-redirect-next/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "open-redirect-continue"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "open-redirect-continue/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "open-redirect-continue/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "idor-document-fetch"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "idor-document-fetch/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "idor-document-fetch/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "idor-export-download"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "idor-export-download/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "idor-export-download/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "redos-username-check"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "redos-username-check/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "redos-username-check/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "redos-search-query"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "redos-search-query/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "redos-search-query/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "ssrf-webhook-fetch"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "ssrf-webhook-fetch/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "ssrf-webhook-fetch/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "ssti-email-template"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "ssti-email-template/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "ssti-email-template/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "command-injection-ping"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "command-injection-ping/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "command-injection-ping/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "log-viewer-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "log-viewer-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "log-viewer-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "report-export-write"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "report-export-write/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "report-export-write/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "sql-injection-filter"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "sql-injection-filter/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "sql-injection-filter/fixed_incomplete"
+    },
+    {
       "calls": 4,
       "cost_usd": 0.110592,
       "discarded": 0,
@@ -526,6 +742,222 @@
       "target": "upload-avatar/fixed_incomplete"
     },
     {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "open-redirect-next"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "open-redirect-next/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "open-redirect-next/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "open-redirect-continue"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "open-redirect-continue/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "open-redirect-continue/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "idor-document-fetch"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "idor-document-fetch/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "idor-document-fetch/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "idor-export-download"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "idor-export-download/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "idor-export-download/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "redos-username-check"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "redos-username-check/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "redos-username-check/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "redos-search-query"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "redos-search-query/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "redos-search-query/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "ssrf-webhook-fetch"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "ssrf-webhook-fetch/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "ssrf-webhook-fetch/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "ssti-email-template"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "ssti-email-template/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "ssti-email-template/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "command-injection-ping"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "command-injection-ping/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "command-injection-ping/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "log-viewer-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "log-viewer-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "log-viewer-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "report-export-write"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "report-export-write/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "report-export-write/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "sql-injection-filter"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "sql-injection-filter/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "sql-injection-filter/fixed_incomplete"
+    },
+    {
       "calls": 6,
       "cost_usd": 1.905204,
       "discarded": 5,
@@ -773,6 +1205,222 @@
       "role": "incomplete",
       "system": "Exhibit A, standard profile (nothing proven live)",
       "target": "upload-avatar/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "open-redirect-next"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "open-redirect-next/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "open-redirect-next/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "open-redirect-continue"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "open-redirect-continue/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "open-redirect-continue/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "idor-document-fetch"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "idor-document-fetch/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "idor-document-fetch/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "idor-export-download"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "idor-export-download/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "idor-export-download/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "redos-username-check"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "redos-username-check/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "redos-username-check/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "redos-search-query"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "redos-search-query/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "redos-search-query/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "ssrf-webhook-fetch"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "ssrf-webhook-fetch/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "ssrf-webhook-fetch/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "ssti-email-template"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "ssti-email-template/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "ssti-email-template/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "command-injection-ping"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "command-injection-ping/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "command-injection-ping/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "log-viewer-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "log-viewer-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "log-viewer-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "report-export-write"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "report-export-write/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "report-export-write/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "sql-injection-filter"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "sql-injection-filter/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "sql-injection-filter/fixed_incomplete"
     }
   ],
   "reasoning_effort_naive": "minimal",
@@ -824,7 +1472,7 @@
     }
   },
   "volatile": {
-    "replay_wall_s_compact": 12.371,
-    "replay_wall_s_standard": 10.564
+    "replay_wall_s_compact": 12.536,
+    "replay_wall_s_standard": 10.509
   }
 }

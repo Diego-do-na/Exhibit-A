@@ -1,0 +1,86 @@
+{
+  "cases": [
+    {
+      "id": "log-viewer-traversal",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "path_traversal",
+          "file": "vulnerable/app.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "held_out": true,
+  "cwe": {
+    "cwe_id": "CWE-22",
+    "cwe_name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+  },
+  "real_world_analog": {
+    "advisory": "https://nvd.nist.gov/vuln/detail/CVE-2023-31059",
+    "cve": "CVE-2023-31059",
+    "summary": "Path traversal in Repetier-Server: the file parameter reached the filesystem without canonicalization, allowing arbitrary file reads (CWE-22).",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2023-31059",
+    "fix": "Resolve the requested name against the log directory and refuse escapes; this case uses an equivalent containment (realpath containment check).",
+    "verification": "CVE number and summary confirmed via web search on 2026-11-01; the app in this case is original synthetic code."
+  },
+  "note": "Self-contained oracle case. Proven directly with effect='canary_read'. No upstream repo/commit applies because the code is original synthetic code written for this case.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_read",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "app.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "requirements": [],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_dotdot.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_absolute.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_public_file.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_no_name.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_opens_canary.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_sink_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_escape.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_escape.py",
+        "label": "flaky"
+      }
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_absolute.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: a single `../` removal never touches an absolute name, which still escapes; the incomplete fix must not be accepted as fixed."
+    }
+  }
+}

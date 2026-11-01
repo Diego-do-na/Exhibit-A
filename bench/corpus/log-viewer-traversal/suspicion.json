@@ -1,0 +1,11 @@
+{
+  "id": "log-viewer-traversal-name",
+  "class": "path_traversal",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 12
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The viewer helper joins the requested log name onto the log directory without canonicalization, so a name with `..` segments or an absolute path reads outside the directory (path traversal).",
+  "source": "manual (case author); real-world analog CVE-2023-31059"
+}

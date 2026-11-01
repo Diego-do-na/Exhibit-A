@@ -118,6 +118,24 @@ CWE_407 = CWEDefinition(
     description="An algorithm does not sufficiently scale based on input size, allowing an attacker to cause excessive consumption of CPU or memory.",
 )
 
+CWE_601 = CWEDefinition(
+    cwe_id="CWE-601",
+    name="URL Redirection to Untrusted Site ('Open Redirect')",
+    description="The product redirects the browser to a caller-controlled destination without checking that it points to a trusted site.",
+)
+
+CWE_639 = CWEDefinition(
+    cwe_id="CWE-639",
+    name="Authorization Bypass Through User-Controlled Key",
+    description="The product uses a user-controlled key to select a protected resource without checking that the caller is authorized for that resource.",
+)
+
+CWE_918 = CWEDefinition(
+    cwe_id="CWE-918",
+    name="Server-Side Request Forgery",
+    description="The product fetches a resource named by user input without validating where the resulting server-side request goes.",
+)
+
 
 def _normalize(value: str) -> str:
     """Normalize effect or vuln_class tokens for table lookup."""
@@ -184,6 +202,18 @@ CWE_TABLE: dict[tuple[str, str], CWEDefinition] = {
     ("dos", "regex_denial_of_service"): CWE_1333,
     ("canary_dos", "algorithmic_complexity"): CWE_407,
     ("dos", "algorithmic_complexity"): CWE_407,
+
+    # Open redirect
+    ("canary_redirect", "open_redirect"): CWE_601,
+    ("redirect", "open_redirect"): CWE_601,
+
+    # Broken access control (IDOR: a user-controlled key selects the resource)
+    ("canary_access", "broken_access_control"): CWE_639,
+    ("access", "broken_access_control"): CWE_639,
+
+    # Server-side request forgery
+    ("canary_connect", "server_side_request_forgery"): CWE_918,
+    ("connect", "server_side_request_forgery"): CWE_918,
 }
 
 

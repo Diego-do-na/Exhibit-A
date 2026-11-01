@@ -1,0 +1,11 @@
+{
+  "id": "idor-document-fetch-library",
+  "class": "broken_access_control",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 33
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The document lookup returns the stored content for any caller without checking that the caller owns the document, so the victim's seeded resource is returned to the attacker (broken access control).",
+  "source": "manual (case author); real-world analog CVE-2023-43900"
+}

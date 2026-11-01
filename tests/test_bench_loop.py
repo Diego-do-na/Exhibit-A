@@ -169,15 +169,27 @@ def _by_id(cases):
     return {case.id: case for case in cases}
 
 
-def test_load_corpus_accepts_directory_with_all_sixteen_cases():
+def test_load_corpus_accepts_directory_with_all_twenty_eight_cases():
     cases = load_corpus(CORPUS_DIR)
     assert [c.id for c in cases] == [
         "archive-extraction-pathtraversal",
+        "command-injection-ping",
         "command-injection-shell",
         "docsuite-large-command-injection",
+        "idor-document-fetch",
+        "idor-export-download",
+        "log-viewer-traversal",
+        "open-redirect-continue",
+        "open-redirect-next",
+        "redos-search-query",
+        "redos-username-check",
+        "report-export-write",
+        "sql-injection-filter",
         "sql-injection-login",
         "sql-injection-search",
         "sql-trunc-kind-injection",
+        "ssrf-webhook-fetch",
+        "ssti-email-template",
         "ssti-jinja-preview",
         "starlette-cve-2023-29159",
         "starlette-cve-2023-29159-fixed",
@@ -191,8 +203,20 @@ def test_load_corpus_accepts_directory_with_all_sixteen_cases():
     ]
     by_id = _by_id(cases)
     assert [c.id for c in cases if c.held_out] == [
+        "command-injection-ping",
         "docsuite-large-command-injection",
+        "idor-document-fetch",
+        "idor-export-download",
+        "log-viewer-traversal",
+        "open-redirect-continue",
+        "open-redirect-next",
+        "redos-search-query",
+        "redos-username-check",
+        "report-export-write",
+        "sql-injection-filter",
         "sql-trunc-kind-injection",
+        "ssrf-webhook-fetch",
+        "ssti-email-template",
         "static-route-traversal",
         "upload-filename-traversal",
     ]

@@ -79,6 +79,42 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Naive LLM (reports everything) | upload-avatar | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Naive LLM (reports everything) | upload-avatar/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Naive LLM (reports everything) | upload-avatar/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | open-redirect-next | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | open-redirect-next/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | open-redirect-next/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | open-redirect-continue | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | open-redirect-continue/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | open-redirect-continue/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | idor-document-fetch | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | idor-document-fetch/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | idor-document-fetch/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | idor-export-download | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | idor-export-download/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | idor-export-download/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | redos-username-check | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | redos-username-check/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | redos-username-check/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | redos-search-query | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | redos-search-query/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | redos-search-query/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | ssrf-webhook-fetch | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | ssrf-webhook-fetch/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | ssrf-webhook-fetch/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | ssti-email-template | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | ssti-email-template/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | ssti-email-template/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | command-injection-ping | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | command-injection-ping/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | command-injection-ping/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | log-viewer-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | log-viewer-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | log-viewer-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | report-export-write | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | report-export-write/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | report-export-write/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | sql-injection-filter | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | sql-injection-filter/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | sql-injection-filter/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | starlette-cve-2023-29159 | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.1106 | 0.1106 | 34.2 |
 | Exhibit A, compact profile | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 3 | 4 | 0.1358 | 0.2834 | 60.5 |
 | Exhibit A, compact profile | archive-extraction-pathtraversal | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.0597 | 0.0597 | 65.7 |
@@ -114,6 +150,42 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Exhibit A, compact profile | upload-avatar | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | upload-avatar/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | upload-avatar/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | open-redirect-next | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | open-redirect-next/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | open-redirect-next/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | open-redirect-continue | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | open-redirect-continue/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | open-redirect-continue/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | idor-document-fetch | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | idor-document-fetch/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | idor-document-fetch/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | idor-export-download | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | idor-export-download/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | idor-export-download/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | redos-username-check | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | redos-username-check/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | redos-username-check/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | redos-search-query | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | redos-search-query/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | redos-search-query/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | ssrf-webhook-fetch | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | ssrf-webhook-fetch/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | ssrf-webhook-fetch/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | ssti-email-template | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | ssti-email-template/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | ssti-email-template/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | command-injection-ping | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | command-injection-ping/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | command-injection-ping/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | log-viewer-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | log-viewer-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | log-viewer-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | report-export-write | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | report-export-write/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | report-export-write/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | sql-injection-filter | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | sql-injection-filter/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | sql-injection-filter/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159 | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 1.9052 | 1.9052 | 980.7 |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 7 | 8 | 2.1415 | 2.1415 | 1054.0 |
 | Exhibit A, standard profile (nothing proven live) | archive-extraction-pathtraversal | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 0.7357 | 0.7357 | 339.0 |
@@ -149,6 +221,42 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Exhibit A, standard profile (nothing proven live) | upload-avatar | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | upload-avatar/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | upload-avatar/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | open-redirect-next | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | open-redirect-next/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | open-redirect-next/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | open-redirect-continue | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | open-redirect-continue/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | open-redirect-continue/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | idor-document-fetch | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | idor-document-fetch/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | idor-document-fetch/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | idor-export-download | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | idor-export-download/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | idor-export-download/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | redos-username-check | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | redos-username-check/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | redos-username-check/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | redos-search-query | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | redos-search-query/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | redos-search-query/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | ssrf-webhook-fetch | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | ssrf-webhook-fetch/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | ssrf-webhook-fetch/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | ssti-email-template | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | ssti-email-template/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | ssti-email-template/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | command-injection-ping | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | command-injection-ping/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | command-injection-ping/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | log-viewer-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | log-viewer-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | log-viewer-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | report-export-write | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | report-export-write/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | report-export-write/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | sql-injection-filter | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | sql-injection-filter/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | sql-injection-filter/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 <!-- END GENERATED -->
 
 Columns:

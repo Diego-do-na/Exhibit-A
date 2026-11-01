@@ -1,0 +1,92 @@
+{
+  "cases": [
+    {
+      "id": "idor-export-download",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "broken_access_control",
+          "file": "vulnerable/app.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "held_out": true,
+  "cwe": {
+    "cwe_id": "CWE-639",
+    "cwe_name": "Authorization Bypass Through User-Controlled Key"
+  },
+  "real_world_analog": {
+    "advisory": "https://nvd.nist.gov/vuln/detail/CVE-2024-12483",
+    "cve": "CVE-2024-12483",
+    "summary": "Insecure direct object reference in UJCMS: the user id parameter exposed other users' data without an ownership check (CWE-639).",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2024-12483",
+    "fix": "Check that the caller owns the report on every path, including shared links; this case uses an equivalent containment (owner check on all paths).",
+    "verification": "CVE number and summary confirmed via web search on 2026-11-01; the app in this case is original synthetic code."
+  },
+  "note": "Self-contained oracle case. Proven directly with effect='canary_access'. No upstream repo/commit applies because the code is original synthetic code written for this case.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_access",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "app.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "requirements": [],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_direct.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_document_body.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_own_document.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_missing_document.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_victim_credential.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_lookup_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_escape.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_escape.py",
+        "label": "flaky"
+      }
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_direct.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: the partial fix only protects reports under private/, so the victim's report outside that prefix is still returned to the attacker; the incomplete fix must not be accepted as fixed."
+    },
+    "access_db": "data/store.json",
+    "access": {
+      "attacker": "analyst.zoe",
+      "victim": "owner.bo",
+      "resource": "exports/2024-full"
+    }
+  }
+}

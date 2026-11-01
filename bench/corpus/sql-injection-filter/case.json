@@ -1,0 +1,87 @@
+{
+  "cases": [
+    {
+      "id": "sql-injection-filter",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "sql_injection",
+          "file": "vulnerable/app.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "held_out": true,
+  "cwe": {
+    "cwe_id": "CWE-89",
+    "cwe_name": "Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+  },
+  "real_world_analog": {
+    "advisory": "https://nvd.nist.gov/vuln/detail/CVE-2024-1071",
+    "cve": "CVE-2024-1071",
+    "summary": "SQL injection in a WordPress email plugin: a filter parameter reached the statement by string building, enabling UNION extraction (CWE-89).",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2024-1071",
+    "fix": "Build the statement with bound parameters instead of string formatting; this case uses an equivalent containment (parameter plus no string building).",
+    "verification": "CVE number and summary confirmed via web search on 2026-11-01; the app in this case is original synthetic code."
+  },
+  "note": "Self-contained oracle case. Proven directly with effect='canary_sql'. No upstream repo/commit applies because the code is original synthetic code written for this case.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_sql",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "app.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "requirements": [],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_union_filter.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_union_tabs.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_plain_filter.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_unknown_route.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_query_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_reads_database.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_leak.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_leak.py",
+        "label": "flaky"
+      }
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_union_tabs.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: removing spaces does not stop a UNION built with tabs; the incomplete fix must not be accepted as fixed."
+    },
+    "sql_db": "data/app.db"
+  }
+}

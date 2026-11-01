@@ -1,0 +1,11 @@
+{
+  "id": "sql-injection-filter-search",
+  "class": "sql_injection",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 20
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The search helper builds the lookup statement by formatting the filter into the SQL string, so a filter that closes the quoted pattern and appends a UNION reads the canary table the app never queries (SQL injection).",
+  "source": "manual (case author); real-world analog CVE-2024-1071"
+}
