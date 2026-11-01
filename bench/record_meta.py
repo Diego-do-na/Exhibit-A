@@ -66,6 +66,18 @@ CASES = (
     "yaml-job-load",
     "tar-slip-restore",
     "upload-avatar",
+    "open-redirect-next",
+    "open-redirect-continue",
+    "idor-document-fetch",
+    "idor-export-download",
+    "redos-username-check",
+    "redos-search-query",
+    "ssrf-webhook-fetch",
+    "ssti-email-template",
+    "command-injection-ping",
+    "log-viewer-traversal",
+    "report-export-write",
+    "sql-injection-filter",
 )
 DEFAULT_MODEL = "muse-wonder-1.0"
 CASE_BUDGET_USD = 2.0
