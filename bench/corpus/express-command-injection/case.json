@@ -31,6 +31,7 @@
   },
   "run": {
     "baseline_test": "baseline_test.js",
+    "recording": "replay.jsonl",
     "bypass": {
       "expectation": "proven against fixed_incomplete: the newline smuggles a second command past a screen that only rejects ';' and friends, so the incomplete fix must not be accepted as fixed.",
       "exploit": "exploits/exploit_true_newline.js",
