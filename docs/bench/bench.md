@@ -115,6 +115,18 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Naive LLM (reports everything) | sql-injection-filter | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Naive LLM (reports everything) | sql-injection-filter/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Naive LLM (reports everything) | sql-injection-filter/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-download-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-download-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-download-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-download-traversal-ts | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-download-traversal-ts/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-download-traversal-ts/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-command-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-command-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-command-injection/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-command-injection-ts | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-command-injection-ts/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Naive LLM (reports everything) | express-command-injection-ts/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | starlette-cve-2023-29159 | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.1106 | 0.1106 | 34.2 |
 | Exhibit A, compact profile | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 3 | 4 | 0.1358 | 0.2834 | 60.5 |
 | Exhibit A, compact profile | archive-extraction-pathtraversal | vulnerable | 1 | 1 | 0 | 0 | 1.00 | 1.00 | 0 | 4 | 0.0597 | 0.0597 | 65.7 |
@@ -186,6 +198,18 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Exhibit A, compact profile | sql-injection-filter | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | sql-injection-filter/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, compact profile | sql-injection-filter/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-download-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-download-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-download-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-download-traversal-ts | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-download-traversal-ts/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-download-traversal-ts/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-command-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-command-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-command-injection/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-command-injection-ts | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-command-injection-ts/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, compact profile | express-command-injection-ts/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159 | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 1.9052 | 1.9052 | 980.7 |
 | Exhibit A, standard profile (nothing proven live) | starlette-cve-2023-29159-fixed | fixed | 0 | 0 | 0 | 0 | n/a | n/a | 7 | 8 | 2.1415 | 2.1415 | 1054.0 |
 | Exhibit A, standard profile (nothing proven live) | archive-extraction-pathtraversal | vulnerable | 0 | 0 | 0 | 0 | n/a | 0.00 | 5 | 6 | 0.7357 | 0.7357 | 339.0 |
@@ -257,6 +281,18 @@ Per target (`-` means not measured: no recording exists for that system there):
 | Exhibit A, standard profile (nothing proven live) | sql-injection-filter | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | sql-injection-filter/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
 | Exhibit A, standard profile (nothing proven live) | sql-injection-filter/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-download-traversal | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-download-traversal/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-download-traversal/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-download-traversal-ts | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-download-traversal-ts/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-download-traversal-ts/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-command-injection | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-command-injection/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-command-injection/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-command-injection-ts | vulnerable | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-command-injection-ts/fixed | fixed | - | - | - | - | - | - | - | - | - | - | - |
+| Exhibit A, standard profile (nothing proven live) | express-command-injection-ts/fixed_incomplete | incomplete | - | - | - | - | - | - | - | - | - | - | - |
 <!-- END GENERATED -->
 
 Columns:

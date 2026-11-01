@@ -68,4 +68,6 @@ def test_all_effect_labels_are_exposed_without_frontend_hard_coding(tmp_path: Pa
         "canary_sql",
         "canary_connect",
         "canary_dos",
+        "canary_redirect",
+        "canary_access",
     ]

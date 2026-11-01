@@ -493,6 +493,78 @@
       "target": "sql-injection-filter/fixed_incomplete"
     },
     {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-download-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-download-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-download-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-download-traversal-ts"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-download-traversal-ts/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-download-traversal-ts/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-command-injection"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-command-injection/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-command-injection/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-command-injection-ts"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-command-injection-ts/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Naive LLM (reports everything)",
+      "target": "express-command-injection-ts/fixed_incomplete"
+    },
+    {
       "calls": 4,
       "cost_usd": 0.110592,
       "discarded": 0,
@@ -958,6 +1030,78 @@
       "target": "sql-injection-filter/fixed_incomplete"
     },
     {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "express-download-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "express-download-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "express-download-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "express-download-traversal-ts"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "express-download-traversal-ts/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "express-download-traversal-ts/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "express-command-injection"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "express-command-injection/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "express-command-injection/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, compact profile",
+      "target": "express-command-injection-ts"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, compact profile",
+      "target": "express-command-injection-ts/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, compact profile",
+      "target": "express-command-injection-ts/fixed_incomplete"
+    },
+    {
       "calls": 6,
       "cost_usd": 1.905204,
       "discarded": 5,
@@ -1421,6 +1565,78 @@
       "role": "incomplete",
       "system": "Exhibit A, standard profile (nothing proven live)",
       "target": "sql-injection-filter/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-download-traversal"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-download-traversal/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-download-traversal/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-download-traversal-ts"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-download-traversal-ts/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-download-traversal-ts/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-command-injection"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-command-injection/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-command-injection/fixed_incomplete"
+    },
+    {
+      "measured": false,
+      "role": "vulnerable",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-command-injection-ts"
+    },
+    {
+      "measured": false,
+      "role": "fixed",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-command-injection-ts/fixed"
+    },
+    {
+      "measured": false,
+      "role": "incomplete",
+      "system": "Exhibit A, standard profile (nothing proven live)",
+      "target": "express-command-injection-ts/fixed_incomplete"
     }
   ],
   "reasoning_effort_naive": "minimal",
@@ -1472,7 +1688,7 @@
     }
   },
   "volatile": {
-    "replay_wall_s_compact": 12.536,
-    "replay_wall_s_standard": 10.509
+    "replay_wall_s_compact": 17.009,
+    "replay_wall_s_standard": 13.578
   }
 }

@@ -99,18 +99,33 @@ def reclassify(obs: Observation, flags: Flags) -> str:
     return obs.verdict
 
 
+def _prepare_redteam_imports() -> None:
+    """Make ``run_all``/``_harness`` resolve to spikes/redteam, not spikes/redteam_js.
+
+    Both directories use the same module names; whichever test imported first
+    would otherwise win and silently change which attack list is judged.
+    """
+    root = str(REDTEAM)
+    if root in sys.path:
+        sys.path.remove(root)
+    sys.path.insert(0, root)
+    for name in ("run_all", "_harness", "_cases"):
+        module = sys.modules.get(name)
+        origin = getattr(module, "__file__", None)
+        if module is not None and (origin is None or Path(origin).resolve().parent != REDTEAM.resolve()):
+            del sys.modules[name]
+
+
 def redteam_attack_names() -> list[str]:
     """The host-testable attacks listed by ``spikes/redteam/run_all.py``."""
-    if str(REDTEAM) not in sys.path:
-        sys.path.insert(0, str(REDTEAM))
+    _prepare_redteam_imports()
     module = importlib.import_module("run_all")
     return list(module.ATTACKS)
 
 
 def run_redteam_attack(name: str, disabled: frozenset[str] = frozenset()) -> Observation:
     """Import one red-team module and judge it through the real host oracle."""
-    if str(REDTEAM) not in sys.path:
-        sys.path.insert(0, str(REDTEAM))
+    _prepare_redteam_imports()
     harness = importlib.import_module("_harness")
     original_report = harness.report
     captured: dict[str, object] = {}
