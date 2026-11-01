@@ -25,11 +25,16 @@ _exec_problem = _oracle.exec_problem
 _sql_problem = _oracle.sql_problem
 _connect_problem = _oracle.connect_problem
 _dos_problem = _oracle.dos_problem
+_redirect_problem = _oracle.redirect_problem
+_access_problem = _oracle.access_problem
 
 SQL_DB = "data/app.db"
+ACCESS_DB = "data/store.json"
+ACCESS = {"attacker": "attacker", "victim": "victim", "resource": "doc-1"}
 
 
-def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeout=60.0, effect="canary_read") -> Judgement:
+def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeout=60.0, effect="canary_read",
+        redirect_meta: bool = False) -> Judgement:
     """Write a one-file app and an exploit test to a temp dir and judge with run_oracle."""
     tmp = Path(tempfile.mkdtemp(prefix="redteam_"))
     app_root = tmp / "app_root"
@@ -49,6 +54,8 @@ def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeo
     _oracle.sql_problem = _sql_problem if GUARD else (lambda path: None)
     _oracle.connect_problem = _connect_problem if GUARD else (lambda path: None)
     _oracle.dos_problem = _dos_problem if GUARD else (lambda path: None)
+    _oracle.redirect_problem = _redirect_problem if GUARD else (lambda path: None)
+    _oracle.access_problem = _access_problem if GUARD else (lambda path: None)
     sql_db = None
     if effect == "canary_sql":
         # The application's own database, as a case's ``run.sql_db`` would declare it.
@@ -59,14 +66,25 @@ def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeo
         conn.executemany("INSERT INTO users (name) VALUES (?)", [("alice",), ("bob",)])
         conn.commit()
         conn.close()
+    access_db, access = None, None
+    if effect == "canary_access":
+        # The application's own store, as a case's ``run.access_db`` would declare it; the
+        # runner seeds the victim-owned resource into its staged copy.
+        access_db, access = ACCESS_DB, dict(ACCESS)
+        (app_root / "data").mkdir()
+        (app_root / ACCESS_DB).write_text("{}\n", encoding="utf-8")
     try:
-        return run_oracle(app_root, exploit, set(entry_points), timeout=timeout, effect=effect, sql_db=sql_db)
+        return run_oracle(app_root, exploit, set(entry_points), timeout=timeout, effect=effect,
+                          sql_db=sql_db, access_db=access_db, access=access,
+                          redirect_meta=redirect_meta)
     finally:
         _oracle.channel_problem = _channel_problem
         _oracle.exec_problem = _exec_problem
         _oracle.sql_problem = _sql_problem
         _oracle.connect_problem = _connect_problem
         _oracle.dos_problem = _dos_problem
+        _oracle.redirect_problem = _redirect_problem
+        _oracle.access_problem = _access_problem
 
 
 def classify(j: Judgement, *, app_is_safe: bool) -> str:
