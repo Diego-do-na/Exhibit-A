@@ -46,7 +46,10 @@ from typing import Literal
 # canary's path is not one of them (finding A-11 F2): a test that knows it can root a safe app
 # at the canary's directory. A real exploit reaches the canary from the allowed directory
 # ("../outside/canary.txt"), so any mention of EXHIBIT_A_CANARY is a hit of "exhibit_a_env".
-TEST_CONTRACT = frozenset({"EXHIBIT_A_ALLOWED_DIR", "EXHIBIT_A_CANARY_TOKEN"})
+# The canary URL is the contract of the canary_connect effect only (the service the test
+# must make the application request); every other effect's test has no use for it, but
+# exempting the name keeps connect exploits runnable.
+TEST_CONTRACT = frozenset({"EXHIBIT_A_ALLOWED_DIR", "EXHIBIT_A_CANARY_TOKEN", "EXHIBIT_A_CANARY_URL"})
 
 Where = Literal["string", "name", "module"]
 
@@ -781,6 +784,68 @@ def sql_problem(test_path: Path) -> str | None:
         rule = _sql_rule(tree)
         if rule:
             return f"test works with the database itself: {path.name} matches rule '{rule}'"
+    return None
+
+
+# --- Connecting to the canary from the test (canary_connect) ----------------------------------
+
+#: Modules a connect exploit test must never touch: it sends input through the app's entry
+#: point and looks at the response. Importing one of these, or naming the canary server,
+#: is how a test connects itself or reads the listener's log.
+CONNECT_MODULES = frozenset({
+    "socket", "urllib.request", "urllib3", "http.client", "requests", "httpx", "aiohttp",
+})
+#: Attribute names that connect or fetch: ``socket.create_connection``, ``urlopen``,
+#: ``HTTPConnection``. A test that names one reaches the network itself.
+CONNECT_NAMES = frozenset({
+    "create_connection", "getaddrinfo", "urlopen", "urlretrieve", "HTTPConnection",
+    "HTTPSConnection", "http_connect",
+})
+#: Strings that name the listener's implementation or its log, which a test has no
+#: business reading or importing.
+CONNECT_STRINGS = ("canary_server", "connect.jsonl")
+
+
+def _connect_rule(tree: ast.AST) -> str | None:
+    """The rule a canary_connect test breaks by connecting itself or reading the log, or None."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name in CONNECT_MODULES or a.name.startswith(tuple(m + "." for m in CONNECT_MODULES))
+                   for a in node.names):
+                return "connect_module"
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and (node.module in CONNECT_MODULES
+                                or node.module.startswith(tuple(m + "." for m in CONNECT_MODULES))):
+                return "connect_module"
+        elif isinstance(node, ast.Name):
+            if node.id in CONNECT_MODULES:
+                return "connect_module"
+            if node.id in CONNECT_NAMES:
+                return "connect_call"
+        elif isinstance(node, ast.Attribute):
+            if node.attr in CONNECT_NAMES:
+                return "connect_call"
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            # The URL and the token are the test contract (guard.TEST_CONTRACT exempts them
+            # from the channel rule); any other oracle variable is already a channel hit.
+            if any(text in node.value for text in CONNECT_STRINGS):
+                return "connect_log"
+    return None
+
+
+def connect_problem(test_path: Path) -> str | None:
+    """Why a canary_connect test (or its conftest) is rejected for connecting itself, or None."""
+    test_path = Path(test_path)
+    for path in (test_path, test_path.parent / "conftest.py"):
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, UnicodeDecodeError, SyntaxError, ValueError, RecursionError):
+            continue  # pytest will report it as a collection error; nothing to judge here
+        rule = _connect_rule(tree)
+        if rule:
+            return f"test connects itself: {path.name} matches rule '{rule}'"
     return None
 
 

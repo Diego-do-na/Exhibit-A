@@ -79,6 +79,15 @@ installs on each connection. The connection object the handle event carries is n
 ``sqlite3.connect``; a connection that bypasses it is still recorded, as not instrumented. Opens of the
 database file by Python code are observed as opens of the canary, with ``target`` ``db``.
 
+For the ``canary_connect`` effect (``EXHIBIT_A_CANARY_URL`` names the per-run listener;
+docs/oracle/oracle-provenance.md, section 3.11) the plugin records every outbound connection
+attempt (the ``socket.connect``, ``socket.getaddrinfo`` and ``http.client.connect`` audit
+events) and every HTTP request (``urllib.Request`` and ``http.client.send``), each with the
+logical stack and the host, port or URL it names. These events fire in the real
+implementation, so nothing is wrapped: a fake that never connects produces no event, and a
+real connection from test frames refuses the whole run. The URL stays in the environment:
+it is the test contract, and the judge checks every event against the run's canary.
+
 The module stays self-contained (stdlib only): the sandbox mounts it as a single file.
 """
 
@@ -105,6 +114,10 @@ ENV_CANARY = "EXHIBIT_A_CANARY"
 ENV_EVENTS = "EXHIBIT_A_EVENTS"
 # Where the canary executable records that it ran; set only for the canary_exec effect.
 ENV_MARKER = "EXHIBIT_A_CANARY_MARKER"
+# The canary HTTP service for the canary_connect effect (SSRF): the full URL of the
+# per-run listener, which the test must make the application request. Present (and left in
+# the environment for the test to use) only for that effect.
+ENV_CONNECT = "EXHIBIT_A_CANARY_URL"
 # canary_sql: the name of the canary table in the application's database (EXHIBIT_A_CANARY is
 # the database file for this effect). Its one column is _SQL_COLUMN.
 ENV_SQL = "EXHIBIT_A_CANARY_SQL"
@@ -166,6 +179,7 @@ _WATCHED_APIS = {
     "builtins": ("eval", "exec", "compile", "__import__", "str"),
 }
 _MAX_COMMAND = 4096
+_MAX_URL = 4096
 _MAX_SCANNED = 1 << 16
 # canary_sql: sqlite3's SQLITE_READ and SQLITE_OK (as numbers: they exist as module constants
 # from 3.11 only), the canary table's one column, and how many distinct stacks may read it
@@ -175,6 +189,12 @@ _SQLITE_OK = 0
 _SQL_COLUMN = "token"
 _MAX_SQL_STACKS = 100
 _SQL_EVENTS = frozenset({"sqlite3.connect", "sqlite3.connect/handle"})
+# canary_connect: audit events that open an outbound connection or send an HTTP request.
+# They fire in the real implementation, so a test that replaces the function with a fake
+# produces no event and proves nothing; a test that makes the real call from its own
+# frames is refused by the judge (connect_from_test).
+_CONNECT_EVENTS = frozenset({"socket.connect", "socket.getaddrinfo", "http.client.connect"})
+_REQUEST_EVENTS = frozenset({"urllib.Request", "http.client.send"})
 _COMMAND_SPLIT = re.compile(r"[\s;|&()<>`'\"$=,]+")
 
 # A captured stack is a tuple of code objects, outermost first; None marks a thread boundary
@@ -628,6 +648,65 @@ def _sensitive_env(name: str) -> bool:
     return name in _SENSITIVE_ENV or name.startswith(_SENSITIVE_ENV_PREFIXES)
 
 
+def _connect_host_port(event: str, args: tuple) -> tuple[str | None, int | None]:
+    """The (host, port) a connection audit event names, or (None, None) if it names none.
+
+    ``socket.connect`` carries the peer address (a ``(host, port)`` tuple, or a path for a
+    Unix socket); ``socket.getaddrinfo`` and ``http.client.connect`` carry host and port
+    as separate arguments. Anything else (a Unix path, an unparseable address) is not an
+    outbound network connection and is ignored by the judge.
+    """
+    try:
+        if event == "socket.connect":
+            address = args[0] if args else None
+            if isinstance(address, (tuple, list)) and len(address) >= 2:
+                host, port = address[0], address[1]
+                if isinstance(host, str) and type(port) is int:
+                    return host[:_MAX_FIELD], port
+            return None, None
+        if event == "socket.getaddrinfo":
+            host = args[0] if len(args) > 0 else None
+            port = args[1] if len(args) > 1 else None
+            if isinstance(host, str) and type(port) is int:
+                return host[:_MAX_FIELD], port
+            return None, None
+        if event == "http.client.connect":
+            host = args[1] if len(args) > 1 else None
+            port = args[2] if len(args) > 2 else None
+            if isinstance(host, str) and type(port) is int:
+                return host[:_MAX_FIELD], port
+            return None, None
+    except (IndexError, TypeError, ValueError):
+        pass
+    return None, None
+
+
+def _request_url(event: str, args: tuple) -> str | None:
+    """The URL (or request target) an HTTP audit event names, or None if it names none.
+
+    ``urllib.Request`` carries the full URL; ``http.client.send`` carries the raw request
+    bytes, whose request line holds the method and target. Truncated to ``_MAX_URL``;
+    longer values are not recorded (the judge fails closed on a missing URL).
+    """
+    try:
+        if event == "urllib.Request":
+            url = args[0] if args else None
+            if isinstance(url, str) and url:
+                return url[:_MAX_URL]
+            return None
+        if event == "http.client.send":
+            data = args[1] if len(args) > 1 else None
+            if isinstance(data, (bytes, bytearray)) and data:
+                head = bytes(data[:_MAX_URL]).split(b"\r\n", 1)[0].split(b"\n", 1)[0]
+                parts = head.split()
+                if len(parts) >= 2:
+                    return parts[1].decode("ascii", "replace")[:_MAX_URL]
+            return None
+    except (IndexError, TypeError, ValueError):
+        pass
+    return None
+
+
 def _sink_named(codes: tuple, admission: _Admission | None) -> bool:
     """Whether the innermost staged-app code object on a captured stack names a sink."""
     if admission is None:
@@ -968,13 +1047,16 @@ def _patch_os_open() -> None:
 
 def _install(
     canary: str, events_path: str, key: bytes | None, app: dict | None = None, marker: str | None = None,
-    sql_table: str | None = None,
+    sql_table: str | None = None, connect_url: str | None = None,
 ) -> None:
     global _installed
     if _installed:
         return
     _installed = True
     since = time.time() - _SYMLINK_SLACK
+    # For canary_connect the "canary" is a URL, not a file: keep it verbatim for the event
+    # path instead of resolving it against the working directory.
+    service_url = canary if connect_url is not None else None
     canary = os.path.realpath(canary)
     try:
         st = os.stat(canary)
@@ -989,7 +1071,7 @@ def _install(
     lock = threading.Lock()
     if marker is not None:
         marker = os.path.join(os.path.dirname(canary), os.path.basename(marker))
-    if marker is not None or sql_table is not None:
+    if marker is not None or sql_table is not None or connect_url is not None:
         # A forked child writes to the same file: it must continue the parent's sequence.
         seq = memoryview(mmap.mmap(-1, 8)).cast("Q")
         lock = _PipeLock()
@@ -1082,6 +1164,25 @@ def _install(
     counter = itertools.count()
     connect_wrapper: list = []
     sql_watched = _SQL_EVENTS if sql_table is not None else frozenset()
+    # canary_connect only: audit events that open or use an outbound connection.
+    connect_watched = (_CONNECT_EVENTS | _REQUEST_EVENTS) if connect_url is not None else frozenset()
+
+    def watch_connect(event: str, args: tuple, frame) -> None:
+        """Record one outbound connection or HTTP request with the logical stack."""
+        try:
+            if event in _CONNECT_EVENTS:
+                host, port = _connect_host_port(event, args)
+                fields: dict[str, object] = {
+                    "op": "connect", "host": host, "port": port, "url": None,
+                }
+            else:
+                fields = {"op": "request", "host": None, "port": None, "url": _request_url(event, args)}
+        except Exception:  # noqa: BLE001 - an observer must never change what the app does
+            return
+        emit({
+            "path": service_url or canary, "mode": event, "flags": None, "access": "unknown",
+            "requested": None, "via_symlink": False, "stack": _stack(frame, admission), **fields,
+        })
 
     def sql_record(op: str, mode: str, stack: list, **fields) -> None:
         emit({
@@ -1203,6 +1304,16 @@ def _install(
                 watch_sql(event, args, frame)
             finally:
                 _local.busy = False
+        if event in connect_watched:
+            _local.busy = True
+            try:
+                try:
+                    frame = sys._getframe(1)
+                except ValueError:
+                    frame = None
+                watch_connect(event, args, frame)
+            finally:
+                _local.busy = False
         if marker is not None and event in exec_events:
             _local.busy = True
             try:
@@ -1294,16 +1405,20 @@ def _install_from_env() -> None:
     events_path = os.environ.get(ENV_EVENTS)
     marker = os.environ.get(ENV_MARKER)
     sql_table = os.environ.get(ENV_SQL)
+    connect_url = os.environ.get(ENV_CONNECT)
     if canary and events_path:
         # stdin is read only in a run the orchestrator set up (both variables present), so
         # importing this module elsewhere (the orchestrator itself) never touches its stdin.
         key, app = _read_channel()
-        _install(canary, events_path, key, app, marker, sql_table)
+        _install(canary, events_path, key, app, marker, sql_table, connect_url)
         # Neither path is left for the test. The canary path is not part of the test contract
         # (finding A-11 F2: a test that knows it can root a safe app at the canary's
         # directory); a real exploit reaches it from the allowed directory. /proc/self/environ
         # still shows both as set at exec; that is why nothing secret is ever put in the
         # environment, and why the static guard also rejects any mention of them.
+        # The canary URL stays: for canary_connect it IS the test contract (the service the
+        # test must make the application request), and the judge refuses any run where a
+        # test frame connected or requested anything.
         os.environ.pop(ENV_EVENTS, None)
         os.environ.pop(ENV_CANARY, None)
         os.environ.pop(ENV_MARKER, None)
