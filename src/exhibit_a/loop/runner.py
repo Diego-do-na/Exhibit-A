@@ -67,6 +67,7 @@ from exhibit_a.oracle.oracle import (
     redirect_canary_url,
     sql_db_problem,
 )
+from exhibit_a.oracle.js import JS_SUFFIXES, is_js, language_of
 from exhibit_a.oracle.plugin import ENV_ACCESS_ATTACKER, ENV_ACCESS_RESOURCE, ENV_DOS
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest
 
@@ -134,6 +135,8 @@ class SandboxRunner:
     # canary_redirect only: whether an HTML meta refresh to the canary host counts
     # (case.json run.redirect_meta). A 3xx Location to it always counts.
     redirect_meta: bool = False
+    # Node oracle v1: "javascript" or "typescript" selects the Node image and preload.
+    language: str = "python"
 
     def run_baseline(self, clone_path: str, test_path: str, timeout: float) -> dict[str, Any]:
         from exhibit_a.sandbox import run
@@ -171,15 +174,21 @@ class SandboxRunner:
                 observed_effect=False, provenance_ok=False, reason=problem, test_outcome="error",
                 reason_code=REASON_CHANNEL_TRIPWIRE,
             )
+        language = language_of(test_path, self.language)
         oracle_dir = f"_exhibit_a_oracle_{secrets.token_hex(4)}"
-        container_test = _WORKSPACE / oracle_dir / "test_exploit.py"
+        suffix = Path(test_path).suffix.lower()
+        if suffix not in JS_SUFFIXES and suffix != ".py":
+            suffix = ".ts" if language == "typescript" else ".js" if is_js(language) else ".py"
+        test_name = f"test_exploit{suffix or '.py'}"
+        container_test = _WORKSPACE / oracle_dir / test_name
         token = "CANARY-" + secrets.token_hex(16)
         with tempfile.TemporaryDirectory(prefix="exhibit_a_exploit_") as tmp:
             stage = Path(tmp) / "app"
             shutil.copytree(app_root, stage)
             (stage / oracle_dir).mkdir()
-            shutil.copyfile(test_path, stage / oracle_dir / "test_exploit.py")
-            (stage / oracle_dir / "conftest.py").write_text(_CONFTEST, encoding="utf-8")
+            shutil.copyfile(test_path, stage / oracle_dir / test_name)
+            if not is_js(language):
+                (stage / oracle_dir / "conftest.py").write_text(_CONFTEST, encoding="utf-8")
             canary = Path(tmp) / "canary.txt"
             # For a read effect the canary must exist before the run; for a write
             # effect it must be absent so the app creates it during the run.
@@ -220,7 +229,7 @@ class SandboxRunner:
                 raise OSError(f"cannot hash the staged app: {exc}") from exc
             result = run(
                 str(stage),
-                f"{oracle_dir}/test_exploit.py",
+                f"{oracle_dir}/{test_name}",
                 timeout,
                 requirements=list(self.requirements),
                 image=self.image,
@@ -244,6 +253,7 @@ class SandboxRunner:
                 },
                 manifest=manifest,
                 effect=effect,
+                language=language,
                 sql_db=self.sql_db if effect == "canary_sql" else None,
                 access_db=self.access_db if effect == "canary_access" else None,
                 access_victim=str(self.access["victim"]) if effect == "canary_access" and self.access is not None else None,
@@ -258,7 +268,7 @@ class SandboxRunner:
                 set(entry_points),
                 forged_events=result.get("oracle_forged_events", 0),
                 forged_reason=result.get("oracle_forged_reason", ""),
-                app_tree=AppTree(str(_WORKSPACE), stage, manifest),
+                app_tree=AppTree(str(_WORKSPACE), stage, manifest, language=language),
                 app_tree_changes=result.get("app_tree_changes", []),
                 allowed_dir=f"{_SCRATCH}/allowed",
                 effect=effect,
@@ -310,6 +320,7 @@ class HostRunner:
     access_db: str | None = None
     access: Mapping[str, str] | None = None
     redirect_meta: bool = False
+    language: str = "python"
 
     def __post_init__(self) -> None:
         if not self.allow_host_execution:
@@ -362,6 +373,7 @@ class HostRunner:
             access_db=self.access_db,
             access=self.access,
             redirect_meta=self.redirect_meta,
+            language=self.language,
         )
 
 

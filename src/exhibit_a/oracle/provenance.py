@@ -153,6 +153,10 @@ class AppTree:
     root: str
     source: Path
     manifest: Mapping[str, str]
+    # "python" keeps the ast/code-object re-check. "javascript"/"typescript" admit a
+    # frame by staged file path and digest only (V8 has no code objects the host can
+    # recompile). Default keeps every existing caller on the Python path.
+    language: str = "python"
     _keys: dict[str, frozenset | str] = field(default_factory=dict, repr=False)
 
     def relative(self, file: str) -> str | None:
@@ -205,7 +209,15 @@ class AppTree:
             return "file not in the staged app manifest"
         keys = self._source_keys(rel, digest)
         if isinstance(keys, str):
+            if self.language in ("javascript", "typescript"):
+                # File-path admission: the digest already matched. JS/TS is not Python
+                # source, so there is no ast/code-object pair to re-check on the host.
+                if "does not match" in keys or "unreadable" in keys:
+                    return keys
+                return None
             return keys
+        if self.language in ("javascript", "typescript"):
+            return None
         if frame.line is None or (frame.qualname, frame.line) not in keys:
             return f"staged source has no '{frame.qualname}' starting at line {frame.line}"
         return None

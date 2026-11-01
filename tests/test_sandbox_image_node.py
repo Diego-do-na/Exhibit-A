@@ -77,6 +77,7 @@ def test_node_dockerfile_content_golden():
     expected_empty = (
         "FROM node:22.23.4-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da\n"
         "ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_AUDIT=false\n"
+        "RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\n"
         f"WORKDIR {INSTALL_DIR}\n"
         f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION}\n"
         f'ENV PATH="{INSTALL_DIR}/node_modules/.bin:${{PATH}}"\n'
@@ -87,6 +88,7 @@ def test_node_dockerfile_content_golden():
     expected_with_pkgs = (
         "FROM node:22.23.4-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da\n"
         "ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_AUDIT=false\n"
+        "RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\n"
         f"WORKDIR {INSTALL_DIR}\n"
         f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION}\n"
         "RUN npm install --save-exact --ignore-scripts 'express@4.19.2' 'lodash@4.17.21'\n"
