@@ -793,7 +793,8 @@ def run(
             and ``"typescript"`` run ``node --test`` on the pinned Node image with the CJS
             preload. v1 of the Node path only observes ``canary_read`` and ``canary_exec``.
         packages: extra npm packages baked into the Node image when ``language`` is JS/TS
-            and ``image`` is omitted.
+            and ``image`` is omitted. When None, ``requirements`` (the case's package.json
+            pins) are used as the npm list instead.
 
     Returns:
         dict with outcome, exit_code, stdout, stderr, oracle_events, oracle_forged_events,
@@ -1091,7 +1092,13 @@ def run(
         if image is None:
             try:
                 if js_mode:
-                    image = build_node_image(list(packages or []))
+                    # Node cases pin their dependencies in the case's package.json
+                    # (e.g. express@4.18.2), which reach here as ``requirements``;
+                    # an explicit ``packages`` list wins over them. Either way the
+                    # tag is content-hashed, so the image builds once and the run
+                    # itself stays network-free.
+                    npm = list(packages) if packages is not None else list(requirements or [])
+                    image = build_node_image(npm)
                 else:
                     image = build_image([PYTEST_VERSION, *(requirements or [])])
             except (RuntimeError, ValueError, subprocess.SubprocessError, OSError) as e:

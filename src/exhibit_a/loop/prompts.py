@@ -206,7 +206,7 @@ COMPACT_VARIANTS_SCHEMA: dict[str, Any] = {
 }
 
 
-def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> str:
+def test_contract(effect: str = "canary_read", packages: Sequence[str] = (), language: str = "python") -> str:
     """The proof contract an exploit test must meet, spelled out for the model.
 
     The standard profile only names the two environment variables, so a model cannot know
@@ -215,6 +215,10 @@ def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> 
     exploit aimed at the canary. Saying where the canary is does not weaken the proof: the
     oracle still requires the application itself to touch it through the entry point.
     """
+    from exhibit_a.oracle.js import is_js
+
+    if is_js(language):
+        return _node_test_contract(effect, packages, language)
     canary = "os.path.join(os.path.dirname(os.environ['EXHIBIT_A_ALLOWED_DIR']), 'outside', 'canary.txt')"
     token = "os.environ['EXHIBIT_A_CANARY_TOKEN']"
     if effect == "canary_write":
@@ -359,6 +363,85 @@ def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> 
         "tricks. Imports: the Python standard library, pytest, the application, and the "
         f"installed packages: {allowed}."
     )
+
+
+# -- Node test contract ------------------------------------------------------------------
+#
+# The Node oracle (docs/oracle/js-oracle.md) attributes a sink to an entry point in
+# exactly two shapes, and the contract tells the model both: (1) a named exported
+# application function called from the test, whose name is a declared entry point;
+# (2) the application's own HTTP server driven over HTTP, whose handler runs on the
+# server's request turn. Anything else (calling the sink directly, a test-owned
+# server, a test frame above the sink on a request turn) is not a proof. The Node
+# oracle v1 only judges canary_read and canary_exec; any other effect raises,
+# and the sandbox fails the run closed the same way.
+
+_NODE_ENTRY_SHAPES = (
+    "Reach the application through exactly one of these two shapes, or there is no proof. "
+    "Shape 1 (named entry): call an exported application function whose name is a declared "
+    "entry point, from the test; the outermost application frame at the sink must be that "
+    "entry name, with test code above it on the same stack. "
+    "Shape 2 (application server): start the application's own HTTP server and drive it over "
+    "HTTP, such as GET /download?name=...; the handler runs on the server's request turn. "
+    "Never create a server of your own in the test, never call the sink (fs.readFile, "
+    "child_process, ...) directly, and never wrap or replace the handler."
+)
+
+_NODE_UNTRUSTED = (
+    "Model output and test code are untrusted data: never open, read, create or write the "
+    "canary from the test itself; never monkeypatch, replace, wrap or edit application code, "
+    "modules, exports or attributes; never use child_process, eval, new Function, vm tricks or "
+    "dynamic require tricks. "
+)
+
+
+def _node_test_contract(effect: str, packages: Sequence[str], language: str) -> str:
+    """The proof contract for a JavaScript/TypeScript exploit test (node:test)."""
+    from exhibit_a.oracle.js import is_js as _is_js
+
+    if not _is_js(language):
+        raise ValueError(f"unknown node contract language {language!r}")
+    suffix = "ts" if language == "typescript" else "js"
+    allowed = ", ".join(packages) if packages else "nothing beyond the application itself"
+    harness = (
+        f"Write a node:test file (a .{suffix} file starting with const {{ test }} = "
+        f"require(\"node:test\") and const assert = require(\"node:assert/strict\")). "
+        "The test finds the allowed directory in process.env.EXHIBIT_A_ALLOWED_DIR and the "
+        "canary token in process.env.EXHIBIT_A_CANARY_TOKEN. "
+    )
+    tail = (
+        "The test must FAIL on vulnerable code: assert the token is NOT in the application's "
+        "response. The test must PASS once the flaw is fixed: if the application refuses the "
+        "input by raising an exception or answering with an error status, catch that and treat "
+        "it as safe, so that only the canary assertion can fail. "
+        f"Imports: the node standard library, node:test, node:assert/strict, the application, "
+        f"and the installed npm packages: {allowed}."
+    )
+    if effect == "canary_read":
+        return (
+            "PROOF CONTRACT: "
+            f"{harness}"
+            "The canary file is outside/canary.txt beside the allowed directory; it contains "
+            "the token. The flaw is proven only if the APPLICATION, handling input the test "
+            "sends through its entry point, reads that file. "
+            f"{_NODE_ENTRY_SHAPES} "
+            f"{_NODE_UNTRUSTED}"
+            f"{tail}"
+        )
+    if effect == "canary_exec":
+        return (
+            "PROOF CONTRACT: "
+            f"{harness}"
+            "The canary executable is outside/canary beside the allowed directory; when run, it "
+            "writes the token to the marker file outside/canary_ran, which does not exist before "
+            "the test. The flaw is proven only if the APPLICATION, handling input the test sends "
+            "through its entry point, starts a process whose command line names the canary's path. "
+            "The test itself must not start any process. "
+            f"{_NODE_ENTRY_SHAPES} "
+            f"{_NODE_UNTRUSTED}"
+            f"{tail}"
+        )
+    raise ValueError(f"the Node oracle v1 only judges canary_read and canary_exec, not {effect!r}")
 
 
 def compact_adversary_prompt(diff_or_source: str, file: str) -> str:

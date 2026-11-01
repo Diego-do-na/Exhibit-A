@@ -108,6 +108,7 @@ class SpySandboxRunner:
         access_db: str | None = None,
         access: dict[str, str] | None = None,
         redirect_meta: bool = False,
+        language: str = "python",
     ) -> None:
         self.requirements = tuple(requirements)
         self.image = image
@@ -115,6 +116,7 @@ class SpySandboxRunner:
         self.access_db = access_db
         self.access = access
         self.redirect_meta = redirect_meta
+        self.language = language
         self.baselines: list[tuple[str, str, float]] = []
         self.exploits: list[tuple[Path, Path, set[str], float, str]] = []
         SpySandboxRunner.instances.append(self)
@@ -149,6 +151,15 @@ class SpySandboxRunner:
                 test_outcome="passed",
                 events=[],
             )
+        # The oracle's deterministic proven reasons (fixed literals in oracle.py, no
+        # paths or tokens): recordings made against them replay against real runs.
+        reasons = {
+            "canary_write": "canary written by application code reached through an entry point; test failed",
+            "canary_exec": "canary executed by a process application code started through an entry point; test failed",
+            "canary_connect": "canary URL requested by application code reached through an entry point; test failed",
+        }
+        reason = reasons.get(
+            effect, "canary read by application code reached through an entry point; test failed")
         ep = next(iter(ep_set), "App.handle_request")
         event = OracleEvent.model_validate(
             {
@@ -184,7 +195,7 @@ class SpySandboxRunner:
         return Judgement(
             observed_effect=True,
             provenance_ok=True,
-            reason="observed canary effect from entry point",
+            reason=reason,
             test_outcome="failed",
             events=[event],
         )
@@ -331,6 +342,7 @@ def test_host_runner_requires_explicit_test_only_switch(tmp_path: Path) -> None:
         "case_live",
         "case_replay",
         "case_slice",
+        "case_replay_js",
         "pr_diff_live",
         "pr_diff_replay",
         "pr_diff_slice",
@@ -358,6 +370,10 @@ def test_cli_never_spawns_host_test_or_oracle_in_any_mode(
         expected_code = 0
     elif mode == "case_slice":
         code = cli_main(["run", "--case", str(ARCHIVE_CASE), "--slice", "--out", str(out)])
+        expected_code = 0
+    elif mode == "case_replay_js":
+        js_case = CORPUS_DIR / "express-download-traversal"
+        code = cli_main(["run", "--case", str(js_case), "--replay", "--out", str(out)])
         expected_code = 0
     else:
         repo, base, head, recording = _stage_pr_diff_repo(tmp_path)
@@ -388,6 +404,15 @@ def test_cli_never_spawns_host_test_or_oracle_in_any_mode(
     assert len(runner.exploits) >= 4
     # Confirm no host subprocess ever invoked pytest.
     assert not any(_is_pytest_command(cmd) for cmd in forbid_host_test_execution)
+    if mode == "case_replay_js":
+        # The JS case routes through the Node sandbox with node:test file names.
+        assert runner.language == "javascript"
+        assert {test for _, test, _ in runner.baselines} == {"test_baseline.js"}
+        assert any(str(test).endswith(".js") for _, test, _, _, _ in runner.exploits)
+        # Confirm no host subprocess ever invoked node either.
+        for cmd in forbid_host_test_execution:
+            first = Path(cmd[0]).name.lower() if cmd else ""
+            assert first not in {"node", "nodejs", "tsx"}, f"host node execution: {cmd}"
 
 
 def test_bench_make_pipeline_uses_sandbox_runner_and_never_host(

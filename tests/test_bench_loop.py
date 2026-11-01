@@ -329,7 +329,7 @@ def test_load_corpus_accepts_directory_with_all_thirty_two_cases():
         assert express.effect == effect
         assert express.source_file == source_file
         assert express.language == language
-        assert express.recording == ""
+        assert express.recording == "replay.jsonl"
         assert express.requirements == ("express@4.18.2",)
         assert express.held_out is held_out
 

@@ -31,6 +31,7 @@
   },
   "run": {
     "baseline_test": "baseline_test.js",
+    "recording": "replay.jsonl",
     "bypass": {
       "expectation": "proven against fixed_incomplete: the dots are percent-encoded, so the screen on the raw request text sees no '..' segment and the name is decoded and resolved afterwards; the incomplete fix must not be accepted as fixed.",
       "exploit": "exploits/exploit_true_percent_encoded_dotdot.js",

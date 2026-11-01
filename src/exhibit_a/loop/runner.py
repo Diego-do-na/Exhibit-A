@@ -141,7 +141,14 @@ class SandboxRunner:
     def run_baseline(self, clone_path: str, test_path: str, timeout: float) -> dict[str, Any]:
         from exhibit_a.sandbox import run
 
-        return run(clone_path, test_path, timeout, requirements=list(self.requirements), image=self.image)
+        return run(
+            clone_path,
+            test_path,
+            timeout,
+            requirements=list(self.requirements),
+            image=self.image,
+            language=self.language,
+        )
 
     def run_exploit(
         self,
