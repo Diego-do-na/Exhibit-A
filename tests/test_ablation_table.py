@@ -32,7 +32,7 @@ from bench.ablation_table import (
 )
 from bench.flags import ABLATIONS, Flags
 from exhibit_a.cli.parser import build_parser
-from exhibit_a.oracle import ORACLE_LAYERS, disable_oracle_layers, run_oracle
+from exhibit_a.oracle import ORACLE_LAYERS, disable_oracle_layers, disabled_oracle_layers, run_oracle
 from exhibit_a.oracle.layers import (
     LAYER_APP_TREE,
     LAYER_CANARY_LINKS,
@@ -43,6 +43,7 @@ from exhibit_a.oracle.layers import (
     parse_disabled_layers,
 )
 from exhibit_a.oracle.oracle import Frame, OracleEvent, _judge
+from exhibit_a.oracle.plugin import ENV_DISABLED_LAYERS
 
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "src" / "exhibit_a" / "cli"
@@ -76,6 +77,55 @@ def test_cli_source_cannot_reach_the_switch() -> None:
             if needle in text:
                 hits.append(f"{path.relative_to(ROOT)}: {needle}")
     assert hits == []
+
+
+def test_ambient_host_env_cannot_disable_layers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An EXHIBIT_A_DISABLED_LAYERS value on the host must not reach the plugin copy."""
+    monkeypatch.setenv(ENV_DISABLED_LAYERS, ",".join(sorted(ORACLE_LAYERS)))
+    assert disabled_oracle_layers() == frozenset()
+
+    (tmp_path / "guarded").mkdir()
+    guarded_root, guarded_test = _write_app(
+        tmp_path / "guarded",
+        VULN_APP,
+        """
+        def test_mentions_channel():
+            assert "EXHIBIT_A_EVENTS" or True
+        """,
+    )
+    blocked = run_oracle(guarded_root, guarded_test, {"App.handle_request"})
+    assert blocked.reason_code == "channel_tripwire"
+
+    # The plugin copy would prove this planted symlink if L7 were off.
+    (tmp_path / "symlink").mkdir()
+    link_root, link_test = _write_app(
+        tmp_path / "symlink",
+        """
+        import os
+        class App:
+            def __init__(self, base_dir):
+                self.base_dir = os.path.realpath(base_dir)
+            def handle_request(self, name):
+                if ".." in name.split("/"):
+                    raise PermissionError("no traversal")
+                with open(os.path.join(self.base_dir, name), encoding="utf-8") as fh:
+                    return fh.read()
+        """,
+        """
+        import os
+        from app import App
+        def test_symlink():
+            allowed = os.environ["EXHIBIT_A_ALLOWED_DIR"]
+            canary = os.path.join(os.path.dirname(allowed), "outside", "canary.txt")
+            token = os.environ["EXHIBIT_A_CANARY_TOKEN"]
+            link = os.path.join(allowed, "leak.txt")
+            os.symlink(canary, link)
+            leaked = App(allowed).handle_request("leak.txt")
+            assert token not in leaked
+        """,
+    )
+    refused = run_oracle(link_root, link_test, {"App.handle_request"})
+    assert not (refused.observed_effect and refused.provenance_ok)
 
 
 def test_unknown_layer_is_rejected() -> None:

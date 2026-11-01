@@ -1145,9 +1145,11 @@ def _run_test(
         # The test contract: how to authenticate as the attacker, and which resource to
         # ask for. The victim credential is never in the test's environment.
         env[ENV_ACCESS_ATTACKER], env[ENV_ACCESS_RESOURCE] = access
+    # Never inherit an ambient host value. Only the test-only ContextVar may
+    # reach the plugin copy; the CLI never sets that switch.
+    env.pop(ENV_DISABLED_LAYERS, None)
     off = disabled_oracle_layers()
     if off:
-        # Test-only: the plugin pops this at install. The CLI never sets it.
         env[ENV_DISABLED_LAYERS] = ",".join(sorted(off))
     cmd = [
         sys.executable,

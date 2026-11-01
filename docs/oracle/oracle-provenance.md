@@ -987,7 +987,9 @@ or the context `disable_oracle_layers("L4_guard", ...)`. Names are `L1_manifest`
 `L7_canary_links`, and `L14_witness` (T114's OS-level witness). The plugin copy
 inside the test process reads the same names from `EXHIBIT_A_DISABLED_LAYERS`,
 which `run_oracle` sets only when the switch is on and which the plugin pops at
-install.
+install. `_run_test` always pops `EXHIBIT_A_DISABLED_LAYERS` from the plugin
+environment first and sets it only from `disabled_oracle_layers()`, so an ambient
+host value cannot reach the plugin copy.
 
 This is a test-only switch. The CLI never sets it: there is no flag, the CLI
 never forwards that environment variable, and `tests/test_ablation_table.py`
