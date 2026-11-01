@@ -74,6 +74,18 @@ _MAX_FIX_EDITS = 10
 #: Where the sandbox mounts the staged app; oracle frames carry paths below it.
 _SANDBOX_APP_ROOT = "/workspace"
 
+#: Exploit and variant file suffix per loop language (the sandbox and the oracle
+#: pick the runner from it; see ``exhibit_a.oracle.js``).
+LANGUAGE_SUFFIXES = {"python": ".py", "javascript": ".js", "typescript": ".ts"}
+
+
+def exploit_suffix(language: str) -> str:
+    """The file suffix exploit and variant tests are written with for ``language``."""
+    try:
+        return LANGUAGE_SUFFIXES[language]
+    except KeyError:
+        raise ValueError(f"unknown loop language {language!r}") from None
+
 
 class LoopFlags(Protocol):
     """Ablation switches; ``bench.flags.Flags`` satisfies this as it is."""
@@ -225,6 +237,7 @@ class VerificationLoop:
         access: Mapping[str, str] | None = None,
         redirect_meta: bool = False,
         allow_host_execution: bool = False,
+        language: str = "python",
     ) -> None:
         if runs < 1:
             raise ValueError("runs must be at least 1")
@@ -242,6 +255,9 @@ class VerificationLoop:
         # default runner; an injected one carries its own. Host execution requires the
         # explicit test-only switch ``allow_host_execution=True`` (never set by the CLI).
         self.allow_host_execution = bool(allow_host_execution)
+        # Source language of the clone: routes baseline, exploit, fix and verify
+        # through the matching sandbox and oracle, and names the exploit files.
+        self.language = exploit_suffix(language) and language
         if runner is not None:
             self.runner: TestRunner = runner
         elif self.allow_host_execution:
@@ -252,6 +268,7 @@ class VerificationLoop:
                 access_db=access_db,
                 access=access,
                 redirect_meta=redirect_meta,
+                language=language,
             )
         else:
             self.runner = SandboxRunner(
@@ -260,6 +277,7 @@ class VerificationLoop:
                 access_db=access_db,
                 access=access,
                 redirect_meta=redirect_meta,
+                language=language,
             )
         self.baseline_runner = baseline_runner or self.runner.run_baseline
         # The judge is a callable that must accept the `effect` keyword so the loop
@@ -518,7 +536,7 @@ class VerificationLoop:
             return done(VerdictValue.INVALID_TEST, f"no usable exploit test: {exc}",
                         reason_code="no_usable_exploit")
         exploit_src = written.output["test_source"]
-        exploit = tests_dir / "test_exploit.py"
+        exploit = tests_dir / f"test_exploit{exploit_suffix(self.language)}"
         exploit.write_text(exploit_src, encoding="utf-8")
         self._emit(EventType.EXPLOIT_WRITTEN, written, suspicion_id=suspicion.id, test_path=str(exploit))
 
@@ -594,7 +612,7 @@ class VerificationLoop:
             facts = {
                 **proof.to_dict(),
                 "runs": self.runs,
-                "test": "test_exploit.py",
+                "test": exploit.name,
                 "fix_verified": fix_verified,
                 "bypass_tried": tried,
                 "bypass_succeeded": succeeded,
@@ -709,7 +727,7 @@ class VerificationLoop:
         """``contract=`` for profiles whose test prompts spell out the proof contract."""
         if not self.prompts.takes_contract:
             return {}
-        return {"contract": prompts.test_contract(self.effect, self.requirements)}
+        return {"contract": prompts.test_contract(self.effect, self.requirements, self.language)}
 
     def _edits_to_files(self, edits: list[dict[str, str]]) -> list[dict[str, str]]:
         """Turn compact search/replace edits into whole files for ``_apply_fix``.
@@ -830,7 +848,7 @@ class VerificationLoop:
             return 0, 0
         tried = succeeded = 0
         for i, variant in enumerate(proposal.output["variants"]):
-            path = tests_dir / f"variant_{i}.py"
+            path = tests_dir / f"variant_{i}{exploit_suffix(self.language)}"
             path.write_text(variant["test_source"], encoding="utf-8")
             self._emit(
                 EventType.BYPASS_ATTEMPT, proposal if i == 0 else None,
@@ -866,14 +884,14 @@ class VerificationLoop:
         verdict = outcome.verdict
         pkg = self.out / "packages" / _slug(outcome.suspicion.id)
         pkg.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(exploit, pkg / "test_exploit.py")
+        shutil.copyfile(exploit, pkg / exploit.name)
         source = (self.clone / outcome.suspicion.location.file).read_text(encoding="utf-8")
         # Paths inside the package are relative to the package dir so it can be moved or shared.
         if outcome.fix_verified:
             (pkg / "fix.patch").write_text(patch_text, encoding="utf-8")
             verdict.fix = Fix(patch_path="fix.patch")
         if verdict.evidence is not None:
-            verdict.evidence.test_path = "test_exploit.py"
+            verdict.evidence.test_path = exploit.name
         roots = [str(self.out), str(self.clone)]
         verdict_json = _portable(verdict.model_dump(mode="json"), roots)
         (pkg / "verdict.json").write_text(json.dumps(verdict_json, indent=2), encoding="utf-8")
