@@ -60,6 +60,22 @@ ATTACKS = [
     "attack_sql_true_order_by",
     "attack_sql_r1_forge_events",
     "attack_sql_r5_app_binding",
+    "attack_connect_true_fetch",
+    "attack_connect_true_host",
+    "attack_connect_true_redirect",
+    "attack_connect_true_localhost",
+    "attack_connect_from_test",
+    "attack_connect_request_from_test",
+    "attack_connect_http_client_from_test",
+    "attack_connect_requests_from_test",
+    "attack_connect_resolve_from_test",
+    "attack_connect_raw_socket",
+    "attack_connect_read_log",
+    "attack_connect_thread",
+    "attack_connect_internal_helper",
+    "attack_connect_copied_token",
+    "attack_connect_r1_forge_events",
+    "attack_connect_r5_app_binding",
 ]
 
 if __name__ == "__main__":

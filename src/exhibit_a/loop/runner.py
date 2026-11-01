@@ -37,16 +37,19 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import ValidationError
 
 from exhibit_a.oracle import Judgement, OracleEvent, run_oracle
-from exhibit_a.oracle.guard import channel_problem, exec_problem, sql_problem
+from exhibit_a.oracle.guard import channel_problem, connect_problem, exec_problem, sql_problem
 from exhibit_a.oracle.oracle import (
     ENV_ALLOWED_DIR,
     ENV_CANARY_TOKEN,
+    ENV_CONNECT_URL,
     EXEC_CANARY_NAME,
     EXEC_MARKER_NAME,
     REASON_CHANNEL_TRIPWIRE,
     TestOutcome,
     _judge,
+    canary_connect_url,
     exec_canary_script,
+    pick_connect_port,
     sql_db_problem,
 )
 from exhibit_a.oracle.provenance import AppTree, ManifestError, app_manifest
@@ -129,6 +132,8 @@ class SandboxRunner:
             problem = exec_problem(Path(test_path))
         if problem is None and effect == "canary_sql":
             problem = sql_problem(Path(test_path))
+        if problem is None and effect == "canary_connect":
+            problem = connect_problem(Path(test_path))
         if problem is not None:
             # Not run at all, as on the host path: the loop classifies "error" as invalid_test.
             return Judgement(
@@ -156,6 +161,11 @@ class SandboxRunner:
                 problem = sql_db_problem(stage, self.sql_db)
                 if problem is not None:
                     raise OSError(f"sandbox could not run the exploit: {problem}")
+            canary_url = None
+            if effect == "canary_connect":
+                # The listener runs inside the container on loopback; the test learns only
+                # its URL and must make the application request it.
+                canary_url = canary_connect_url(pick_connect_port(), secrets.token_hex(16))
             # The stage is never mounted (the sandbox copies it), so it stays the host's
             # untouched copy of what the plugin's manifest describes.
             try:
@@ -171,7 +181,11 @@ class SandboxRunner:
                 canary_path=str(canary) if effect in ("canary_read", "canary_exec") else None,
                 canary_mount=_EXEC_CANARY_MOUNT if effect == "canary_exec" else _CANARY_MOUNT,
                 events_path=str(Path(tmp) / "events.jsonl"),
-                env={ENV_CANARY_TOKEN: token, ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed"},
+                env={
+                    ENV_CANARY_TOKEN: token,
+                    ENV_ALLOWED_DIR: f"{_SCRATCH}/allowed",
+                    **({ENV_CONNECT_URL: canary_url} if canary_url is not None else {}),
+                },
                 manifest=manifest,
                 effect=effect,
                 sql_db=self.sql_db if effect == "canary_sql" else None,
@@ -195,6 +209,10 @@ class SandboxRunner:
                 canary_written=bool(result.get("canary_written", False)) if effect == "canary_write" else None,
                 # Exec: the host's own read of the marker; a missing answer stays unverified.
                 canary_ran=result.get("canary_ran") is True if effect == "canary_exec" else None,
+                # Connect: the URL handed out and what the in-container listener recorded
+                # (untrusted: the judge needs signed plugin events for the same request).
+                canary_url=canary_url if effect == "canary_connect" else None,
+                connect_log=list(result.get("connect_log", [])) if effect == "canary_connect" else None,
             )
 
 
