@@ -89,6 +89,19 @@ WANT = {
     "attack_js_read_http_handler_unattributed": DETECTED,
     "attack_js_read_http_test_server": BLOCKED,
     "attack_js_read_http_test_listener": BLOCKED,
+    "attack_js_read_http_prepend_listener": BLOCKED,
+    "attack_js_read_http_once_listener": BLOCKED,
+    "attack_js_read_http_emit_fake": BLOCKED,
+    "attack_js_read_http_set_immediate": BLOCKED,
+    "attack_js_read_http_next_tick": BLOCKED,
+    "attack_js_read_http_promise": BLOCKED,
+    "attack_js_read_http_timer": BLOCKED,
+    "attack_js_read_http_async_await": BLOCKED,
+    "attack_js_read_http_subclass": BLOCKED,
+    "attack_js_read_http_router_handle": BLOCKED,
+    "attack_js_read_http_proxy": BLOCKED,
+    "attack_js_read_http_true_async_request": DETECTED,
+    "attack_js_read_http_benign": BLOCKED,
     "attack_js_read_path_join_patch": BLOCKED,
     "attack_js_exec_env_define_property": BLOCKED,
     "attack_js_exec_node_options_strip": BLOCKED,
@@ -181,7 +194,11 @@ def test_js_redteam_table(name):
         assert off["test_outcome"] == "failed"
         _saw_effect(off)
         assert off["reason_code"] == "provenance", off["reason"]
-    elif name == "attack_js_read_http_test_server":
+    elif name in (
+        "attack_js_read_http_test_server",
+        "attack_js_read_http_emit_fake",
+        "attack_js_read_http_proxy",
+    ):
         # The leak fails the assertion, but only test frames are on the stack.
         assert off["test_outcome"] == "failed"
         _saw_effect(off)
@@ -213,6 +230,9 @@ def test_js_redteam_table(name):
     elif name == "attack_js_read_write_app_file":
         assert off["tree_changes"], "planted helper must trip the app-tree check"
     elif name in ("attack_js_exec_unrelated_process",):
+        assert off["test_outcome"] == "passed"
+        _saw_no_effect(off)
+    elif name == "attack_js_read_http_benign":
         assert off["test_outcome"] == "passed"
         _saw_no_effect(off)
     else:
