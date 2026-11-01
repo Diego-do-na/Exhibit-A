@@ -7,7 +7,7 @@ resolution, and a pricing gate.
 
 Pricing is REQUIRED and explicit: every Baseten call must carry a known rate,
 because a budget cap that cannot measure is not a cap. The rate comes from the
-``BASENTEN_PRICING`` table below (which the owner fills in per model slug) or,
+``BASETEN_PRICING`` table below (which the owner fills in per model slug) or,
 failing that, from the ``EXHIBIT_A_PRICE_IN_PER_MTOK`` /
 ``EXHIBIT_A_PRICE_OUT_PER_MTOK`` environment variables (USD per one million
 tokens). With no known price the provider refuses to run: the factory raises
@@ -55,12 +55,12 @@ PRICE_OUT_ENV = "EXHIBIT_A_PRICE_OUT_PER_MTOK"
 #: Add one line per model, for example (rates shown only as a shape example,
 #: not a real quote):
 #: ``"my-model-slug": Pricing(input_per_mtok=..., output_per_mtok=...),``
-BASENTEN_PRICING: dict[str, Pricing] = {}
+BASETEN_PRICING: dict[str, Pricing] = {}
 
 
 def pricing_for(model: str) -> Pricing | None:
     """Return the pricing-table entry for `model`, or None when unknown."""
-    return BASENTEN_PRICING.get(model)
+    return BASETEN_PRICING.get(model)
 
 
 def pricing_from_env() -> Pricing | None:
@@ -110,7 +110,7 @@ class BasetenProvider(OpenAICompatibleProvider):
         if resolved is None:
             raise ValueError(
                 f"baseten provider has no known price for model {model!r}; "
-                f"add it to BASENTEN_PRICING in src/exhibit_a/models/baseten.py or set "
+                f"add it to BASETEN_PRICING in src/exhibit_a/models/baseten.py or set "
                 f"{PRICE_IN_ENV} and {PRICE_OUT_ENV} (USD per million tokens)"
             )
         resolved_base = base_url or os.environ.get(BASE_URL_ENV, "")

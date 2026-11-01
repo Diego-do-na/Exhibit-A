@@ -27,6 +27,7 @@ One line per document. Paths are relative to the repository root.
 
 - [bench/bench.md](bench/bench.md) — naive LLM versus the proof loop on the corpus, with the generated results table.
 - [bench/benchmark.md](bench/benchmark.md) — benchmark harness: corpus format, ablations, metrics, run instructions.
+- [coverage.md](coverage.md) — generated corpus coverage matrix: oracle effects, CWE mappings, case counts and design exclusions.
 - [bench/tools.md](bench/tools.md) — static tools (Bandit, Semgrep, CodeQL) versus Exhibit A on the corpus.
 - [bench/meta-run.md](bench/meta-run.md) — real Meta-model runs (`muse-wonder-1.0`), standard and compact profiles, recordings and replay.
 - [bench/repeatability.md](bench/repeatability.md) — repeatability harness output, with and without slicing.
