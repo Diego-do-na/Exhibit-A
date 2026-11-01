@@ -143,6 +143,7 @@ class DependencyProof(StrictModel):
 
 class DependencyAdvisory(StrictModel):
     advisory_id: str
+    advisory_ids: list[str] = Field(default_factory=list)
     aliases: list[str]
     package: str
     installed_version: str
