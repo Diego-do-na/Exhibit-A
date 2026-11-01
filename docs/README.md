@@ -57,6 +57,7 @@ One line per document. Paths are relative to the repository root.
 - [reference/sandbox-write-effect.md](reference/sandbox-write-effect.md) — write-effect sandbox plumbing: no canary file, tmpfs `outside/` dir, post-run dump.
 - [reference/demo.md](reference/demo.md) — demo storyboard: red-to-green in 2-3 minutes via `scripts/demo.sh --offline` or `--live`.
 - [reference/sprint2-acceptance.md](reference/sprint2-acceptance.md) — sprint 2 acceptance criteria and verification status.
+- [reference/variants.md](reference/variants.md) — variant hunting: after a proof, list and prove the same bug on other graph paths.
 - [reference/dependency-proofs.md](reference/dependency-proofs.md) — `exhibit-a deps`: advisory reachability through the call graph, sandbox proof, verified upgrade, `deps.json`.
 - [reference/proof-bundles.md](reference/proof-bundles.md) — re-verifiable proof bundles: offline `verify` and sandbox `reproduce` with no model call.
 - [reference/sbom-vex.md](reference/sbom-vex.md) — `exhibit-a sbom`: CycloneDX 1.5 SBOM with VEX states derived from Exhibit A evidence.
