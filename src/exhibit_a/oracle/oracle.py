@@ -267,6 +267,11 @@ class OracleEvent(StrictModel):
     body: str | None = None
     auth: str | None = None
     resource: str | None = None
+    # Node HTTP public-interface (oracle.cjs wraps http.Server emit('request')).
+    # When true, an admitted application frame on the stack is enough: Express
+    # anonymous handlers have no declared name and no test frame on the request
+    # turn. A test-created server still has test frames and is refused.
+    public_interface: bool = False
 
 
 class Judgement(StrictModel):
@@ -2266,6 +2271,16 @@ def _provenance_problem(
                 f"was rejected ({why})"
             )
         return REASON_PROVENANCE, "no application code on the stack (the test read the file itself)"
+    if event.public_interface:
+        # HTTP request turn: Express (and node:http) handlers run from Server
+        # emit('request'), not from a stack that contains the test. An admitted
+        # app frame is the entry; a test listener on that turn is test-originated.
+        if test_idx:
+            return REASON_PROVENANCE, (
+                "the HTTP public-interface context reached the canary from test code "
+                "(a test-created server, or a test listener on request)"
+            )
+        return None
     outermost = app_idx[0]
     entry = event.stack[outermost]
     if entry.qualname not in entry_points and entry.function not in entry_points:

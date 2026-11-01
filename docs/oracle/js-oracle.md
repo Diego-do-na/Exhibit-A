@@ -175,34 +175,21 @@ Unlike synchronous Python code where callers remain on the call stack until comp
 **The provenance solution:**
 The preload initializes a global `AsyncLocalStorage` instance (`node:async_hooks`).
 
-1. **Entry point wrapping:**
-   Declared application entry points (e.g., Express route handlers, HTTP request dispatchers, CLI functions) are wrapped by the preload. When an entry point is invoked:
-   ```javascript
-   const context = {
-     entryPoint: entryPointName,
-     entryFile: callerSite.getFileName(),
-     entryLine: callerSite.getLineNumber(),
-     callerIsTest: isTestFrame(callerSite),
-     traceId: crypto.randomUUID(),
-     logicalStack: captureLogicalStack()
-   };
-   asyncLocalStorage.run(context, () => {
-     return originalEntryPoint.apply(this, args);
-   });
-   ```
+There are two attributable entry shapes. A sink is proven through an entry only if it matches one of them.
 
-2. **Context propagation across async continuations:**
-   Node's V8 engine automatically propagates `AsyncLocalStorage` across Promise chains, `await` points, `setTimeout`, `setImmediate`, `queueMicrotask`, and EventEmitter callbacks.
+1. **Named entry called from the test (existing).** Exported application functions are wrapped. When the test calls them, the preload records a logical stack whose outermost admitted frame must be a declared `entry_points` name, and a test frame must sit above that frame. This is the T125 `handleRequest` shape.
 
-3. **Provenance verification at the sink:**
-   When a canary sink (`fs.open`, `child_process.spawn`) is reached:
-   - The oracle extracts the current async context via `asyncLocalStorage.getStore()`.
-   - If the physical V8 stack contains only runtime event-loop frames, the active async store provides the authenticated link back to the entry point.
-   - The oracle verifies:
-     1. The async store exists and has `callerIsTest === true` at the entry point boundary (confirming the test initiated the flow).
-     2. The outermost application frame in the context is an admitted entry point.
-     3. The physical sink call was executed by admitted application code, or scheduled by admitted application code within the async context.
-   - If a test calls `fs.readFile` directly from a test tick, `asyncLocalStorage.getStore()` is either undefined or marks the active context as originating directly in test code, rejecting provenance (`reason_code: "provenance"`).
+2. **HTTP public-interface (anonymous Express handlers).** Express (and `node:http`) route handlers run from the HTTP server's `request` event, not from a stack that contains the test. Function-name matching and "the test called the entry" both fail on that turn. The preload wraps `EventEmitter.prototype.emit` and, when `type === 'request'` and `this` is an `http.Server` or `https.Server`, starts an AsyncLocalStorage context marked `publicInterface`. A sink on that turn counts as reached through the entry point if:
+   - the event is stamped `public_interface: true`, and
+   - at least one admitted application frame (manifest-hashed file under the app root) is on the stack, and
+   - no test-directory frame is on the stack.
+
+   Direct calls from the test (no `request` emit) stay on shape 1: an anonymous handler is not a declared name, so they are refused. A test-created `http.createServer` still emits `request`, but its listener is test code with no admitted app frame (or with a test frame on the stack), so it is refused.
+
+3. **Context propagation across async continuations:**
+   Node's V8 engine automatically propagates `AsyncLocalStorage` across Promise chains, `await` points, `setTimeout`, `setImmediate`, `queueMicrotask`, `fs` callbacks, and EventEmitter callbacks, including the `request` turn.
+
+4. **If a test calls `fs.readFile` directly from a test tick**, there is no public-interface context and no admitted app frame (`reason_code: "provenance"`).
 
 ---
 
@@ -323,17 +310,23 @@ Like the Python oracle (R1–R6), the Node oracle has declared residual limits. 
   - What is observed: a genuine signed `canary_read` of the canary's own path through admitted entry-point frames.
   - What is not observed: that the base directory itself was attacker-chosen (the choice happens in test code before any application frame exists).
 
-### R-JS series (pinned residuals, T126; R-JS4 added T136)
+### R-JS series (pinned residuals, T126; R-JS4 re-measured T136)
 - **R-JS1** (false proof, strict xfail): subverted shared builtins — `attack_js_read_prototype_pollution`, `attack_js_read_path_join_patch`. Genuine admitted frames execute attacker-redirected logic; the heap subversion is invisible to frame provenance.
 - **R-JS2** (false proof, strict xfail): obfuscated test-chosen application root — `attack_js_read_obfuscated_allowed_root`. The app requests the canary's own path through its real entry point; no runtime check separates a rooted-here app from a traversal.
 - **R-JS3** (recall limit, asserted as-is, not an xfail): subprocess reads — `attack_js_read_subprocess_cat`. An external process performs the read; the in-process oracle misses it and the run ends `SUPPRESSED_TRUE`.
-- **R-JS4** (observed but unattributable, asserted as-is, not an xfail): HTTP-dispatched handlers — `attack_js_read_http_handler_unattributed`. A genuine HTTP request leaks the canary through admitted application frames, but no declared entry point is outermost and no test frame is on the stack, so the run ends `SUPPRESSED_TRUE`. See "Attributable entry shapes" below. A server created by the test itself (`attack_js_read_http_test_server`) proves nothing: its sink stacks hold only test frames and are refused.
+- **R-JS4** (HTTP dispatch): T126 declared anonymous `request` handlers unattributable because name-match and test-stack both fail on that turn, and predicted that ALS at the HTTP boundary would let a test listener on the app's server forge a proof. T136 re-measured that prediction: `attack_js_read_http_handler_unattributed` is **DETECTED** (admitted app frame inside a `public_interface` request turn, no test frame); `attack_js_read_http_test_server` and `attack_js_read_http_test_listener` are **BLOCKED** (`provenance`: no admitted app frame, or a test frame on the turn). No new FALSE_PROVEN. The remaining recall is R7-Node (inbound HTTP that never emits `Server` `request`).
 
 ### Attributable entry shapes (T136)
 Only these shapes can carry a proof. Everything else is refused or unattributable:
-- **Attributable:** a synchronous (or `await`-propagated `AsyncLocalStorage`) call from the test into a `Module._load`-wrapped CommonJS export (or ESM equivalent) whose outermost admitted application frame names a declared entry point, with a test frame before it on the same stack. The deep-chain control `attack_js_exec_deep_stack_true` proves the capture keeps the whole stack: the preload raises `Error.stackTraceLimit` to its own frame budget while capturing and restores it after, so a test that lowers, raises, deletes, or replaces the limit (or `Error.captureStackTrace`) can neither forge a proof nor hide its own origin (`attack_js_read_limit_zero/one/infinity/deleted`, `attack_js_read_capture_replaced`).
-- **Not attributable:** `(req, res) => {...}` handlers (anonymous or named) invoked from an HTTP server's `request` emission. The physical stack is server internals plus the handler (`parserOnHeadersComplete -> parserOnIncoming -> emit -> <anonymous>`): no test frame, no declared entry outermost. Per-request `AsyncLocalStorage` attribution at the HTTP boundary was rejected as not airtight: creator-taint (app-created vs test-created server) cannot be decided robustly in-preload, and extra listeners registered by the test on an app server would manufacture proof through real app frames. So HTTP dispatch stays a declared residual instead of a trusted entry path.
-- **Still refused:** direct calls from the test into non-entry application code, and any sink reached from a test-created server (test frames only, never admitted).
+- **Named export called from the test.** A synchronous (or `await`-propagated `AsyncLocalStorage`) call from the test into a `Module._load`-wrapped CommonJS export whose outermost admitted application frame names a declared entry point, with a test frame before it on the same stack. The deep-chain control `attack_js_exec_deep_stack_true` proves the capture keeps the whole stack: the preload raises `Error.stackTraceLimit` to its own frame budget while capturing and restores it after, so a test that lowers, raises, deletes, or replaces the limit (or `Error.captureStackTrace`) can neither forge a proof nor hide its own origin (`attack_js_read_limit_zero/one/infinity/deleted`, `attack_js_read_capture_replaced`).
+- **HTTP public-interface.** Express (and `node:http`) handlers run from `http.Server`/`https.Server` `emit('request')`. The preload wraps that emit, starts an ALS context marked `publicInterface`, and the judge admits a sink on that turn when the event is stamped `public_interface`, an admitted (manifest-hashed) application frame is on the stack, and no test-directory frame is on the stack. Direct handler calls from the test stay on the named-export shape (anonymous is not a declared name). A test-created server has no admitted app frame. A test listener on the app's server has a test frame on the turn.
+- **Still refused:** direct calls from the test into non-entry application code, any sink reached from a test-created server, and any `public_interface` turn that still has a test frame.
+
+### R7-Node: Inbound HTTP that never emits `Server` `request` (declared residual)
+- **Mechanism:** Attribution shape 2 keys off `http.Server`/`https.Server` `emit('request')`. A custom parser on a raw `net.Socket`, a replaced `EventEmitter.prototype.emit` that the freeze missed, or a non-HTTP public interface (Unix socket protocol, worker message) never sets `public_interface`. Anonymous handlers on those paths cannot be proven; they are not falsely proven either.
+- **Attributable entry shapes that remain:** (1) named exported function called from the test, with that name in `entry_points`; (2) `http.Server`/`https.Server` `request` turn with an admitted app frame and no test frame.
+- **Red-team attacks:** `attack_js_read_http_test_listener` (BLOCKED, `provenance`); `attack_js_read_http_test_server` (BLOCKED, `provenance`); `attack_js_read_http_handler_unattributed` (DETECTED).
+- **Status:** **Recall limit (SUPPRESSED_TRUE)** for non-`request` inbound HTTP. The three attacks above are measured.
 
 ---
 
@@ -352,7 +345,7 @@ Only these shapes can carry a proof. Everything else is refused or unattributabl
 
 ## Attack list: Red-team attacks for Node oracle
 
-Below is the specification of 26 named red-team attacks for the Node oracle, providing the concrete cheat/exploit mechanism and expected verdict for the implementation phase:
+Below is the specification of the named red-team attacks for the Node oracle. Rows 1–26 are the T123 design set; the HTTP rows are the T126/T136 measured attacks (`spikes/redteam_js`).
 
 | # | Attack Name | Target Effect | Attack Mechanism | Expected Verdict | Reason Code |
 |---|---|---|---|---|---|
@@ -382,3 +375,6 @@ Below is the specification of 26 named red-team attacks for the Node oracle, pro
 | 24 | `attack_js_read_true_async_traversal` | `canary_read` | Vulnerable async `fs.promises.readFile` traversal across multiple `await` microtask boundaries. | DETECTED (Control) | `proven` |
 | 25 | `attack_js_exec_true_command_injection` | `canary_exec` | Vulnerable command injection concatenating unsanitized parameter into `child_process.exec()`. | DETECTED (Control) | `proven` |
 | 26 | `attack_js_exec_true_spawn_injection` | `canary_exec` | Vulnerable argument injection into `child_process.spawn` running shell with canary path. | DETECTED (Control) | `proven` |
+| 27 | `attack_js_read_http_handler_unattributed` | `canary_read` | Vulnerable anonymous `http.Server` handler reads the canary via `../` on a real `request` turn. | DETECTED | `proven` (`public_interface` + admitted app frame; R-JS4 closed for this shape) |
+| 28 | `attack_js_read_http_test_server` | `canary_read` | Test `http.createServer` listener reads the canary. | BLOCKED | `provenance` (no admitted app frame) |
+| 29 | `attack_js_read_http_test_listener` | `canary_read` | Test extra `request` listener on the app's own server reads the canary. | BLOCKED | `provenance` (test frame on the public-interface turn) |

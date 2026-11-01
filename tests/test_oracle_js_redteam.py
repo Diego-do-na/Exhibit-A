@@ -11,6 +11,9 @@ true exploit must be DETECTED, every cheat must be BLOCKED, except:
   this file must be updated.
 * R-JS3 (asserted as-is): the subprocess-read recall probe. A recall limit
   produces no false proof, so it is asserted SUPPRESSED_TRUE, not xfailed.
+* R-JS4 was the HTTP-dispatch recall residual. T136 HTTP-boundary attribution
+  now detects a genuine ``request``-turn leak (``attack_js_read_http_handler_unattributed``)
+  and still blocks a test-created server and a test listener on the app's server.
 
 ``spikes/redteam_js/run_all.py`` prints the same table for humans (run it with
 ``-v`` for the per-attack reasons); this file pins it as a gate. No Docker is
@@ -83,7 +86,9 @@ WANT = {
     "attack_js_read_limit_infinity": BLOCKED,
     "attack_js_read_limit_deleted": BLOCKED,
     "attack_js_read_capture_replaced": BLOCKED,
+    "attack_js_read_http_handler_unattributed": DETECTED,
     "attack_js_read_http_test_server": BLOCKED,
+    "attack_js_read_http_test_listener": BLOCKED,
     "attack_js_read_path_join_patch": BLOCKED,
     "attack_js_exec_env_define_property": BLOCKED,
     "attack_js_exec_node_options_strip": BLOCKED,
@@ -112,7 +117,6 @@ RESIDUALS = {
 # A recall limit produces no false proof, so these are not xfails.
 RECALL_WANT = {
     "attack_js_read_subprocess_cat": SUPPRESSED,
-    "attack_js_read_http_handler_unattributed": SUPPRESSED,
 }
 
 WANT.update(RECALL_WANT)
@@ -164,12 +168,6 @@ def test_js_redteam_table(name):
         # R-JS3 recall: the external cat performs the read, the oracle sees nothing.
         assert off["test_outcome"] == "failed"
         _saw_no_effect(off)
-    elif name == "attack_js_read_http_handler_unattributed":
-        # R-JS4: observed but unattributable. The leak fails the assertion and the
-        # read is recorded with admitted frames, but the handler is anonymous, no
-        # declared entry point is outermost, and no test frame is on the stack.
-        assert off["test_outcome"] == "failed"
-        assert off["observed_effect"] and not off["provenance_ok"]
     elif name in (
         "attack_js_read_limit_zero",
         "attack_js_read_limit_one",
@@ -185,6 +183,11 @@ def test_js_redteam_table(name):
         assert off["reason_code"] == "provenance", off["reason"]
     elif name == "attack_js_read_http_test_server":
         # The leak fails the assertion, but only test frames are on the stack.
+        assert off["test_outcome"] == "failed"
+        _saw_effect(off)
+    elif name == "attack_js_read_http_test_listener":
+        # Extra listener on the app's server: the leak is test-originated even
+        # if the request turn is stamped public-interface.
         assert off["test_outcome"] == "failed"
         _saw_effect(off)
     elif name in (

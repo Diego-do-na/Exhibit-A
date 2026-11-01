@@ -71,6 +71,7 @@ ATTACKS = [
     "attack_js_read_capture_replaced",
     "attack_js_read_http_handler_unattributed",
     "attack_js_read_http_test_server",
+    "attack_js_read_http_test_listener",
     "attack_js_read_path_join_patch",
     "attack_js_exec_env_define_property",
     "attack_js_exec_node_options_strip",

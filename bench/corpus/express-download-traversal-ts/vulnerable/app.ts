@@ -10,7 +10,7 @@ function resolveName(base: string, name: string): string {
 }
 
 function downloadHandler(base: string) {
-  return (req: any, res: any): void => {
+  return function downloadHandler(req: any, res: any): void {
     const target: string = resolveName(base, String(req.query.name || ""));
     fs.readFile(target, (err: any, data: any): void => {
       if (err) {
