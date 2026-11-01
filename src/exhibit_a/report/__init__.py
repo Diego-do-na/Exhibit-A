@@ -10,10 +10,13 @@ from .cwe import (
 )
 from .report import render_html, render_markdown
 from .sarif import generate_sarif, validate_sarif
+from .sbom import analysis_for, generate_sbom, validate_sbom
 
 __all__ = [
     "CWEDefinition",
     "CWE_TABLE",
+    "analysis_for",
+    "generate_sbom",
     "get_cwe",
     "generate_sarif",
     "render_html",
@@ -22,4 +25,5 @@ __all__ = [
     "security_severity_score",
     "severity_from_effect",
     "validate_sarif",
+    "validate_sbom",
 ]
