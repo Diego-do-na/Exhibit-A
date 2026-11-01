@@ -141,7 +141,7 @@ def test_missing_price_refuses_to_build(monkeypatch):
     monkeypatch.delenv("EXHIBIT_A_PRICE_IN_PER_MTOK", raising=False)
     monkeypatch.delenv("EXHIBIT_A_PRICE_OUT_PER_MTOK", raising=False)
     monkeypatch.setenv("BASETEN_API_KEY", "k")
-    assert baseten_module.BASENTEN_PRICING.get("no-such-model") is None
+    assert baseten_module.BASETEN_PRICING.get("no-such-model") is None
     with pytest.raises(ValueError, match="no known price"):
         BasetenProvider("no-such-model")
     with pytest.raises(ValueError, match="no known price"):
@@ -181,7 +181,7 @@ def test_explicit_pricing_wins_over_env(monkeypatch, priced_env):
 def test_table_entry_is_used_when_present(monkeypatch, priced_env):
     priced_env.setenv("BASETEN_API_KEY", "k")
     monkeypatch.setitem(
-        baseten_module.BASENTEN_PRICING, "listed-model", Pricing(1.0, 2.0)
+        baseten_module.BASETEN_PRICING, "listed-model", Pricing(1.0, 2.0)
     )
     monkeypatch.delenv("EXHIBIT_A_PRICE_IN_PER_MTOK")
     monkeypatch.delenv("EXHIBIT_A_PRICE_OUT_PER_MTOK")

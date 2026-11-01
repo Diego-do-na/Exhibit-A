@@ -7,10 +7,11 @@ graph resolved: ``builtins.open``, ``os.path.realpath``, ``subprocess.run``,
 reaches first: an ASGI/WSGI callable, a route handler, a CLI main, or a name declared by
 the case (``case.json`` ``run.entry_points``), which always wins over detection.
 
-Four families can be proven by the oracle today (SPEC section 7): path traversal through
-a read (``canary_read``) and through a write (``canary_write``), code or command execution
-(``canary_exec``) and SQL injection (``canary_sql``). The other sinks are listed so a reach report
-can say what a path leads to; their ``effect`` is None, so the loop never pretends it can prove them.
+Five families can be proven by the oracle today: path traversal through a read
+(``canary_read``) and through a write (``canary_write``), code or command execution
+(``canary_exec``), SQL injection (``canary_sql``) and server-side request forgery
+(``canary_connect``). The other sinks are listed so a reach report can say what a path
+leads to; their ``effect`` is None, so the loop never pretends it can prove them.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from exhibit_a.schemas.graph import CodeGraph, EntryPoint, GraphEdge, GraphNode,
 
 from .build import MAIN_GUARD, SQL_RUN_METHODS
 
-READ, WRITE, EXEC, SQL = "canary_read", "canary_write", "canary_exec", "canary_sql"
+READ, WRITE, EXEC, SQL, CONNECT = "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect"
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,10 @@ class SinkRule:
     #: sink only when that argument is not a constant string (``dynamic_query``): a constant
     #: statement, however it is run, cannot carry input.
     query_arg: tuple[int, tuple[str, ...]] | None = None
+    #: Where a connection-opening call takes its target: (position, keyword names). The call
+    #: is a sink only when that argument is not a constant (``dynamic_address``): a fixed
+    #: target cannot carry input.
+    target_arg: tuple[int, tuple[str, ...]] | None = None
 
 
 #: Write-side class and effect for open-like sinks called with a write mode.
@@ -108,8 +113,12 @@ SINKS: tuple[SinkRule, ...] = (
     SinkRule(("urllib.request.urlopen", "urllib.request.urlretrieve", "http.client.HTTPConnection",
               "http.client.HTTPSConnection", "requests.*", "httpx.*", "aiohttp.ClientSession.get",
               "aiohttp.ClientSession.post", "aiohttp.ClientSession.request"),
-             "outbound_request", "ssrf", None, "network",
-             "outbound request (SSRF is not a v1 class: the sandbox has no network)"),
+             "outbound_request", "ssrf", CONNECT, "network",
+             "outbound request the loopback canary listener observes"),
+    SinkRule(("socket.create_connection",),
+             "outbound_request", "ssrf", CONNECT, "network",
+             "opens a connection; only a non-constant target can carry input",
+             target_arg=(0, ("address", "host", "port"))),
 )
 
 _SQL_RULE = next(rule for rule in SINKS if rule.query_arg is not None)
@@ -208,6 +217,26 @@ def _dynamic_query(rule: SinkRule, edge: GraphEdge) -> bool:
     return not _constant_text(value)
 
 
+def _dynamic_address(rule: SinkRule, edge: GraphEdge) -> bool:
+    """Whether a connection-opening call may carry input: its target is not a constant.
+
+    A call with no target argument kept by the graph (``*args``, ``**kwargs``) counts as
+    dynamic, because it cannot be shown to be constant. Anything ``ast.literal_eval``
+    accepts (a literal address, however spelled) is a fixed target and not a sink.
+    """
+    assert rule.target_arg is not None
+    position, keywords = rule.target_arg
+    value = edge.args[position] if len(edge.args) > position else next(
+        (edge.kwargs[k] for k in keywords if k in edge.kwargs), None)
+    if value is None:
+        return bool(edge.args or edge.kwargs)
+    try:
+        ast.literal_eval(value)
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return True
+    return False
+
+
 def sink_hits(graph: CodeGraph) -> dict[str, list[SinkHit]]:
     """Every sink call in the graph, by the repository function that makes it."""
     hits: dict[str, list[SinkHit]] = {}
@@ -232,6 +261,8 @@ def _edge_hit(edge: GraphEdge) -> SinkHit | None:
             if any(marker in value for marker in markers):
                 return None
         if rule.query_arg is not None and (edge.ref or not _dynamic_query(rule, edge)):
+            return None
+        if rule.target_arg is not None and (edge.ref or not _dynamic_address(rule, edge)):
             return None
         vuln_class, effect, access = rule.vuln_class, rule.effect, rule.access
         if not edge.ref and _is_write(rule, edge):

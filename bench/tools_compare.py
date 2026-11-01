@@ -308,7 +308,7 @@ def _score_dict(score: Score) -> dict[str, Any]:
 
 def exhibit_rows() -> list[dict[str, Any]]:
     """Read the latest replayed Exhibit A aggregate from bench/results, if present."""
-    files = sorted(RESULTS.glob("*.json"))
+    files = sorted(f for f in RESULTS.glob("*.json") if not f.name.startswith("tools-"))
     if not files:
         return []
     data = json.loads(files[-1].read_text(encoding="utf-8"))
