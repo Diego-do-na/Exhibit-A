@@ -1,0 +1,11 @@
+{
+  "id": "open-redirect-continue-page",
+  "class": "open_redirect",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 27
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The continue page answers with a meta refresh to the caller-supplied target without checking its host, so a target naming the canary host refreshes there (open redirect).",
+  "source": "manual (case author); real-world analog CVE-2024-43794"
+}

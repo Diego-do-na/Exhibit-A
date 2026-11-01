@@ -1,0 +1,20 @@
+{
+  "language": "python",
+  "interpreter": "python3.11",
+  "dependency_manager": "pip",
+  "install_cmd": "python -m pip install Jinja2",
+  "test_cmd": "python -m pytest baseline_test.py",
+  "framework": "Jinja2",
+  "dependencies": [
+    {
+      "name": "Jinja2",
+      "version": "*"
+    }
+  ],
+  "commit": "",
+  "baseline": {
+    "passed": 3,
+    "failed": 0,
+    "seconds": 0.0
+  }
+}

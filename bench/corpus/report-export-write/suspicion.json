@@ -1,0 +1,11 @@
+{
+  "id": "report-export-write-name",
+  "class": "path_traversal_write",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 12
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The export helper joins the requested report name onto the export directory without confinement, so a name with `..` segments or an absolute path writes outside the directory (path traversal write).",
+  "source": "manual (case author); real-world analog CVE-2022-29464"
+}

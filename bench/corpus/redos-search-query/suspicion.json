@@ -1,0 +1,11 @@
+{
+  "id": "search-expansion-quadratic-count",
+  "class": "algorithmic_complexity",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 15
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The expansion helper rescans the whole tail for every character, so a long expression of the same length as a benign one burns far more application CPU (algorithmic complexity).",
+  "source": "manual (case author); real-world analog CVE-2026-66046"
+}

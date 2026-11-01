@@ -1,0 +1,11 @@
+{
+  "id": "ssrf-webhook-fetch-delivery",
+  "class": "server_side_request_forgery",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 24
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The delivery helper fetches any caller-supplied subscriber URL without checking where it points, so the run's canary URL is requested by the application itself (server-side request forgery).",
+  "source": "manual (case author); real-world analog CVE-2026-105636"
+}

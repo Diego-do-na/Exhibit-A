@@ -1,0 +1,11 @@
+{
+  "id": "open-redirect-next-signin",
+  "class": "open_redirect",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 22
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The sign-in helper returns a redirect to the caller-supplied target without checking its host, so a target naming the canary host redirects there (open redirect).",
+  "source": "manual (case author); real-world analog CVE-2025-67502"
+}

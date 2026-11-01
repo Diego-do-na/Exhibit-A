@@ -1,0 +1,11 @@
+{
+  "id": "redos-username-check-search",
+  "class": "regex_denial_of_service",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 9
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The lookup pattern nests quantifiers, so a long non-matching query of the same length as a benign one burns far more application CPU (ReDoS).",
+  "source": "manual (case author); real-world analog CVE-2021-46823"
+}

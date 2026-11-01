@@ -1,0 +1,11 @@
+{
+  "id": "ssti-email-template-subject",
+  "class": "server_side_template_injection",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 12
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The notification helper compiles the request subject with a default template environment and renders it, so a subject that reaches operating system calls through template internals executes during render (server-side template injection).",
+  "source": "manual (case author); real-world analog CVE-2023-22621"
+}

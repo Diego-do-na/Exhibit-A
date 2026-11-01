@@ -1,0 +1,11 @@
+{
+  "id": "command-injection-ping-host",
+  "class": "command_injection",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 13
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The check helper builds a shell command line from the requested host and runs it with a shell, so a host carrying a shell metacharacter (for example `;` or a newline) breaks out and executes a command (OS command injection).",
+  "source": "manual (case author); real-world analog CVE-2025-14092"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "idor-export-download-reports",
+  "class": "broken_access_control",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 33
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The export lookup returns the stored report for any caller outside the protected prefix, so the victim's seeded resource is returned to the attacker (broken access control).",
+  "source": "manual (case author); real-world analog CVE-2024-12483"
+}
