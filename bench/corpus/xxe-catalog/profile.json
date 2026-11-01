@@ -1,0 +1,15 @@
+{
+  "language": "python",
+  "interpreter": "python3.11",
+  "dependency_manager": "none",
+  "install_cmd": "",
+  "test_cmd": "python -m pytest baseline_test.py",
+  "framework": "none (stdlib only)",
+  "dependencies": [],
+  "commit": "",
+  "baseline": {
+    "passed": 3,
+    "failed": 0,
+    "seconds": 0.0
+  }
+}

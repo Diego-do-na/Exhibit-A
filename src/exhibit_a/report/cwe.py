@@ -70,10 +70,40 @@ CWE_95 = CWEDefinition(
     description="The software receives input from an upstream component, but it does not neutralize or incorrectly neutralizes code syntax before dynamic evaluation (eval, exec).",
 )
 
+CWE_23 = CWEDefinition(
+    cwe_id="CWE-23",
+    name="Relative Path Traversal",
+    description="The product uses external input to construct a pathname that should be within a restricted directory, but it does not properly neutralize sequences such as '..' that can resolve to a location that is outside of that directory.",
+)
+
+CWE_77 = CWEDefinition(
+    cwe_id="CWE-77",
+    name="Improper Neutralization of Special Elements used in a Command ('Command Injection')",
+    description="The product constructs all or part of a command using externally-influenced input from an upstream component, but it does not neutralize or incorrectly neutralizes special elements that could modify the intended command.",
+)
+
+CWE_434 = CWEDefinition(
+    cwe_id="CWE-434",
+    name="Unrestricted Upload of File with Dangerous Type",
+    description="The product allows the attacker to upload or transfer files of dangerous types that can be automatically processed within the product's environment.",
+)
+
 CWE_502 = CWEDefinition(
     cwe_id="CWE-502",
     name="Deserialization of Untrusted Data",
     description="The application deserializes untrusted data without sufficiently verifying that the resulting data will be valid or safe to execute.",
+)
+
+CWE_611 = CWEDefinition(
+    cwe_id="CWE-611",
+    name="Improper Restriction of XML External Entity Reference",
+    description="The product processes an XML document that can contain XML entities with URIs that resolve to documents outside of the intended sphere of control, causing the product to embed incorrect documents into its output.",
+)
+
+CWE_1336 = CWEDefinition(
+    cwe_id="CWE-1336",
+    name="Improper Neutralization of Special Elements Used in a Template Engine",
+    description="The product uses a template engine to insert user-controlled data into a template, but it does not neutralize or incorrectly neutralizes special elements that can modify the intended template.",
 )
 
 
@@ -121,6 +151,20 @@ CWE_TABLE: dict[tuple[str, str], CWEDefinition] = {
     ("sql", "sql_injection"): CWE_89,
     ("canary_exec", "sql_injection"): CWE_89,
     ("exec", "sql_injection"): CWE_89,
+
+    # XML external entity
+    ("canary_read", "xml_external_entity"): CWE_611,
+    ("read", "xml_external_entity"): CWE_611,
+
+    # Server-side template injection
+    ("canary_exec", "server_side_template_injection"): CWE_1336,
+    ("exec", "server_side_template_injection"): CWE_1336,
+    ("canary_exec", "ssti"): CWE_1336,
+    ("exec", "ssti"): CWE_1336,
+
+    # Unrestricted file upload
+    ("canary_write", "unrestricted_file_upload"): CWE_434,
+    ("write", "unrestricted_file_upload"): CWE_434,
 }
 
 
@@ -151,6 +195,12 @@ def get_cwe(effect: str, vuln_class: str) -> CWEDefinition:
         return CWE_78
     if "eval" in norm_class or "code_injection" in norm_class:
         return CWE_95
+    if "template" in norm_class or "ssti" in norm_class:
+        return CWE_1336
+    if "xml" in norm_class or "xxe" in norm_class or "external_entity" in norm_class:
+        return CWE_611
+    if "upload" in norm_class:
+        return CWE_434
     if "deserializ" in norm_class:
         return CWE_502
     if "archive" in norm_class or "traversal" in norm_class:

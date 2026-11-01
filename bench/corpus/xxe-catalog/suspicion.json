@@ -1,0 +1,11 @@
+{
+  "id": "xxe-catalog-entity",
+  "class": "xml_external_entity",
+  "location": {
+    "file": "vulnerable/app.py",
+    "line": 23
+  },
+  "entry_point": "App.handle_request",
+  "hypothesis": "The catalog importer builds an xml.sax parser, enables external general entities, and opens the entity system identifier, so a document that declares an external entity pointing at a local file is read during parse (XML external entity).",
+  "source": "manual (case author); real-world analog CVE-2018-1999002"
+}

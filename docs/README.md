@@ -27,7 +27,7 @@ One line per document. Paths are relative to the repository root.
 
 - [bench/bench.md](bench/bench.md) — naive LLM versus the proof loop on the corpus, with the generated results table.
 - [bench/benchmark.md](bench/benchmark.md) — benchmark harness: corpus format, ablations, metrics, run instructions.
-- [coverage.md](coverage.md) — generated corpus coverage matrix: oracle effects, CWE mappings, case counts and design exclusions.
+- [coverage.md](coverage.md) — generated CWE coverage matrix: CWE id and name, effect, corpus case, proven live, notes.
 - [bench/tools.md](bench/tools.md) — static tools (Bandit, Semgrep, CodeQL) versus Exhibit A on the corpus.
 - [bench/meta-run.md](bench/meta-run.md) — real Meta-model runs (`muse-wonder-1.0`), standard and compact profiles, recordings and replay.
 - [bench/repeatability.md](bench/repeatability.md) — repeatability harness output, with and without slicing.
@@ -59,3 +59,4 @@ One line per document. Paths are relative to the repository root.
 - [reference/sprint2-acceptance.md](reference/sprint2-acceptance.md) — sprint 2 acceptance criteria and verification status.
 - [reference/dependency-proofs.md](reference/dependency-proofs.md) — `exhibit-a deps`: advisory reachability through the call graph, sandbox proof, verified upgrade, `deps.json`.
 - [reference/proof-bundles.md](reference/proof-bundles.md) — re-verifiable proof bundles: offline `verify` and sandbox `reproduce` with no model call.
+- [reference/sbom-vex.md](reference/sbom-vex.md) — `exhibit-a sbom`: CycloneDX 1.5 SBOM with VEX states derived from Exhibit A evidence.

@@ -1,0 +1,86 @@
+{
+  "cases": [
+    {
+      "id": "yaml-job-load",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "insecure_deserialization",
+          "file": "vulnerable/app.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "cwe": {
+    "cwe_id": "CWE-502",
+    "cwe_name": "Deserialization of Untrusted Data"
+  },
+  "real_world_analog": {
+    "cve": "CVE-2017-18342",
+    "summary": "PyYAML yaml.load of untrusted input executes Python objects.",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2017-18342",
+    "fix": "Load untrusted YAML with SafeLoader (yaml.safe_load).",
+    "verification": "CVE number confirmed via public records; the app is original synthetic code."
+  },
+  "note": "Self-contained oracle case. Proven directly with effect='canary_exec'. PyYAML is installed, not vendored.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_exec",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "app.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "requirements": [
+      "PyYAML"
+    ],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_os_system.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_eval.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_plain_job.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_none_document.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_runs_canary.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_sink_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_escape.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_escape.py",
+        "label": "flaky"
+      }
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_eval.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: the eval tag names no os.system apply, so the incomplete fix must not be accepted as fixed."
+    }
+  }
+}

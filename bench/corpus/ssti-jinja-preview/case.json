@@ -1,0 +1,86 @@
+{
+  "cases": [
+    {
+      "id": "ssti-jinja-preview",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "server_side_template_injection",
+          "file": "vulnerable/app.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "cwe": {
+    "cwe_id": "CWE-1336",
+    "cwe_name": "Improper Neutralization of Special Elements Used in a Template Engine"
+  },
+  "real_world_analog": {
+    "cve": "CVE-2019-8341",
+    "summary": "Jinja2 SSTI: attacker-controlled template source executed in the application.",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2019-8341",
+    "fix": "Render untrusted source in a SandboxedEnvironment, never as a trusted Template.",
+    "verification": "CVE number confirmed via public records; the app is original synthetic code."
+  },
+  "note": "Self-contained oracle case. Proven directly with effect='canary_exec'. Jinja2 is installed, not vendored.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_exec",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "app.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "requirements": [
+      "Jinja2"
+    ],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_os_attr.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_os_index.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_plain_greeting.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_none_source.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_runs_canary.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_sink_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_escape.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_escape.py",
+        "label": "flaky"
+      }
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_os_index.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: the index lookup does not contain the refused tokens, so the incomplete fix must not be accepted as fixed."
+    }
+  }
+}

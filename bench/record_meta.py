@@ -61,6 +61,11 @@ CASES = (
     "upload-filename-traversal",
     "sql-trunc-kind-injection",
     "docsuite-large-command-injection",
+    "xxe-catalog",
+    "ssti-jinja-preview",
+    "yaml-job-load",
+    "tar-slip-restore",
+    "upload-avatar",
 )
 DEFAULT_MODEL = "muse-wonder-1.0"
 CASE_BUDGET_USD = 2.0

@@ -1,0 +1,83 @@
+{
+  "cases": [
+    {
+      "id": "xxe-catalog",
+      "kind": "vulnerable",
+      "repo": "",
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "xml_external_entity",
+          "file": "vulnerable/app.py"
+        }
+      ]
+    }
+  ],
+  "synthetic": true,
+  "cwe": {
+    "cwe_id": "CWE-611",
+    "cwe_name": "Improper Restriction of XML External Entity Reference"
+  },
+  "real_world_analog": {
+    "cve": "CVE-2018-1999002",
+    "summary": "Jenkins XXE: XML parsing resolved external entities to local files.",
+    "reference": "https://www.cve.org/CVERecord?id=CVE-2018-1999002",
+    "fix": "Parse XML without resolving external entities (stdlib ElementTree default).",
+    "verification": "CVE number confirmed via public records; the app is original synthetic code."
+  },
+  "note": "Self-contained oracle case. Proven directly with effect='canary_read'. Original synthetic code.",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "run": {
+    "effect": "canary_read",
+    "entry_points": [
+      "App.handle_request"
+    ],
+    "trees": {
+      "vulnerable": "vulnerable",
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete"
+    },
+    "source_file": "app.py",
+    "baseline_test": "baseline_test.py",
+    "oracle_entry_point": "App.handle_request",
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_file_uri.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_raw_path.py",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_plain_catalog.py",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_none_document.py",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_opens_canary.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_sink_directly.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_escape.py",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_flaky_leak.py",
+        "label": "flaky"
+      }
+    ],
+    "bypass": {
+      "exploit": "exploits/exploit_true_raw_path.py",
+      "incomplete_fix": "fixed_incomplete",
+      "expectation": "proven against fixed_incomplete: a raw path has no file: prefix, so the incomplete fix must not be accepted as fixed."
+    }
+  }
+}
