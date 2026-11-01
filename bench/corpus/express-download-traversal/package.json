@@ -1,0 +1,9 @@
+{
+  "name": "exhibit-a-express-download-traversal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Exhibit A corpus case: Express static-download path traversal (original code, no third-party code vendored). The only runtime dependency is the pinned Express release; the Node sandbox image provides tsx and installs this file with --ignore-scripts.",
+  "dependencies": {
+    "express": "4.18.2"
+  }
+}

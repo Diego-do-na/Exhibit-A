@@ -16,12 +16,12 @@ The sandbox is isolated and resource-limited, never "100% safe".
 | archive_extraction_path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal') | canary_write | `archive-extraction-pathtraversal`, `tar-slip-restore` (2) | 0 | yes | measured |
 | broken_access_control | CWE-639 Authorization Bypass Through User-Controlled Key | canary_access | `idor-document-fetch`, `idor-export-download` (2) | 2 | not yet recorded | unmeasured |
 | code_injection | CWE-95 Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
-| command_injection | CWE-77 Improper Neutralization of Special Elements used in a Command ('Command Injection')<br>CWE-78 Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') | canary_exec | `command-injection-ping`, `command-injection-shell`, `docsuite-large-command-injection` (3) | 2 | not yet recorded | unmeasured |
+| command_injection | CWE-77 Improper Neutralization of Special Elements used in a Command ('Command Injection')<br>CWE-78 Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') | canary_exec | `command-injection-ping`, `command-injection-shell`, `docsuite-large-command-injection`, `express-command-injection`, `express-command-injection-ts` (5) | 3 | not yet recorded | unmeasured |
 | eval_injection | CWE-95 Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
 | insecure_deserialization | CWE-502 Deserialization of Untrusted Data | canary_exec | `unsafe-deserialization-pickle`, `yaml-job-load` (2) | 0 | not yet recorded | unmeasured |
 | open_redirect | CWE-601 URL Redirection to Untrusted Site ('Open Redirect') | canary_redirect | `open-redirect-continue`, `open-redirect-next` (2) | 2 | not yet recorded | unmeasured |
 | os_command_injection | CWE-78 Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
-| path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')<br>CWE-23 Relative Path Traversal | canary_read | `log-viewer-traversal`, `starlette-cve-2023-29159`, `static-route-traversal` (3) | 2 | yes | measured |
+| path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')<br>CWE-23 Relative Path Traversal | canary_read | `express-download-traversal`, `express-download-traversal-ts`, `log-viewer-traversal`, `starlette-cve-2023-29159`, `static-route-traversal` (5) | 3 | yes | measured |
 | path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal') | canary_write | not covered (0) | 0 | not yet recorded | not covered |
 | path_traversal_write | CWE-73 External Control of File Name or Path | canary_write | `report-export-write`, `upload-filename-traversal` (2) | 2 | not yet recorded | unmeasured |
 | redos | CWE-1333 Inefficient Regular Expression Complexity | canary_dos | not covered (0) | 0 | not yet recorded | not covered |
@@ -41,6 +41,10 @@ The sandbox is isolated and resource-limited, never "100% safe".
 - `command-injection-ping`
 - `command-injection-shell`
 - `docsuite-large-command-injection`
+- `express-command-injection`
+- `express-command-injection-ts`
+- `express-download-traversal`
+- `express-download-traversal-ts`
 - `idor-document-fetch`
 - `idor-export-download`
 - `log-viewer-traversal`

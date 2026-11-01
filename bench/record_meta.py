@@ -78,6 +78,10 @@ CASES = (
     "log-viewer-traversal",
     "report-export-write",
     "sql-injection-filter",
+    "express-download-traversal",
+    "express-download-traversal-ts",
+    "express-command-injection",
+    "express-command-injection-ts",
 )
 DEFAULT_MODEL = "muse-wonder-1.0"
 CASE_BUDGET_USD = 2.0

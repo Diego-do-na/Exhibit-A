@@ -32,6 +32,11 @@ EFFECTS = (
     "canary_redirect", "canary_access",
 )
 
+#: Source languages a case tree may be written in. ``python`` is the default so
+#: existing manifests load unchanged; ``javascript`` and ``typescript`` cover the
+#: Express corpus proven through the Node oracle.
+LANGUAGES = ("python", "javascript", "typescript")
+
 
 @dataclass(frozen=True)
 class Case:
@@ -75,6 +80,10 @@ class Case:
     # frozen, from a public advisory (case.json ``held_out``). Docs and tables use it to keep
     # held-out results apart from the tuned ones.
     held_out: bool = False
+    # Source language of the case trees (case.json ``run.language`` or top-level
+    # ``language``; default ``python``). The Node oracle proves the
+    # ``javascript`` / ``typescript`` cases.
+    language: str = "python"
 
 
 def _check_common(raw: dict, seen: set[str]) -> None:
@@ -142,6 +151,9 @@ def _case_from_real(case_dir: Path, raw: dict, run: dict, top: dict | None = Non
     trees = run.get("trees") or {}
     tree = run.get("tree") or trees.get("vulnerable", "")
     requirements = tuple(str(item) for item in run.get("requirements", []))
+    language = run.get("language", (top or {}).get("language", "python"))
+    if language not in LANGUAGES:
+        raise ValueError(f"case {raw.get('id')}: unknown run.language {language!r}")
     return Case(
         id=raw["id"],
         kind=raw["kind"],
@@ -161,6 +173,7 @@ def _case_from_real(case_dir: Path, raw: dict, run: dict, top: dict | None = Non
         access=dict(access),
         redirect_meta=bool(redirect_meta),
         held_out=_held_out(raw, top or {}),
+        language=language,
     )
 
 
