@@ -12,9 +12,8 @@ from .sources import LEDGER_NAME, RESULT_NAME, RUN_ID_RE, LocalRunsSource, Sourc
 
 
 def _json_bytes(value: Any) -> bytes:
-    return (json.dumps(value, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n").encode(
-        "ascii"
-    )
+    text = json.dumps(value, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":"))
+    return (text.translate(str.maketrans({"<": "\\u003c", ">": "\\u003e", "&": "\\u0026"})) + "\n").encode("ascii")
 
 
 def _safe_child(root: Path, name: str) -> Path:
@@ -45,6 +44,7 @@ def _copy_tree(source: Path, target: Path) -> None:
 
 def _static_script(bundle: dict[str, Any]) -> str:
     payload = json.dumps(bundle, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":"))
+    payload = payload.translate(str.maketrans({"<": "\\u003c", ">": "\\u003e", "&": "\\u0026"}))
     return f"""/* Offline adapter for an Exhibit A static dashboard export. */
 "use strict";
 const STATIC = {payload};
