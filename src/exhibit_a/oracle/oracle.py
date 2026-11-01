@@ -70,6 +70,16 @@ from exhibit_a.oracle.guard import (
     redirect_problem,
     sql_problem,
 )
+from exhibit_a.oracle.layers import (
+    LAYER_APP_TREE,
+    LAYER_CANARY_LINKS,
+    LAYER_GUARD,
+    LAYER_ROUTE_ACCESS,
+    LAYER_WITNESS,
+    disable_oracle_layers,
+    disabled_oracle_layers,
+    parse_disabled_layers,
+)
 from exhibit_a.oracle.plugin import (
     DOS_FLOOR,
     DOS_MIN_APP_FRACTION,
@@ -78,6 +88,7 @@ from exhibit_a.oracle.plugin import (
     ENV_ACCESS_RESOURCE,
     ENV_CANARY,
     ENV_CONNECT,
+    ENV_DISABLED_LAYERS,
     ENV_DOS,
     ENV_EVENTS,
     ENV_MARKER,
@@ -283,12 +294,18 @@ def run_oracle(
     access_db: str | None = None,
     access: Mapping[str, str] | None = None,
     redirect_meta: bool = False,
+    disabled_layers: Collection[str] | None = None,
 ) -> Judgement:
     """Run ``test_path`` against the app in ``app_root`` and judge the result.
 
     ``entry_points`` are the function names (plain or qualified) through which a real
     request enters the application, e.g. ``{"App.handle_request"}``. The test finds the
     allowed directory and the canary through the ``EXHIBIT_A_*`` environment variables.
+
+    ``disabled_layers`` is a test-only switch the CLI never sets. It names provenance
+    layers from ``ORACLE_LAYERS`` to skip for this call so a bench ablation can show
+    what each layer stops. Production callers leave it unset: every layer stays on.
+    See ``docs/oracle/oracle-provenance.md`` (test-only layer switch).
 
     ``effect`` selects what counts as proof: ``"canary_read"`` (the app reads a file outside
     the allowed directory) or ``"canary_write"`` (the app creates a file outside it, as in an
@@ -313,6 +330,14 @@ def run_oracle(
     credential and the resource. Raises ``ValueError`` if ``sql_db``, ``access_db``/``access``
     or ``redirect_meta`` is missing, unusable or given for another effect.
     """
+    parsed = parse_disabled_layers(disabled_layers)
+    if disabled_layers:
+        with disable_oracle_layers(*parsed):
+            return run_oracle(
+                app_root, test_path, entry_points,
+                timeout=timeout, effect=effect, sql_db=sql_db,
+                access_db=access_db, access=access, redirect_meta=redirect_meta,
+            )
     if effect not in (
         "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
         "canary_redirect", "canary_access",
@@ -327,19 +352,21 @@ def run_oracle(
     app_root = Path(app_root).resolve()
     test_path = Path(test_path).resolve()
 
-    problem = channel_problem(test_path)
-    if problem is None and effect == "canary_exec":
-        problem = exec_problem(test_path)
-    if problem is None and effect == "canary_sql":
-        problem = sql_problem(test_path)
-    if problem is None and effect == "canary_connect":
-        problem = connect_problem(test_path)
-    if problem is None and effect == "canary_dos":
-        problem = dos_problem(test_path)
-    if problem is None and effect == "canary_redirect":
-        problem = redirect_problem(test_path)
-    if problem is None and effect == "canary_access":
-        problem = access_problem(test_path)
+    problem = None
+    if LAYER_GUARD not in disabled_oracle_layers():
+        problem = channel_problem(test_path)
+        if problem is None and effect == "canary_exec":
+            problem = exec_problem(test_path)
+        if problem is None and effect == "canary_sql":
+            problem = sql_problem(test_path)
+        if problem is None and effect == "canary_connect":
+            problem = connect_problem(test_path)
+        if problem is None and effect == "canary_dos":
+            problem = dos_problem(test_path)
+        if problem is None and effect == "canary_redirect":
+            problem = redirect_problem(test_path)
+        if problem is None and effect == "canary_access":
+            problem = access_problem(test_path)
     if problem is not None:
         # Not run at all: an "error" outcome, which the loop classifies as invalid_test.
         return Judgement(
@@ -1118,6 +1145,12 @@ def _run_test(
         # The test contract: how to authenticate as the attacker, and which resource to
         # ask for. The victim credential is never in the test's environment.
         env[ENV_ACCESS_ATTACKER], env[ENV_ACCESS_RESOURCE] = access
+    # Never inherit an ambient host value. Only the test-only ContextVar may
+    # reach the plugin copy; the CLI never sets that switch.
+    env.pop(ENV_DISABLED_LAYERS, None)
+    off = disabled_oracle_layers()
+    if off:
+        env[ENV_DISABLED_LAYERS] = ",".join(sorted(off))
     cmd = [
         sys.executable,
         "-m",
@@ -1231,7 +1264,12 @@ def _judge(
     ``witness_unavailable`` / ``witness_mismatch``. A more specific in-process refusal is
     kept. Host-path callers pass None. dos/redirect/access are not in ``WITNESS_EFFECTS``.
     """
+    off = disabled_oracle_layers()
+    if LAYER_WITNESS in off:
+        witness = None
     changes = list(app_tree_changes or [])
+    if LAYER_APP_TREE in off:
+        changes = []
     tampered = bool(forged_events or changes)
     # A run whose channel or app tree was tampered with did not run to a result the oracle can
     # trust. A *pass* then becomes "error" (invalid_test) so it can neither count as "the
@@ -1297,7 +1335,11 @@ def _judge(
     # intended vulnerability. The full event list is still returned for the record.
     verb = "written" if effect == "canary_write" else "read"
     accepted = _ACCEPTED_ACCESS[effect]
-    relevant = [event for event in events if _access(event) in accepted]
+    if LAYER_ROUTE_ACCESS in off:
+        relevant = list(events)
+        canary_written = None
+    else:
+        relevant = [event for event in events if _access(event) in accepted]
     if relevant and canary_written is False:
         # Opened for writing, but nothing with the token is there after the run: a failed or
         # empty open (e.g. "r+" on the absent canary) is not the escape this effect proves.
@@ -2018,7 +2060,7 @@ def _route_problem(event: OracleEvent, allowed_dir: str | None) -> tuple[str, st
     rooted *exactly* at the canary's directory also requests the canary's own path: only the
     static guard sees that, and an obfuscated one is residual limit R6.
     """
-    if allowed_dir is None:
+    if LAYER_ROUTE_ACCESS in disabled_oracle_layers() or allowed_dir is None:
         return None
     requested = event.requested
     if requested is None:
@@ -2042,7 +2084,8 @@ def _provenance_problem(
     app_tree: AppTree | None = None,
 ) -> tuple[str, str] | None:
     """``(reason code, why)`` this read is not an exploit through the app, or None if it is."""
-    if event.via_symlink:
+    off = disabled_oracle_layers()
+    if event.via_symlink and LAYER_CANARY_LINKS not in off:
         # The test can plant a link inside the app's directory; a lexically safe app that
         # follows it shows nothing about the app. Links older than the run are not flagged.
         return REASON_PROVENANCE, f"canary reached through a symlink created during the run ({event.symlink})"

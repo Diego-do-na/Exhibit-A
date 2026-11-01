@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
+from exhibit_a.oracle.layers import LAYER_ADMISSION, LAYER_MANIFEST, disabled_oracle_layers
 from exhibit_a.oracle.plugin import code_keys
 
 # Bounds on what is hashed; a tree beyond them cannot be verified, so the run cannot prove.
@@ -183,11 +184,24 @@ class AppTree:
         The plugin's admission is required (only it can compare code objects); the host then
         re-checks the manifest entry and the ``ast`` qualname/line on its own copy.
         """
-        if frame.admitted is not True:
-            return frame.admission or "not admitted by the oracle plugin (no manifest reached it)"
+        off = disabled_oracle_layers()
         rel = self.relative(frame.file)
         digest = self.manifest.get(rel) if rel is not None else None
-        if digest is None or not _is_digest(digest):
+        if LAYER_ADMISSION in off:
+            if LAYER_MANIFEST in off:
+                return None
+            if digest is None or not _is_digest(digest):
+                return "file not in the staged app manifest"
+            keys = self._source_keys(rel, digest)
+            if isinstance(keys, str) and "does not match" in keys:
+                return keys
+            return None
+        if frame.admitted is not True:
+            return frame.admission or "not admitted by the oracle plugin (no manifest reached it)"
+        if LAYER_MANIFEST in off:
+            if digest is None or not _is_digest(digest):
+                return None
+        elif digest is None or not _is_digest(digest):
             return "file not in the staged app manifest"
         keys = self._source_keys(rel, digest)
         if isinstance(keys, str):

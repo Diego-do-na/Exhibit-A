@@ -978,6 +978,24 @@ forges the stack (`cheat_read_then_forge` in the observer spike) still makes bot
 witnesses agree on the fact; provenance stays in-process (section 8). R5 is a
 genuine app access, which any observer would confirm.
 
+### 3.16 Test-only layer switch (T112)
+
+A bench ablation can switch off **one** provenance layer at a time so a judge can
+see what that layer was stopping. The switch is `run_oracle(..., disabled_layers=...)`
+or the context `disable_oracle_layers("L4_guard", ...)`. Names are `L1_manifest`,
+`L2_admission`, `L3_app_tree`, `L4_guard`, `L5_dir_fd`, `L6_route_access`,
+`L7_canary_links`, and `L14_witness` (T114's OS-level witness). The plugin copy
+inside the test process reads the same names from `EXHIBIT_A_DISABLED_LAYERS`,
+which `run_oracle` sets only when the switch is on and which the plugin pops at
+install. `_run_test` always pops `EXHIBIT_A_DISABLED_LAYERS` from the plugin
+environment first and sets it only from `disabled_oracle_layers()`, so an ambient
+host value cannot reach the plugin copy.
+
+This is a test-only switch. The CLI never sets it: there is no flag, the CLI
+never forwards that environment variable, and `tests/test_ablation_table.py`
+asserts both. Production callers leave every layer on. The table that results
+is `docs/bench/ablations.md` (replay only, no live model call).
+
 ## 4. What each layer defends
 
 | attack | L1 manifest | L2 admission | L3 tree check | L4 tripwire | L5 dir_fd |

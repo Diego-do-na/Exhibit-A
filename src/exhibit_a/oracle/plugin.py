@@ -148,6 +148,22 @@ ENV_ACCESS_RESOURCE = "EXHIBIT_A_RESOURCE"
 # canary_dos: any non-empty value turns on CPU sampling of the entry point. Popped after
 # install; the test is never told it exists. Inputs come through the dos_probe fixture.
 ENV_DOS = "EXHIBIT_A_CANARY_DOS"
+# Test-only ablation of provenance layers. ``run_oracle`` sets this when a caller passes
+# ``disabled_layers``; the plugin pops it at install. It is not the test contract, and the
+# CLI never sets it. Names match docs/oracle/oracle-provenance.md sections 3.1–3.8 and 3.15.
+ENV_DISABLED_LAYERS = "EXHIBIT_A_DISABLED_LAYERS"
+LAYER_MANIFEST = "L1_manifest"
+LAYER_ADMISSION = "L2_admission"
+LAYER_APP_TREE = "L3_app_tree"
+LAYER_GUARD = "L4_guard"
+LAYER_DIR_FD = "L5_dir_fd"
+LAYER_ROUTE_ACCESS = "L6_route_access"
+LAYER_CANARY_LINKS = "L7_canary_links"
+LAYER_WITNESS = "L14_witness"
+ORACLE_LAYERS = frozenset({
+    LAYER_MANIFEST, LAYER_ADMISSION, LAYER_APP_TREE, LAYER_GUARD,
+    LAYER_DIR_FD, LAYER_ROUTE_ACCESS, LAYER_CANARY_LINKS, LAYER_WITNESS,
+})
 # Conservative statistical bar (docs/oracle/oracle-provenance.md, section 3.12). A timing
 # effect is noisier than a canary file: these numbers are high on purpose so a noisy
 # machine cannot mint a proof. 5 + 5 samples, same container, sandbox CPU/time unchanged.
@@ -403,9 +419,10 @@ class _Admission:
     (the test shares this process; see docs/oracle/oracle-provenance.md, residual limits).
     """
 
-    def __init__(self, root: str, files: dict[str, str]) -> None:
+    def __init__(self, root: str, files: dict[str, str], disabled: frozenset[str] = frozenset()) -> None:
         self.root = os.path.realpath(root)
         self.files = {rel: digest for rel, digest in files.items() if _is_digest(digest)}
+        self.disabled = frozenset(disabled)
         self._open, self._read, self._close = os.open, os.read, os.close
         self._sha256 = hashlib.sha256
         self._compile = compile
@@ -454,16 +471,38 @@ class _Admission:
 
     def check(self, rel: str, code) -> str | None:
         """Why ``code`` (from ``root/rel``) is not admitted, or None if it is."""
+        skip_manifest = LAYER_MANIFEST in self.disabled
+        skip_admission = LAYER_ADMISSION in self.disabled
         digest = self.files.get(rel)
-        if digest is None:
-            return "file not in the staged app manifest"
         path = os.path.join(self.root, rel)
+        if digest is None:
+            if not skip_manifest:
+                return "file not in the staged app manifest"
+            if skip_admission:
+                return None
+            try:
+                data = self._read_file(path)
+            except OSError as exc:
+                return f"file unreadable at admission ({type(exc).__name__})"
+            digest = self._sha256(data).hexdigest()
+            entry = self._entry(digest, data, path)
+            if isinstance(entry, str):
+                return entry
+            keys, codes = entry
+            key = (code.co_qualname, code.co_firstlineno)
+            if key not in keys:
+                return f"staged source has no '{key[0]}' starting at line {key[1]}"
+            if not any(candidate == code for candidate in codes.get(key, ())):
+                return "code object differs from the staged source (built by compile/exec?)"
+            return None
         try:
             data = self._read_file(path)
         except OSError as exc:
             return f"file unreadable at admission ({type(exc).__name__})"
-        if self._sha256(data).hexdigest() != digest:
+        if not skip_manifest and self._sha256(data).hexdigest() != digest:
             return "file content changed since staging"
+        if skip_admission:
+            return None
         entry = self._entry(digest, data, path)
         if isinstance(entry, str):
             return entry
@@ -1445,15 +1484,24 @@ def _bind_response(emit, admission, stack_fn, canary: str) -> object:
     return probe
 
 
+def _parse_disabled_layers(raw: str | None) -> frozenset[str]:
+    """Layer names from the test-only env var; unknown tokens are ignored (fail closed: stay on)."""
+    if not raw:
+        return frozenset()
+    return frozenset(part for part in raw.split(",") if part in ORACLE_LAYERS)
+
+
 def _install(
     canary: str, events_path: str, key: bytes | None, app: dict | None = None, marker: str | None = None,
     sql_table: str | None = None, connect_url: str | None = None, dos: bool = False,
     redirect_url: str | None = None, access: bool = False,
+    disabled_layers: frozenset[str] | None = None,
 ) -> None:
     global _installed
     if _installed:
         return
     _installed = True
+    disabled = frozenset(disabled_layers or ())
     since = time.time() - _SYMLINK_SLACK
     # For canary_connect the "canary" is a URL, not a file: keep it verbatim for the event
     # path instead of resolving it against the working directory. Same for canary_redirect.
@@ -1465,7 +1513,7 @@ def _install(
         canary_id = (st.st_dev, st.st_ino)
     except OSError:
         canary_id = (-1, -1)
-    admission = _Admission(app["root"], app["files"]) if app else None
+    admission = _Admission(app["root"], app["files"], disabled) if app else None
     # Opened before the audit hook exists, so this open is not observed; every write goes
     # through this descriptor and the path is not kept anywhere the test can look it up.
     fd = os.open(events_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
@@ -1748,7 +1796,7 @@ def _install(
                 watch_exec(event, args, frame)
             finally:
                 _local.busy = False
-        if event in ("os.symlink", "os.link") and not tainted:
+        if event in ("os.symlink", "os.link") and not tainted and LAYER_CANARY_LINKS not in disabled:
             _local.busy = True
             try:
                 found = _link_to_canary(event, args, canary, canary_id)
@@ -1789,7 +1837,10 @@ def _install(
             elif sql_table is not None:
                 record["target"] = "db"  # for canary_sql the canary is the database file
             record["requested"] = absolute if absolute is not None and len(absolute) <= _MAX_REQUESTED else None
-            record.update(_symlink_fields(absolute, since))
+            if LAYER_CANARY_LINKS in disabled:
+                record.update({"via_symlink": False})
+            else:
+                record.update(_symlink_fields(absolute, since))
             if tainted and not record["via_symlink"]:
                 link, target = tainted[0]
                 record.update({
@@ -1805,7 +1856,8 @@ def _install(
             os.write(fd, line.encode("utf-8"))
 
     _patch_handoffs()
-    _patch_os_open()
+    if LAYER_DIR_FD not in disabled:
+        _patch_os_open()
     if marker is not None:
         _patch_fork_exec()
         apis, env_at_install = _api_snapshot()
@@ -1832,6 +1884,7 @@ def _install_from_env() -> None:
     redirect_url = os.environ.get(ENV_REDIRECT)
     access_attacker = os.environ.get(ENV_ACCESS_ATTACKER)
     access_resource = os.environ.get(ENV_ACCESS_RESOURCE)
+    disabled = _parse_disabled_layers(os.environ.get(ENV_DISABLED_LAYERS))
     if canary and events_path:
         # stdin is read only in a run the orchestrator set up (both variables present), so
         # importing this module elsewhere (the orchestrator itself) never touches its stdin.
@@ -1839,6 +1892,7 @@ def _install_from_env() -> None:
         _install(
             canary, events_path, key, app, marker, sql_table, connect_url, bool(dos_flag),
             redirect_url=redirect_url, access=bool(access_attacker and access_resource),
+            disabled_layers=disabled,
         )
         # Neither path is left for the test. The canary path is not part of the test contract
         # (finding A-11 F2: a test that knows it can root a safe app at the canary's
@@ -1856,6 +1910,7 @@ def _install_from_env() -> None:
         os.environ.pop(ENV_MARKER, None)
         os.environ.pop(ENV_SQL, None)
         os.environ.pop(ENV_DOS, None)
+        os.environ.pop(ENV_DISABLED_LAYERS, None)
 
 
 # Install on import, not only at configure time: ``-p`` plugins are imported before
