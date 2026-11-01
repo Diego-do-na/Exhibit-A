@@ -1,0 +1,11 @@
+{
+  "class": "command_injection",
+  "entry_point": "lookupHandler",
+  "hypothesis": "The lookup helper builds a shell command line from the requested name and runs it with exec, so a name carrying a shell metacharacter (for example ';' or a newline) breaks out of the file operand and executes an attacker command (OS command injection).",
+  "id": "express-command-injection-lookup",
+  "location": {
+    "file": "vulnerable/app.js",
+    "line": 8
+  },
+  "source": "manual (case author); real-world analog CVE-2021-22205"
+}

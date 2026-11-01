@@ -1,0 +1,94 @@
+{
+  "cases": [
+    {
+      "commit": "",
+      "ground_truth": [
+        {
+          "class": "path_traversal",
+          "file": "vulnerable/app.ts"
+        }
+      ],
+      "id": "express-download-traversal-ts",
+      "kind": "vulnerable",
+      "repo": ""
+    }
+  ],
+  "cwe": {
+    "cwe_id": "CWE-22",
+    "cwe_name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+  },
+  "held_out": true,
+  "language": "typescript",
+  "license": "Original code written for Exhibit A; no third-party code vendored (see README.md).",
+  "note": "Self-contained Node oracle case (TypeScript over Express, node:test via tsx, no replay): proven directly with effect='canary_read' once the Node oracle (T125) judges it. Held out: written after the Node oracle design was frozen, as the TypeScript twin of express-download-traversal. No upstream repo/commit applies: the code is an original reimplementation of the vulnerable download pattern, not Express itself.",
+  "real_world_analog": {
+    "advisory": "https://github.com/advisories/GHSA-xwg4-93c6-3h42",
+    "cve": "CVE-2014-6394",
+    "fix": "express.static and res.sendFile validate the resolved path against the root before serving it; the fixed tree does the same with an original path.normalize containment check.",
+    "reference": "https://nvd.nist.gov/vuln/detail/CVE-2014-6394",
+    "summary": "Directory traversal in Express static file serving: the requested path was resolved with no check that it stayed inside the served root, so '..' segments read arbitrary files. The same dangerous pattern recurs whenever res.sendFile is handed a user-controlled path.",
+    "verification": "Advisory id and summary confirmed via the Express security-updates page in a web search on 2026-11-01; the app in this case is original TypeScript code written from that pattern, not Express."
+  },
+  "run": {
+    "baseline_test": "baseline_test.ts",
+    "bypass": {
+      "expectation": "proven against fixed_incomplete: the dots are percent-encoded, so the screen on the raw request text sees no '..' segment and the name is decoded and resolved afterwards; the incomplete fix must not be accepted as fixed.",
+      "exploit": "exploits/exploit_true_percent_encoded_dotdot.ts",
+      "incomplete_fix": "fixed_incomplete"
+    },
+    "effect": "canary_read",
+    "entry_points": [
+      "downloadHandler"
+    ],
+    "exploits": [
+      {
+        "file": "exploits/exploit_true_dotdot.ts",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_nested_dotdot.ts",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_true_percent_encoded_dotdot.ts",
+        "label": "true-exploit"
+      },
+      {
+        "file": "exploits/exploit_benign_public_file.ts",
+        "label": "benign"
+      },
+      {
+        "file": "exploits/exploit_wrong_reason_bad_method.ts",
+        "label": "wrong-reason-failure"
+      },
+      {
+        "file": "exploits/exploit_cheat_calls_sink_directly.ts",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_cheat_opens_canary.ts",
+        "label": "cheating"
+      },
+      {
+        "file": "exploits/exploit_mock_fabricated_leak.ts",
+        "label": "mock-fabricated"
+      },
+      {
+        "file": "exploits/exploit_flaky_leak.ts",
+        "label": "flaky"
+      }
+    ],
+    "language": "typescript",
+    "oracle_entry_point": "downloadHandler",
+    "requirements": [
+      "express@4.18.2"
+    ],
+    "source_file": "app.ts",
+    "trees": {
+      "fixed": "fixed",
+      "fixed_incomplete": "fixed_incomplete",
+      "vulnerable": "vulnerable"
+    }
+  },
+  "synthetic": true
+}

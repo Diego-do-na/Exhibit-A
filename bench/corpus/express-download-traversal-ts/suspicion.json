@@ -1,0 +1,11 @@
+{
+  "class": "path_traversal",
+  "entry_point": "downloadHandler",
+  "hypothesis": "The download handler joins the requested name onto the base directory with no containment check, so a name carrying dot-dot segments escapes the served directory and reads an arbitrary file (path traversal).",
+  "id": "express-download-traversal-ts-download",
+  "location": {
+    "file": "vulnerable/app.ts",
+    "line": 9
+  },
+  "source": "manual (case author); real-world analog CVE-2014-6394"
+}

@@ -169,13 +169,17 @@ def _by_id(cases):
     return {case.id: case for case in cases}
 
 
-def test_load_corpus_accepts_directory_with_all_twenty_eight_cases():
+def test_load_corpus_accepts_directory_with_all_thirty_two_cases():
     cases = load_corpus(CORPUS_DIR)
     assert [c.id for c in cases] == [
         "archive-extraction-pathtraversal",
         "command-injection-ping",
         "command-injection-shell",
         "docsuite-large-command-injection",
+        "express-command-injection",
+        "express-command-injection-ts",
+        "express-download-traversal",
+        "express-download-traversal-ts",
         "idor-document-fetch",
         "idor-export-download",
         "log-viewer-traversal",
@@ -205,6 +209,8 @@ def test_load_corpus_accepts_directory_with_all_twenty_eight_cases():
     assert [c.id for c in cases if c.held_out] == [
         "command-injection-ping",
         "docsuite-large-command-injection",
+        "express-command-injection-ts",
+        "express-download-traversal-ts",
         "idor-document-fetch",
         "idor-export-download",
         "log-viewer-traversal",
@@ -309,6 +315,23 @@ def test_load_corpus_accepts_directory_with_all_twenty_eight_cases():
     assert large.held_out is True
     assert large.effect == "canary_exec"
     assert large.source_file == "docsuite/maintenance/archives.py"
+
+    for case_id, effect, source_file, language, held_out in (
+        ("express-download-traversal", "canary_read", "app.js", "javascript", False),
+        ("express-download-traversal-ts", "canary_read", "app.ts", "typescript", True),
+        ("express-command-injection", "canary_exec", "app.js", "javascript", False),
+        ("express-command-injection-ts", "canary_exec", "app.ts", "typescript", True),
+    ):
+        express = by_id[case_id]
+        assert express.kind == "vulnerable"
+        assert express.tree == "vulnerable"
+        assert express.baseline_test == f"baseline_test.{'ts' if language == 'typescript' else 'js'}"
+        assert express.effect == effect
+        assert express.source_file == source_file
+        assert express.language == language
+        assert express.recording == ""
+        assert express.requirements == ("express@4.18.2",)
+        assert express.held_out is held_out
 
 
 def test_held_out_defaults_to_false_and_rejects_a_non_boolean(tmp_path):

@@ -174,6 +174,18 @@ TARGETS = (
     Target("sql-injection-filter", VULNERABLE),
     Target("sql-injection-filter", FIXED, "fixed", paired=False),
     Target("sql-injection-filter", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("express-download-traversal", VULNERABLE),
+    Target("express-download-traversal", FIXED, "fixed", paired=False),
+    Target("express-download-traversal", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("express-download-traversal-ts", VULNERABLE),
+    Target("express-download-traversal-ts", FIXED, "fixed", paired=False),
+    Target("express-download-traversal-ts", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("express-command-injection", VULNERABLE),
+    Target("express-command-injection", FIXED, "fixed", paired=False),
+    Target("express-command-injection", INCOMPLETE, "fixed_incomplete", paired=False),
+    Target("express-command-injection-ts", VULNERABLE),
+    Target("express-command-injection-ts", FIXED, "fixed", paired=False),
+    Target("express-command-injection-ts", INCOMPLETE, "fixed_incomplete", paired=False),
 )
 
 #: Ground-truth classes, each with the wordings that mean it. Matching stays literal on purpose:
