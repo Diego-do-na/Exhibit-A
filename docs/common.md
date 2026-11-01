@@ -143,3 +143,4 @@ Protocol:
 - T112 grok: ablation table over loop flags and oracle layers 1-7+14 via a test-only disable switch the CLI cannot set; docs/bench/ablations.md from replays only (L1/L2/L4 no extra stable attack on this set; L5 misses dir_fd); pending: none
 - T112 grok: _run_test pops ambient EXHIBIT_A_DISABLED_LAYERS and sets it only from disabled_oracle_layers(); host-env isolation test; pending: none
 - T129 Copilot: added isolated Node TypeScript-compiler graph parsing, JavaScript sink catalog, reach/slice adapter, tests, and design documentation; pending: none
+- T137 gemini: added docs/related-work.md positioning Exhibit A against static analyzers, SCA, LLM scanners, and exploit tools with sources and non-goals; indexed in docs/README.md; pending: none
