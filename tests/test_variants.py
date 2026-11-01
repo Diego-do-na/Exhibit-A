@@ -503,3 +503,144 @@ def test_max_caps_the_runs_and_unreachable_sites_are_never_run(tmp_path: Path) -
     assert statuses == {"app:download_v2": "nothing_proven", "app:config": "nothing_proven",
                         "app:orphan": "not_run: no entry point reaches the call site"}
     assert len(doc["variants"]) == 2 and doc["stopped"] == "completed"
+
+
+# -- canary_connect and canary_dos variants tests ----------------------------------------------
+
+CONNECT_ROUTES = ROUTER + '''
+import urllib.request
+
+
+def fetch(url):
+    with urllib.request.urlopen(url) as resp:
+        return resp.read()
+
+
+@app.get("/fetch_a")
+def route_a(request):
+    return fetch(request.query_params["u"])
+
+
+@app.get("/fetch_b")
+def route_b(request):
+    return fetch(request.query_params["url"])
+
+
+@app.get("/static_page")
+def static_page(request):
+    with urllib.request.urlopen("https://example.com/status.json") as resp:
+        return resp.read()
+'''
+
+
+def test_variants_connect_lists_other_route_and_ignores_constants(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path / "repo", CONNECT_ROUTES)
+    graph = build_graph(repo)
+    find = ProvenFinding(
+        finding_id="C1", package="packages/C1", effect="canary_connect",
+        chain=(Frame("app.py", "route_a", def_line(CONNECT_ROUTES, "route_a")),
+               Frame("app.py", "fetch", def_line(CONNECT_ROUTES, "fetch"))),
+        sink_line=call_line(CONNECT_ROUTES, "fetch", "urlopen("),
+        sink_call="urllib.request.urlopen", target_host="127.0.0.1", target_port=23456, path_class="canary",
+    )
+    listed = find_variants(graph, find, root=repo)
+    assert listed.sink_node == "app:fetch" and listed.entry_node == "app:route_a"
+    assert listed.rule == "urllib.request.urlopen"
+    assert entries_of(listed) == [("route_b", "fetch")]
+    first = listed.variants[0]
+    assert first.kinds == [SAME_SINK_FUNCTION]
+    assert first.entry_point == "route_b"
+    assert listed.constant_sites == 1  # static_page with constant URL is skipped
+
+
+def test_variants_connect_list_only_no_skip_reason(tmp_path: Path, capsys, monkeypatch) -> None:
+    repo = make_repo(tmp_path / "repo", CONNECT_ROUTES)
+    run = tmp_path / "run"
+    write_package(
+        run, "C1",
+        facts={
+            "effect": "canary_connect", "entry_point": "route_a", "sink_function": "fetch",
+            "chain": [{"file": "app.py", "qualname": q, "line": def_line(CONNECT_ROUTES, q)}
+                      for q in ("route_a", "fetch")],
+            "target_host": "127.0.0.1", "target_port": 23456, "path_class": "canary",
+            "observed_location": {"file": "app.py", "line": call_line(CONNECT_ROUTES, "fetch", "urlopen("),
+                                  "function": "fetch", "line_source": "graph_sink_call",
+                                  "sink_call": "urllib.request.urlopen"},
+        },
+    )
+    import exhibit_a.cli.ext.variants as variants_ext
+
+    def boom(*args, **kwargs):
+        raise AssertionError("a model or a runner was built for --list-only")
+
+    monkeypatch.setattr(variants_ext, "_build_roles", boom)
+    monkeypatch.setattr(variants_ext, "_default_runner", boom)
+    for key in ("OPENAI_API_KEY", "META_API_KEY", "EXHIBIT_A_PROVIDER"):
+        monkeypatch.delenv(key, raising=False)
+
+    rc = cli_main(["variants", "--run-dir", str(run), "--repo", str(repo), "--list-only"])
+    assert rc == 0
+    text = capsys.readouterr().out
+    assert "finding C1 [canary_connect] route_a -> fetch" in text
+    assert "effect 'canary_connect' has no frame identity in findings.dedupe yet" not in text
+    assert "skipped packages/C1" not in text
+    assert "1. [same_sink_function] route_b -> [fetch] -> urllib.request.urlopen" in text
+    doc = json.loads((run / "variants.json").read_text(encoding="utf-8"))
+    assert doc["skipped_packages"] == []
+    [entry] = doc["findings"]
+    assert entry["finding_id"] == "C1"
+    assert [(c["n"], c["entry_point"], c["status"]) for c in entry["candidates"]] == \
+        [(1, "route_b", "listed")]
+
+
+DOS_ROUTES = ROUTER + '''
+import re
+
+
+def scan(data):
+    return bool(re.search(r"(a+)+$", data))
+
+
+@app.get("/scan_a")
+def route_a(request):
+    return scan(request.query_params["q"])
+
+
+@app.get("/scan_b")
+def route_b(request):
+    return scan(request.query_params["query"])
+
+
+@app.get("/other_regex")
+def other_regex(request):
+    return bool(re.search(r"(b+)+$", request.query_params["x"]))
+
+
+@app.get("/constant_regex")
+def constant_regex(request):
+    return bool(re.search(r"^[0-9]+$", "12345"))
+'''
+
+
+def test_variants_dos_lists_same_function_reached_from_other_entry_points(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path / "repo", DOS_ROUTES)
+    graph = build_graph(repo)
+    find = ProvenFinding(
+        finding_id="D1", package="packages/D1", effect="canary_dos",
+        chain=(Frame("app.py", "route_a", def_line(DOS_ROUTES, "route_a")),
+               Frame("app.py", "scan", def_line(DOS_ROUTES, "scan"))),
+        sink_line=call_line(DOS_ROUTES, "scan", "re.search"),
+        sink_call="re.search", input_family="redos", cpu_function="scan",
+    )
+    listed = find_variants(graph, find, root=repo)
+    assert listed.sink_node == "app:scan" and listed.entry_node == "app:route_a"
+    # canary_dos variants: ONLY other entry points reaching the same function
+    assert entries_of(listed) == [("route_b", "scan")]
+    first = listed.variants[0]
+    assert first.kinds == [SAME_SINK_FUNCTION]
+    assert first.entry_point == "route_b"
+    # other_regex is NOT listed because it is a different function
+    assert all(v.sink_node != "app:other_regex" for v in listed.variants)
+    # constant_regex is skipped
+    assert all(v.sink_node != "app:constant_regex" for v in listed.variants)
+

@@ -129,3 +129,4 @@ Protocol:
 - T105 grok: canary_dos effect (plugin dos_probe times 5+5 same-length inputs via setprofile app-CPU, _judge_dos 50x/15ms/80% app frames/spread 4x, guard dos_problem, sandbox+loop+CLI+catalog+prompts, tests/test_oracle_dos.py host+docker, 12 redteam attacks, fixtures under tests/fixtures/dos/, provenance 3.12); pending: findings/dedupe.py and explain.py still list only the four original effects (same gap T104 left for canary_connect), no bench corpus case (bench not treated as free)
 - T118 Copilot: grouped aliased dependency advisories, computed CVSS v3 severity, added a mounted Starlette demo, tests, and docs; pending: none
 - T120 Copilot: unified bench.coverage_matrix as the sole coverage documentation generator, retained bench.coverage as a shim, and regenerated the single coverage block; pending: none
+- T119 gemini: taught findings dedupe, explain and variants about canary_connect and canary_dos with generic fallbacks; pending: none
