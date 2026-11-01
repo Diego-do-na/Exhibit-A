@@ -165,8 +165,8 @@ remain suspicion-only.
 
 On the synthetic Express graph used by `tests/test_graph_js.py`, the four-call helper path is
 preserved from the exported route handler to `fs.readFile`; the never-called constant-only
-`readFileSync` call is not reported. The measured slice is 14 lines of graph context versus
-the 96-line repository (14.6%, under the 20% acceptance threshold).
+`readFileSync` call is not reported. In the padded acceptance fixture, the measured slice is
+653 characters versus 10,182 repository characters (6.4%, under the 20% threshold).
 
 ## What the graph cannot see
 
