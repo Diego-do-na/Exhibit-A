@@ -8,7 +8,22 @@ from pathlib import Path
 from typing import Any, get_args
 
 from exhibit_a.oracle.oracle import Effect
-from exhibit_a.report.cwe import CWE_TABLE, CWEDefinition
+from exhibit_a.report.cwe import (
+    CWE_22,
+    CWE_23,
+    CWE_73,
+    CWE_77,
+    CWE_78,
+    CWE_89,
+    CWE_95,
+    CWE_434,
+    CWE_502,
+    CWE_611,
+    CWE_1336,
+    CWE_TABLE,
+    CWEDefinition,
+    get_cwe,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 CORPUS = REPO / "bench" / "corpus"
@@ -16,6 +31,31 @@ DOC = REPO / "docs" / "coverage.md"
 BEGIN_MARKER = "<!-- BEGIN GENERATED: python -m bench.coverage_matrix -->"
 END_MARKER = "<!-- END GENERATED -->"
 
+#: Per-case CWE when the class-to-CWE default would collapse distinct ids.
+CASE_CWE: dict[str, CWEDefinition] = {
+    "static-route-traversal": CWE_23,
+    "docsuite-large-command-injection": CWE_77,
+    "upload-avatar": CWE_434,
+    "xxe-catalog": CWE_611,
+    "ssti-jinja-preview": CWE_1336,
+}
+
+CLASS_CWE: dict[str, CWEDefinition] = {
+    "path_traversal": CWE_22,
+    "path_traversal_write": CWE_73,
+    "archive_extraction_path_traversal": CWE_22,
+    "command_injection": CWE_78,
+    "code_injection": CWE_95,
+    "eval_injection": CWE_95,
+    "insecure_deserialization": CWE_502,
+    "unsafe_deserialization": CWE_502,
+    "sql_injection": CWE_89,
+    "xml_external_entity": CWE_611,
+    "server_side_template_injection": CWE_1336,
+    "ssti": CWE_1336,
+    "unrestricted_file_upload": CWE_434,
+    "arbitrary_file_write": CWE_73,
+}
 
 def _normalise(value: str) -> str:
     return value.strip().lower().replace("-", "_").replace(" ", "_")
@@ -32,6 +72,42 @@ def _class_definitions() -> dict[tuple[str, str], CWEDefinition]:
     return definitions
 
 
+def _cwe_for(
+    case_id: str,
+    vuln_class: str,
+    effect: str,
+    declared: dict[str, Any] | None,
+) -> CWEDefinition:
+    if declared and declared.get("cwe_id") and declared.get("cwe_name"):
+        return CWEDefinition(cwe_id=str(declared["cwe_id"]), name=str(declared["cwe_name"]))
+    if case_id in CASE_CWE:
+        return CASE_CWE[case_id]
+    mapped = CLASS_CWE.get(_normalise(vuln_class))
+    if mapped is not None:
+        return mapped
+    return get_cwe(effect, vuln_class)
+
+
+def _proven_live(case_dir: Path) -> bool:
+    """Whether a committed model recording for this case ended in a proven verdict."""
+    recordings = case_dir / "recordings"
+    if not recordings.is_dir():
+        return False
+    for recording in sorted(recordings.glob("*.json")):
+        try:
+            data = json.loads(recording.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if any(
+            isinstance(verdict, dict) and verdict.get("verdict") == "proven"
+            for verdict in data.get("verdicts") or []
+        ):
+            return True
+    return False
+
+
 def _read_cases(corpus: Path) -> tuple[list[dict[str, Any]], list[str]]:
     rows: list[dict[str, Any]] = []
     case_ids: list[str] = []
@@ -42,6 +118,9 @@ def _read_cases(corpus: Path) -> tuple[list[dict[str, Any]], list[str]]:
         measured = bool(data.get("measured") or run.get("measured"))
         if not measured:
             measured = any(case_file.parent.glob("recordings/*.jsonl"))
+        analog = data.get("real_world_analog") if isinstance(data.get("real_world_analog"), dict) else {}
+        declared_cwe = data.get("cwe") if isinstance(data.get("cwe"), dict) else analog
+        proven = _proven_live(case_file.parent)
         for case in data.get("cases", []):
             case_id = str(case.get("id") or case_file.parent.name)
             case_ids.append(case_id)
@@ -65,8 +144,10 @@ def _read_cases(corpus: Path) -> tuple[list[dict[str, Any]], list[str]]:
                             "case_id": case_id,
                             "class": _normalise(vuln_class),
                             "effect": effect,
+                            "cwe": _cwe_for(case_id, vuln_class, effect, declared_cwe),
                             "held_out": held_out,
                             "measured": measured,
+                            "proven": proven,
                         }
                     )
     return rows, sorted(case_ids)
@@ -87,19 +168,51 @@ def render(corpus: Path = CORPUS) -> str:
     definitions = _class_definitions()
     lines = [
         BEGIN_MARKER,
-        "Coverage is derived from the corpus case manifests, the oracle effects, and the SARIF CWE table.",
+        "Coverage is derived from the corpus case manifests, the oracle effects, and the CWE table.",
+        "A green result still means nothing could be proven, never that the target is safe.",
+        'The sandbox is isolated and resource-limited, never "100% safe".',
         "",
-        "| vulnerability class | CWE | oracle effect | corpus cases (count) | held-out cases (count) | measured status |",
-        "|---|---|---|---:|---:|---|",
+        "| vulnerability class | CWE id and name | oracle effect | corpus cases | held-out cases | proven live | measured status |",
+        "|---|---|---|---|---:|---|---|",
     ]
     for (vuln_class, effect), cwe in sorted(definitions.items(), key=lambda item: (item[0][0], item[0][1])):
         count, held_out, status = _status(cases, vuln_class, effect)
-        lines.append(f"| {vuln_class} | {cwe.cwe_id} | {effect} | {count} | {held_out} | {status} |")
+        matching = [
+            case for case in cases if case["class"] == vuln_class and case["effect"] == effect
+        ]
+        case_ids_for_row = sorted({case["case_id"] for case in matching})
+        proven = "yes" if any(case["proven"] for case in matching) else "not yet recorded"
+        case_cell = ", ".join(f"`{case_id}`" for case_id in case_ids_for_row) or "not covered"
+        if matching and any(case["cwe"] != cwe for case in matching):
+            cwe_values = sorted({f"{case['cwe'].cwe_id} {case['cwe'].name}" for case in matching})
+            cwe_cell = "<br>".join(cwe_values)
+        else:
+            cwe_cell = f"{cwe.cwe_id} {cwe.name}"
+        lines.append(
+            f"| {vuln_class} | {cwe_cell} | {effect} | {case_cell} ({count}) | "
+            f"{held_out} | {proven} | {status} |"
+        )
 
     lines.extend(["", "### Corpus case IDs", ""])
     lines.extend(f"- `{case_id}`" for case_id in case_ids)
     lines.extend(
         [
+            "",
+            "### Classes Exhibit A does not claim",
+            "",
+            "These classes have no oracle-observable effect in the current proof loop, so a",
+            "suspicion of them is never a finding. A green result means nothing could be",
+            "proven, never that the code is free of them.",
+            "",
+            "- **Weak cryptography** (for example CWE-327, CWE-328): a short key or a broken",
+            "  hash does not read, write, execute, query or connect in a way the oracle can",
+            '  observe. There is no canary for "this ciphertext is weakly protected".',
+            "- **Hard-coded secrets** (CWE-798): a token sitting in source is not an",
+            "  observed effect. Exhibit A does not scan configuration or secrets.",
+            "- **Logic bugs without an observable effect**: a wrong discount, a skipped",
+            "  authorisation check that does not reach a sink, or a state machine that",
+            "  accepts a bad transition. The oracle proves a read, write, exec, SQL or",
+            "  connect through an entry point; it does not prove that business rules hold.",
             "",
             "### Not covered by design",
             "",
@@ -116,13 +229,31 @@ def update_document(document: Path = DOC, corpus: Path = CORPUS) -> None:
     generated = render(corpus).rstrip("\n")
     if document.is_file():
         existing = document.read_text(encoding="utf-8")
-        start = existing.find(BEGIN_MARKER)
-        end = existing.find(END_MARKER)
-        if start >= 0 and end >= start:
-            prefix = existing[:start]
-            suffix = existing[end + len(END_MARKER) :]
-            document.write_text(prefix + generated + suffix, encoding="utf-8")
-            return
+        starts = [
+            index
+            for marker in (
+                BEGIN_MARKER,
+                "<!-- BEGIN GENERATED: python -m bench.coverage -->",
+            )
+            for index in [existing.find(marker)]
+            if index >= 0
+        ]
+        if starts:
+            start = min(starts)
+            end_markers = [
+                existing.find(marker, start)
+                for marker in (END_MARKER, "<!-- END GENERATED: python -m bench.coverage -->")
+            ]
+            end = max(end_markers)
+            if end >= start:
+                suffix_start = end + len(
+                    "<!-- END GENERATED: python -m bench.coverage -->"
+                    if existing.startswith("<!-- END GENERATED: python -m bench.coverage -->", end)
+                    else END_MARKER
+                )
+                suffix = existing[suffix_start:]
+                document.write_text(existing[:start] + generated + suffix, encoding="utf-8")
+                return
         if existing and not existing.endswith("\n"):
             existing += "\n"
         document.write_text(existing + generated + "\n", encoding="utf-8")

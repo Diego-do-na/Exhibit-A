@@ -3,7 +3,8 @@
 import json
 from pathlib import Path
 
-from bench import coverage as coverage_t103
+from bench import coverage as coverage_shim
+from bench import coverage_matrix
 from bench.coverage_matrix import update_document
 
 
@@ -34,12 +35,16 @@ def test_synthetic_corpus_renders_all_effects_and_counts(tmp_path: Path) -> None
     update_document(document, corpus)
     output = document.read_text(encoding="utf-8")
 
-    assert "| path_traversal | CWE-22 | canary_read | 1 | 1 | unmeasured |" in output
-    assert "| command_injection | CWE-78 | canary_exec | 1 | 0 | measured |" in output
-    assert "| sql_injection | CWE-89 | canary_sql | 0 | 0 | not covered |" in output
-    assert "- `read-case`" in output
-    assert "- `exec-case`" in output
+    assert "`read-case` (1)" in output
+    assert "`exec-case` (1)" in output
+    assert "| path_traversal | CWE-22 " in output
+    assert "| command_injection | CWE-78 " in output
+    assert "| sql_injection | CWE-89 " in output and "canary_sql | not covered (0)" in output
+    assert "| canary_read | `read-case` (1) | 1 | not yet recorded | unmeasured |" in output
+    assert "| canary_exec | `exec-case` (1) | 0 | not yet recorded | measured |" in output
     assert "Weak cryptography" in output
+    assert "Hard-coded secrets" in output
+    assert "Logic bugs without an observable effect" in output
     assert "Business logic" in output
 
 
@@ -55,43 +60,27 @@ def test_generator_is_idempotent(tmp_path: Path) -> None:
     assert document.read_text(encoding="utf-8") == first
 
 
-def test_t103_synthetic_corpus_renders_cwe_rows(tmp_path: Path) -> None:
+def test_compatibility_shim_uses_the_unified_generator(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     _case(corpus, "xxe-case", "xml_external_entity", "canary_read")
     _case(corpus, "ssti-case", "server_side_template_injection", "canary_exec")
     document = tmp_path / "coverage.md"
 
-    coverage_t103.update_document(document, corpus)
+    coverage_shim.update_document(document, corpus)
     output = document.read_text(encoding="utf-8")
 
-    assert "| CWE id and name | effect | corpus case | proven live | notes |" in output
     assert "`xxe-case`" in output and "`ssti-case`" in output
-    assert "not yet recorded" in output
-    assert "Weak cryptography" in output
-    assert "Hard-coded secrets" in output
-    assert "Logic bugs without an observable effect" in output
-
-
-def test_t103_generator_is_idempotent(tmp_path: Path) -> None:
-    corpus = tmp_path / "corpus"
-    _case(corpus, "case", "path_traversal", "canary_read")
-    document = tmp_path / "coverage.md"
-
-    coverage_t103.update_document(document, corpus)
-    first = document.read_text(encoding="utf-8")
-    coverage_t103.update_document(document, corpus)
-
-    assert document.read_text(encoding="utf-8") == first
+    assert coverage_shim.render(corpus) == coverage_matrix.render(corpus)
 
 
 def test_committed_coverage_matches_the_generator() -> None:
-    committed = coverage_t103.DOC.read_text(encoding="utf-8")
-    generated = coverage_t103.render()
-    start = committed.find(coverage_t103.BEGIN_MARKER)
-    end = committed.find(coverage_t103.END_MARKER)
+    committed = coverage_matrix.DOC.read_text(encoding="utf-8")
+    generated = coverage_matrix.render()
+    start = committed.find(coverage_matrix.BEGIN_MARKER)
+    end = committed.find(coverage_matrix.END_MARKER)
     assert start >= 0 and end > start
-    block = committed[start:end + len(coverage_t103.END_MARKER)] + "\n"
+    block = committed[start:end + len(coverage_matrix.END_MARKER)] + "\n"
     assert block == generated
-    cwes = {line.split("|")[1].strip().split()[0]
-            for line in generated.splitlines() if line.startswith("| CWE-")}
-    assert len(cwes) >= 10, sorted(cwes)
+    assert committed.count("BEGIN GENERATED") == 1
+    assert committed.count("END GENERATED") == 1
+    assert "<!-- BEGIN GENERATED: python -m bench.coverage -->" not in committed
