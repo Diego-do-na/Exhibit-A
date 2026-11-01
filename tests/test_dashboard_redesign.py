@@ -176,3 +176,36 @@ def test_static_export_answers_the_repository_endpoints(tmp_path):
     export_dashboard(LocalRunsSource(make_samples(tmp_path)), out, run_id="synthetic-01-starlette-proven")
     script = (out / "static.js").read_text(encoding="utf-8")
     assert 'parts[1] === "repos"' in script and repo_id(STARLETTE) in script
+
+
+# -- C: dynamic backdrop and liquid glass ----------------------------------------------
+
+
+def test_backdrop_is_decorative_and_moves_only_with_transforms():
+    assert re.search(r'<div class="backdrop" id="backdrop" aria-hidden="true">', HTML)
+    assert HTML.count('class="field field-') >= 4
+    keyframes = re.findall(r"@keyframes (drift-[a-z])\s*{(.*?)\n}", CSS, re.S)
+    assert len(keyframes) >= 4
+    for name, body in keyframes:
+        props = set(re.findall(r"([a-z-]+)\s*:", body))
+        assert props == {"transform"}, name  # compositor-only: no layout, no repaint
+    assert re.search(r"\.backdrop\s*{[^}]*contain:\s*strict", CSS)
+
+
+def test_backdrop_respects_reduced_motion_and_pauses_when_hidden():
+    reduced = re.findall(r"@media \(prefers-reduced-motion: reduce\)\s*{(.*?)\n}", CSS, re.S)
+    assert any(re.search(r"\.field\s*{\s*animation:\s*none", block) for block in reduced)
+    assert re.search(r"\.backdrop\.is-paused \.field\s*{\s*animation-play-state:\s*paused", CSS)
+    init = JS[JS.index("function initBackdrop"):JS.index("async function boot")]
+    assert "visibilitychange" in init and "document.hidden" in init and "is-paused" in init
+
+
+def test_liquid_glass_uses_the_token_blur_and_has_a_solid_fallback():
+    assert "backdrop-filter: blur(var(--effect-background-blur))" in CSS
+    assert "-webkit-backdrop-filter: blur(var(--effect-background-blur))" in CSS
+    fallback = CSS[CSS.index("@supports not ((backdrop-filter"):]
+    fallback = fallback[:fallback.index("\n}\n")]
+    for surface in (".sidebar", ".data-workspace", ".action-btn"):
+        assert surface in fallback
+    assert "var(--panel-solid)" in fallback and "var(--sidebar-solid)" in fallback
+    assert "--glass-specular" in CSS  # the highlight along the top edge

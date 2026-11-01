@@ -1611,8 +1611,18 @@ async function route() {
 
 // -- Bootstrap -----------------------------------------------------------------
 
+// The backdrop's drift is CSS animation on transforms only; stop it while nobody can see it.
+function initBackdrop() {
+  const backdrop = document.getElementById("backdrop");
+  if (!backdrop) return;
+  const sync = () => backdrop.classList.toggle("is-paused", document.hidden);
+  document.addEventListener("visibilitychange", sync);
+  sync();
+}
+
 async function boot() {
   initTheme();
+  initBackdrop();
   if (themeToggle) themeToggle.onclick = toggleTheme;
 
   const iconMap = [

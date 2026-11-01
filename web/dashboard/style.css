@@ -133,7 +133,7 @@
   --surface-selected: #eaf2ff;
   --border-default: #d5e0ed;
   --text-primary: #15283f;
-  --text-secondary: #53667d;
+  --text-secondary: #4b5e75;
   --text-navy: #0d1f3c;
   --text-slate: #3a5a7a;
   --text-inverse: #ffffff;
@@ -190,6 +190,15 @@
   --syntax-token-10: #b5d7a3;
   --syntax-token-11: #91ba83;
 
+  /* Backdrop: near-black navy (top-left) to luminous pale sky (bottom-right). */
+  --bg-ink: #01050d;
+  --bg-deep: #03112b;
+  --bg-navy: #072260;
+  --bg-royal: #1544c4;
+  --bg-azure: #3f84ee;
+  --bg-sky: #9fcaf8;
+  --bg-glow: #eef6ff;
+
   --effect-layer-blur: 34px;
   --effect-background-blur: 24px;
   --effect-drop-shadow: 0 8px 24px rgba(8, 9, 24, 0.25);
@@ -203,9 +212,19 @@
 
   /* Semantic roles, light theme (default) */
   --shell-ink: var(--text-inverse);
-  --panel-bg: var(--surface-workspace-white);
-  --panel-border: var(--glass-white-21);
-  --card-bg: var(--surface-raised);
+  --panel-bg: rgba(244, 247, 252, 0.9);
+  --panel-solid: var(--surface-workspace-white);
+  --panel-border: rgba(255, 255, 255, 0.55);
+  --panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  --panel-shadow: 0 24px 60px -24px rgba(1, 8, 28, 0.55);
+  --card-bg: rgba(255, 255, 255, 0.84);
+  --card-solid: var(--surface-raised);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), 0 1px 2px rgba(13, 31, 60, 0.04), 0 10px 28px -16px rgba(13, 31, 60, 0.22);
+  --sidebar-bg: linear-gradient(180deg, rgba(2, 8, 20, 0.66), rgba(3, 12, 30, 0.58));
+  --sidebar-solid: #040d20;
+  --control-glass: rgba(10, 30, 70, 0.42);
+  --control-solid: #0b1f45;
+  --glass-specular: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.55) 30%, rgba(255, 255, 255, 0.55) 70%, rgba(255, 255, 255, 0));
   --card-border: var(--border-default);
   --subtle-bg: var(--surface-workspace);
   --selected-bg: var(--surface-selected);
@@ -238,9 +257,14 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --panel-bg: rgba(5, 14, 31, 0.86);
-  --panel-border: var(--glass-white-13);
-  --card-bg: rgba(16, 33, 61, 0.78);
+  --panel-bg: rgba(4, 12, 28, 0.8);
+  --panel-solid: #06122a;
+  --panel-border: rgba(173, 203, 245, 0.16);
+  --panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --panel-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7);
+  --card-bg: rgba(22, 42, 76, 0.55);
+  --card-solid: #11233f;
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 10px 28px -18px rgba(0, 0, 0, 0.8);
   --card-border: rgba(173, 203, 245, 0.14);
   --subtle-bg: rgba(255, 255, 255, 0.045);
   --selected-bg: rgba(84, 145, 255, 0.18);
@@ -382,7 +406,11 @@ pre,
   min-width: 0;
 }
 
-/* -- Background (static navy; the dynamic version lives in the backdrop section) -- */
+/* -- Backdrop: a slow mesh of soft blue fields ------------------------------------
+ * Fixed behind everything. The fields are large radial gradients that only move
+ * with transform (compositor work, no repaint), slowly. Reduced motion gets the
+ * same picture standing still, and app.js pauses it while the tab is hidden.
+ */
 
 .backdrop {
   position: fixed;
@@ -390,7 +418,145 @@ pre,
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
-  background: linear-gradient(135deg, var(--navy-overview-ink) 0%, var(--navy-overview-depth) 55%, var(--navy-overview-mid) 100%);
+  contain: strict;
+  background:
+    radial-gradient(120% 90% at 100% 100%, var(--bg-glow) 0%, var(--bg-sky) 16%, rgba(63, 132, 238, 0) 52%),
+    linear-gradient(142deg, var(--bg-ink) 0%, var(--bg-deep) 26%, var(--bg-navy) 46%, var(--bg-royal) 66%, var(--bg-azure) 82%, var(--bg-sky) 100%);
+}
+
+.backdrop::after {
+  /* the dark top band that keeps header text legible wherever the fields drift */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(1, 5, 13, 0.62) 0%, rgba(1, 5, 13, 0.18) 16%, rgba(1, 5, 13, 0) 30%);
+}
+
+.field {
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform;
+  animation-duration: 64s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+}
+
+.field-1 {
+  /* deep navy pool, upper left */
+  width: 70vmax;
+  height: 70vmax;
+  left: -24vmax;
+  top: -30vmax;
+  background: radial-gradient(closest-side, rgba(1, 5, 13, 0.92), rgba(1, 5, 13, 0));
+  animation-name: drift-a;
+  animation-duration: 58s;
+}
+
+.field-2 {
+  /* saturated royal blue, centre */
+  width: 64vmax;
+  height: 64vmax;
+  left: 18vw;
+  top: 10vh;
+  background: radial-gradient(closest-side, rgba(21, 68, 196, 0.62), rgba(21, 68, 196, 0));
+  animation-name: drift-b;
+  animation-duration: 71s;
+}
+
+.field-3 {
+  /* azure, right */
+  width: 54vmax;
+  height: 54vmax;
+  right: -14vmax;
+  top: 18vh;
+  background: radial-gradient(closest-side, rgba(63, 132, 238, 0.5), rgba(63, 132, 238, 0));
+  animation-name: drift-c;
+  animation-duration: 83s;
+}
+
+.field-4 {
+  /* luminous sky glow, lower right */
+  width: 62vmax;
+  height: 62vmax;
+  right: -22vmax;
+  bottom: -30vmax;
+  background: radial-gradient(closest-side, rgba(238, 246, 255, 0.85), rgba(159, 202, 248, 0.45) 45%, rgba(159, 202, 248, 0));
+  animation-name: drift-d;
+  animation-duration: 67s;
+}
+
+.field-5 {
+  /* indigo shadow that crosses the middle */
+  width: 46vmax;
+  height: 46vmax;
+  left: -8vmax;
+  bottom: -18vmax;
+  background: radial-gradient(closest-side, rgba(7, 34, 96, 0.7), rgba(7, 34, 96, 0));
+  animation-name: drift-e;
+  animation-duration: 76s;
+}
+
+@keyframes drift-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(9vw, 7vh, 0) scale(1.12); }
+}
+
+@keyframes drift-b {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-12vw, 10vh, 0) scale(1.18); }
+}
+
+@keyframes drift-c {
+  from { transform: translate3d(0, 0, 0) scale(1.05); }
+  to { transform: translate3d(-10vw, 16vh, 0) scale(0.92); }
+}
+
+@keyframes drift-d {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-8vw, -9vh, 0) scale(1.15); }
+}
+
+@keyframes drift-e {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(22vw, -6vh, 0) scale(1.1); }
+}
+
+.backdrop.is-paused .field {
+  animation-play-state: paused;
+}
+
+:root[data-theme="dark"] .backdrop .field-4 {
+  opacity: 0.55;
+}
+
+:root[data-theme="dark"] .backdrop::after {
+  background: linear-gradient(180deg, rgba(1, 5, 13, 0.66) 0%, rgba(1, 5, 13, 0.3) 22%, rgba(1, 5, 13, 0.34) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field {
+    animation: none;
+  }
+}
+
+/* -- Liquid glass ----------------------------------------------------------------
+ * Frosted surfaces: backdrop blur and saturation, a specular highlight along the
+ * top edge, a soft inner shadow and a thin translucent border. Only the large
+ * surfaces blur (sidebar, panel, header controls); cards inside the panel reuse
+ * the highlight and border without a second blur, which keeps repaints cheap.
+ * Without backdrop-filter support every surface falls back to a solid colour.
+ */
+
+.glass,
+.sidebar,
+.data-workspace,
+.record-footer,
+.action-btn,
+.theme-toggle,
+.run-context-card {
+  -webkit-backdrop-filter: blur(var(--effect-background-blur)) saturate(1.5);
+  backdrop-filter: blur(var(--effect-background-blur)) saturate(1.5);
 }
 
 /* -- Shell ----------------------------------------------------------------------- */
@@ -412,8 +578,9 @@ pre,
   gap: var(--space-20);
   padding: var(--space-28) var(--space-20) var(--space-20);
   color: var(--shell-ink);
-  background: linear-gradient(180deg, rgba(3, 12, 28, 0.72), rgba(3, 12, 28, 0.86));
+  background: var(--sidebar-bg);
   border-right: var(--rule-1) solid var(--glass-white-9);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04), 12px 0 40px -20px rgba(0, 0, 0, 0.6);
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -533,7 +700,8 @@ pre,
   padding: var(--space-12) var(--space-14);
   border: var(--rule-1) solid var(--glass-white-15);
   border-radius: var(--radius-12);
-  background: var(--glass-white-7);
+  background: var(--control-glass);
+  box-shadow: var(--effect-inner-shadow), 0 6px 18px -10px rgba(0, 0, 0, 0.6);
   color: var(--navigation-context-ink);
 }
 
@@ -659,7 +827,8 @@ pre,
   height: 2.25rem;
   border: var(--rule-1) solid var(--glass-white-15);
   border-radius: var(--radius-10);
-  background: var(--glass-white-7);
+  background: var(--control-glass);
+  box-shadow: var(--effect-inner-shadow);
   color: var(--text-inverse);
 }
 
@@ -762,12 +931,12 @@ pre,
   padding: 0 var(--space-20);
   border: var(--rule-1) solid var(--glass-white-18);
   border-radius: var(--radius-12);
-  background: var(--glass-white-7);
+  background: var(--control-glass);
   color: var(--text-inverse);
   font-size: var(--type-size-18);
   font-weight: 600;
   white-space: nowrap;
-  box-shadow: var(--effect-inner-shadow);
+  box-shadow: var(--effect-inner-shadow), var(--effect-drop-shadow);
   transition: background-color 160ms ease, border-color 160ms ease;
 }
 
@@ -788,8 +957,10 @@ pre,
   min-width: 0;
   padding: var(--panel-pad);
   border: var(--rule-1) solid var(--panel-border);
+  border-bottom: 0;
   border-radius: var(--radius-24) var(--radius-24) 0 0;
   background: var(--panel-bg);
+  box-shadow: var(--panel-highlight), var(--panel-shadow);
   color: var(--ink);
 }
 
@@ -802,8 +973,88 @@ pre,
   border-top: 0;
   border-radius: 0 0 var(--radius-24) var(--radius-24);
   background: var(--panel-bg);
+  box-shadow: var(--panel-shadow);
   font-size: var(--type-size-15);
   color: var(--ink-3);
+}
+
+/* Cards inside the panel: translucent, with the specular top edge and soft depth. */
+.card,
+.summary-card,
+.finding-card,
+.boundary-card,
+.side-card,
+.offline-card,
+.metric-tile,
+.repo-card,
+.notice,
+.duplicates-disclosure {
+  position: relative;
+  box-shadow: var(--card-shadow);
+}
+
+.card::before,
+.summary-card::before,
+.finding-card::before,
+.boundary-card::before,
+.side-card::before,
+.offline-card::before,
+.metric-tile::before,
+.repo-card::before,
+.data-workspace::before,
+.action-btn::before,
+.run-context-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: var(--glass-specular);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .card::before,
+:root[data-theme="dark"] .summary-card::before,
+:root[data-theme="dark"] .finding-card::before,
+:root[data-theme="dark"] .boundary-card::before,
+:root[data-theme="dark"] .side-card::before,
+:root[data-theme="dark"] .offline-card::before,
+:root[data-theme="dark"] .metric-tile::before,
+:root[data-theme="dark"] .repo-card::before,
+:root[data-theme="dark"] .data-workspace::before {
+  opacity: 0.22;
+}
+
+.data-workspace,
+.action-btn {
+  position: relative;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .sidebar {
+    background: var(--sidebar-solid);
+  }
+  .data-workspace,
+  .record-footer {
+    background: var(--panel-solid);
+  }
+  .card,
+  .summary-card,
+  .finding-card,
+  .boundary-card,
+  .side-card,
+  .offline-card,
+  .metric-tile,
+  .repo-card {
+    background: var(--card-solid);
+  }
+  .action-btn,
+  .theme-toggle,
+  .run-context-card {
+    background: var(--control-solid);
+  }
 }
 
 /* -- Shared blocks --------------------------------------------------------------- */
