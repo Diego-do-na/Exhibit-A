@@ -7,12 +7,14 @@ graph resolved: ``builtins.open``, ``os.path.realpath``, ``subprocess.run``,
 reaches first: an ASGI/WSGI callable, a route handler, a CLI main, or a name declared by
 the case (``case.json`` ``run.entry_points``), which always wins over detection.
 
-Six families can be proven by the oracle today: path traversal through a read
+Eight families can be proven by the oracle today: path traversal through a read
 (``canary_read``) and through a write (``canary_write``), code or command execution
 (``canary_exec``), SQL injection (``canary_sql``), server-side request forgery
-(``canary_connect``) and algorithmic complexity (``canary_dos``: ReDoS, quadratic
-parsing). The other sinks are listed so a reach report can say what a path
-leads to; their ``effect`` is None, so the loop never pretends it can prove them.
+(``canary_connect``), algorithmic complexity (``canary_dos``: ReDoS, quadratic
+parsing), open redirect (``canary_redirect``) and broken access control
+(``canary_access``: no sink call, only the observed response). The other sinks are
+listed so a reach report can say what a path leads to; their ``effect`` is None, so
+the loop never pretends it can prove them.
 """
 
 from __future__ import annotations
@@ -24,8 +26,9 @@ from exhibit_a.schemas.graph import CodeGraph, EntryPoint, GraphEdge, GraphNode,
 
 from .build import MAIN_GUARD, SQL_RUN_METHODS
 
-READ, WRITE, EXEC, SQL, CONNECT, DOS = (
+READ, WRITE, EXEC, SQL, CONNECT, DOS, REDIRECT, ACCESS = (
     "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect", "canary_dos",
+    "canary_redirect", "canary_access",
 )
 
 
@@ -171,6 +174,19 @@ SINKS: tuple[SinkRule, ...] = (
              "outbound_request", "ssrf", CONNECT, "network",
              "opens a connection; only a non-constant target can carry input",
              target_arg=(0, ("address", "host", "port"))),
+    SinkRule(("flask.redirect", "werkzeug.utils.redirect"),
+             "redirect", "open_redirect", REDIRECT, "redirect",
+             "redirect to a caller-supplied URL; a constant target cannot carry input",
+             target_arg=(0, ("location", "url"))),
+    SinkRule(("django.shortcuts.redirect", "django.http.HttpResponseRedirect",
+              "django.http.HttpResponsePermanentRedirect", "django.http.HttpResponseFound"),
+             "redirect", "open_redirect", REDIRECT, "redirect",
+             "redirect to a caller-supplied URL; a constant target cannot carry input",
+             target_arg=(0, ("to", "redirect_to", "url"))),
+    SinkRule(("starlette.responses.RedirectResponse", "fastapi.responses.RedirectResponse"),
+             "redirect", "open_redirect", REDIRECT, "redirect",
+             "redirect to a caller-supplied URL; a constant target cannot carry input",
+             target_arg=(0, ("url",))),
     SinkRule(("re.match", "re.search", "re.fullmatch", "re.sub", "re.findall", "re.compile"),
              "regex", "regex_denial_of_service", DOS, "cpu",
              "regex on attacker input; a non-constant or nested-quantifier pattern is ReDoS",
