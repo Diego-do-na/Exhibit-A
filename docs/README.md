@@ -21,11 +21,14 @@ One line per document. Paths are relative to the repository root.
 - [ci/github-action-security.md](ci/github-action-security.md) — Action security model: key handling, fork guard, leak scan, residual risks.
 - [ci/live-pr-demo.md](ci/live-pr-demo.md) — Runbook for the live pull-request demo: setup, the two demo PRs, expected checks, disabling, cost.
 - [ci/audit.md](ci/audit.md) — Repository audit: ranked graph reach paths, budget-capped loop, audit.json/audit.md, weekly workflow.
+- [ci/fix-pr.md](ci/fix-pr.md) — Verified fix pull requests: review suggestions and automated PR branches.
 
 ## bench/ — benchmark and costs
 
 - [bench/bench.md](bench/bench.md) — naive LLM versus the proof loop on the corpus, with the generated results table.
-- [bench/benchmark.md](bench/bench.md) — benchmark harness: corpus format, ablations, metrics, run instructions.
+- [bench/benchmark.md](bench/benchmark.md) — benchmark harness: corpus format, ablations, metrics, run instructions.
+- [coverage.md](coverage.md) — generated corpus coverage matrix: oracle effects, CWE mappings, case counts and design exclusions.
+- [bench/tools.md](bench/tools.md) — static tools (Bandit, Semgrep, CodeQL) versus Exhibit A on the corpus.
 - [bench/meta-run.md](bench/meta-run.md) — real Meta-model runs (`muse-wonder-1.0`), standard and compact profiles, recordings and replay.
 - [bench/repeatability.md](bench/repeatability.md) — repeatability harness output, with and without slicing.
 - [bench/cost-controls.md](bench/cost-controls.md) — `--profile compact` cost controls: bounded answers, search/replace fixes, reasoning effort.
@@ -49,6 +52,7 @@ One line per document. Paths are relative to the repository root.
 - [reference/cli.md](reference/cli.md) — CLI reference for every subcommand and flag.
 - [reference/cli-exit-codes.md](reference/cli-exit-codes.md) — exit codes: 0 nothing proven, 10 proven, 20 incomplete, 2 usage error.
 - [reference/models.md](reference/models.md) — model roles, providers (replay, ollama, openai-compatible, meta), budgets, recording and replay.
+- [reference/providers.md](reference/providers.md) — model providers: Meta (primary) and Baseten (comparison and fallback) via OpenAI-compatible endpoints.
 - [reference/sandbox.md](reference/sandbox.md) — sandbox isolation: image, limits, what the flags do and do not guarantee.
 - [reference/sandbox-write-effect.md](reference/sandbox-write-effect.md) — write-effect sandbox plumbing: no canary file, tmpfs `outside/` dir, post-run dump.
 - [reference/demo.md](reference/demo.md) — demo storyboard: red-to-green in 2-3 minutes via `scripts/demo.sh --offline` or `--live`.

@@ -229,6 +229,7 @@ def test_the_archive_case_graph_has_the_extraction_chain():
 SINK_SOURCE = '''
 import os
 import pickle
+import socket
 import subprocess
 import tarfile
 import zipfile
@@ -305,6 +306,14 @@ def fetch(url):
     return requests.get(url)
 
 
+def dial(host, port):
+    return socket.create_connection((host, port))
+
+
+def dial_fixed():
+    return socket.create_connection(("127.0.0.1", 8080))
+
+
 async def threaded(p):
     return await anyio.to_thread.run_sync(os.stat, p)
 
@@ -340,7 +349,8 @@ def sinks(tmp_path_factory):
     ("code", "builtins.eval", "code_injection", "canary_exec"),
     ("unpickle", "pickle.loads", "insecure_deserialization", "canary_exec"),
     ("unsafe_yaml", "yaml.load", "insecure_deserialization", "canary_exec"),
-    ("fetch", "requests.get", "ssrf", None),
+    ("fetch", "requests.get", "ssrf", "canary_connect"),
+    ("dial", "socket.create_connection", "ssrf", "canary_connect"),
     ("threaded", "os.stat", "path_traversal", "canary_read"),
 ])
 def test_sinks_carry_their_vulnerability_class(sinks, function, target, vuln_class, effect):
@@ -359,6 +369,10 @@ def test_safe_calls_are_not_sinks(sinks):
     assert "harmless" not in sinks
 
 
+def test_a_constant_connection_target_is_not_a_sink(sinks):
+    assert "dial_fixed" not in sinks
+
+
 def test_a_joined_path_fed_into_a_sink_is_flagged(sinks):
     assert [h.joined_path for h in sinks["joined"]] == [True]
     assert [h.joined_path for h in sinks["read"]] == [False]
@@ -367,7 +381,7 @@ def test_a_joined_path_fed_into_a_sink_is_flagged(sinks):
 def test_every_catalog_rule_is_complete():
     for rule in SINKS:
         assert rule.names and rule.category and rule.vuln_class and rule.note
-        assert rule.effect in (None, "canary_read", "canary_write", "canary_exec", "canary_sql")
+        assert rule.effect in (None, "canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect")
     assert match_sink("requests.codes") is None
     assert match_sink("httpx.Client.post").vuln_class == "ssrf"
 

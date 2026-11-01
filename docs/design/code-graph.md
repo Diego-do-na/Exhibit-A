@@ -73,7 +73,7 @@ effect that can prove it today:
 | `command_injection` | `subprocess.*`, `os.system`, `os.popen`, `os.exec*` | none |
 | `code_injection` | `eval`, `exec`, `compile`, `__import__`, `importlib.import_module` | none |
 | `insecure_deserialization` | `pickle.load(s)`, `marshal.loads`, `yaml.load` without a `SafeLoader` | none |
-| `ssrf` | `urllib.request.urlopen`, `http.client`, `requests.*`, `httpx.*` | none (not a v1 class: the sandbox has no network) |
+| `ssrf` | `urllib.request.urlopen`, `http.client`, `requests.*`, `httpx.*`, `socket.create_connection` (non-constant target only) | `canary_connect` |
 
 A sink argument built with `os.path.join` is flagged (`joined_path`) and breaks ranking ties.
 A method name such as `.extractall` or `.read_text` on a receiver nothing resolved is a

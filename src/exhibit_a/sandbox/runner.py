@@ -28,6 +28,10 @@ Returns:
     canary executable left; see docs/reference/sandbox.md). For effect="canary_sql" the canary table is
     added to a copy of the application's database by a first, equally isolated container, and the copy
     is mounted read-only over the declared path in the test's container (docs/reference/sandbox.md).
+    For effect="canary_connect" a loopback HTTP listener runs inside the test's container (the
+    sandbox keeps --network none) and serves the run's token at the secret path of
+    EXHIBIT_A_CANARY_URL; "connect_log": list holds what it recorded (untrusted: the judge needs
+    signed plugin events for the same request).
 
 Oracle events are signed by the plugin with a key generated here per run and written to the
 container's stdin (``docker run -i``), never to its environment, command line or a mount.
@@ -59,8 +63,15 @@ from pathlib import Path, PurePosixPath
 from typing import Dict, Any, Mapping
 
 from .image import build_image
-from exhibit_a.oracle.oracle import SQL_CANARY_COLUMN, SQL_CANARY_TABLE, marker_holds_token, sql_db_problem
-from exhibit_a.oracle.plugin import ENV_MARKER, ENV_SQL, KEY_BYTES, key_message, verify_lines
+from exhibit_a.oracle.oracle import (
+    SQL_CANARY_COLUMN,
+    SQL_CANARY_TABLE,
+    marker_holds_token,
+    parse_canary_url,
+    read_connect_log,
+    sql_db_problem,
+)
+from exhibit_a.oracle.plugin import ENV_CONNECT, ENV_MARKER, ENV_SQL, KEY_BYTES, key_message, verify_lines
 from exhibit_a.oracle.provenance import ManifestError, app_manifest, staging_exclude, tree_changes
 
 PYTEST_VERSION = "pytest==7.3.2"
@@ -143,6 +154,20 @@ DECLARED_MOUNTS: tuple[dict[str, str], ...] = (
         "source": "<tmpdir>/seed/seeded.db (seeded copy of application SQLite DB)",
     },
     {
+        "target": "/opt/exhibit_a_plugin/canary_server.py",
+        "mode": "ro",
+        "kind": "bind",
+        "scope": "canary_connect",
+        "source": "<tmpdir>/canary_server.py (per-run copy of the loopback listener)",
+    },
+    {
+        "target": "/oracle/connect.jsonl",
+        "mode": "rw",
+        "kind": "bind",
+        "scope": "canary_connect",
+        "source": "<tmpdir>/connect.jsonl (listener request log, untrusted)",
+    },
+    {
         "target": "/seed/original.db",
         "mode": "ro",
         "kind": "bind",
@@ -160,8 +185,14 @@ DECLARED_MOUNTS: tuple[dict[str, str], ...] = (
 
 # The oracle plugin is mounted read-only as a single module; only the events file is writable.
 _PLUGIN_SOURCE = Path(__file__).resolve().parent.parent / "oracle" / "plugin.py"
+_SERVER_SOURCE = Path(__file__).resolve().parent.parent / "oracle" / "canary_server.py"
 _PLUGIN_MODULE = "exhibit_a_oracle_plugin"
 _PLUGIN_DIR = "/opt/exhibit_a_plugin"
+# The canary listener (canary_connect) is mounted read-only beside the plugin; its log is
+# the only other writable mount. The container keeps --network none: loopback still works.
+_SERVER_MOUNT = f"{_PLUGIN_DIR}/canary_server.py"
+_CONNECT_LOG_MOUNT = "/oracle/connect.jsonl"
+_CONNECT_ENV = ENV_CONNECT
 _CANARY_MOUNT = "/oracle/canary"
 _EVENTS_MOUNT = "/oracle/events.jsonl"
 _ENV_PREFIX = "EXHIBIT_A_"
@@ -240,6 +271,39 @@ except OSError:
     pass
 with open(out, "w") as fh:
     json.dump({"canary_written": written, "listing": listing[:200]}, fh)
+'''
+
+
+def _valid_connect_url(url: object) -> bool:
+    """Whether ``url`` is a canary URL the listener can serve (loopback http with port and path)."""
+    return parse_canary_url(url) is not None
+
+
+def _read_connect_log(path: str) -> list[dict]:
+    """Listener records from ``path``; anything odd is "no request".
+
+    The file is writable from inside the container, so it is untrusted: size-capped,
+    strictly typed (see ``read_connect_log``), and only dicts count. A missing file (the
+    listener never ran, as after a timeout) means no request was recorded.
+    """
+    try:
+        return read_connect_log(Path(path))
+    except (OSError, ValueError):
+        return []
+
+
+# Connect effect: the listener serves the secret path in the background while pytest runs.
+# Every value reaches the shell as a positional parameter, never spliced into its text.
+# $1 server script, $2 port, $3 secret path, $4 token, $5 log file, $6+ pytest argv. The
+# readiness probe opens one bare connection (logged without a request, which the judge
+# ignores); pytest's own exit status is kept.
+_CONNECT_SHELL = r'''
+python3 -I -S "$1" "$2" "$3" "$4" "$5" >/tmp/canary_server.out 2>&1 & SRV=$!
+for i in $(seq 1 50); do
+  python3 -I -S -c "import socket,sys; socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=0.5).close()" "$2" 2>/dev/null && break
+  sleep 0.1
+done
+pytest "${@:6}"; rc=$?; kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; exit $rc
 '''
 
 
@@ -346,6 +410,8 @@ def _verify_declared_mounts(cmd: list[str], tmpdir: str) -> str | None:
         _OUTSIDE_MOUNT,
         "/seed/original.db",
         "/seed/out",
+        _SERVER_MOUNT,
+        _CONNECT_LOG_MOUNT,
     }
     i = 0
     while i < len(cmd):
@@ -549,7 +615,7 @@ def run(
         ):
             return _env_failure(f"invalid canary_mount: {canary_mount!r}")
 
-        if effect not in ("canary_read", "canary_write", "canary_exec", "canary_sql"):
+        if effect not in ("canary_read", "canary_write", "canary_exec", "canary_sql", "canary_connect"):
             return _env_failure(f"unknown oracle effect: {effect}")
         if effect == "canary_write":
             if canary_path is not None:
@@ -566,7 +632,14 @@ def run(
             if canary_path is not None or events_path is None or _TOKEN_ENV not in extra_env:
                 return _env_failure("a sql effect mounts no canary file and needs events_path and "
                                     f"{_TOKEN_ENV}")
-        observe = canary_path is not None or events_path is not None or effect == "canary_write"
+        if effect == "canary_connect":
+            if canary_path is not None or events_path is None or _TOKEN_ENV not in extra_env:
+                return _env_failure("a connect effect mounts no canary file and needs events_path and "
+                                    f"{_TOKEN_ENV}")
+            connect_url = extra_env.get(_CONNECT_ENV)
+            if not _valid_connect_url(connect_url):
+                return _env_failure("a connect effect needs a loopback EXHIBIT_A_CANARY_URL in env")
+        observe = canary_path is not None or events_path is not None or effect in ("canary_write", "canary_connect")
         oracle_key = secrets.token_bytes(KEY_BYTES)
         events_file = os.path.join(tmpdir, "events.jsonl")
         outside_file = os.path.join(tmpdir, "outside.json")
@@ -626,9 +699,25 @@ def run(
                                "-e", f"EXHIBIT_A_CANARY={mount}"]
                 Path(outside_file).write_text("")
                 extra_args += ["-v", f"{outside_file}:{_OUTSIDE_MOUNT}:rw"]
+            elif effect == "canary_connect":
+                # Connect effect: NO canary file is mounted. The listener runs inside the
+                # container on loopback (the sandbox keeps --network none) and serves the
+                # token at the secret path of the URL the caller passed; its log lands in
+                # a host-read file that the test cannot use for a proof (guard rule
+                # "connect_log", and the judge needs signed plugin events too).
+                parsed = parse_canary_url(connect_url)
+                assert parsed is not None  # checked above; fail closed if it ever drifts
+                _, connect_port, connect_secret = parsed
+                server_copy = os.path.join(tmpdir, "canary_server.py")
+                shutil.copyfile(_SERVER_SOURCE, server_copy)
+                extra_args += ["-v", f"{server_copy}:{_SERVER_MOUNT}:ro"]
+                connect_file = os.path.join(tmpdir, "connect.jsonl")
+                Path(connect_file).write_text("")
+                extra_args += ["-v", f"{connect_file}:{_CONNECT_LOG_MOUNT}:rw"]
+                extra_args += ["-e", f"EXHIBIT_A_CANARY={connect_url}", "-e", f"{_CONNECT_ENV}={connect_url}"]
             plugin_args = ["-p", _PLUGIN_MODULE]
         for env_name, value in extra_env.items():
-            if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY") and observe:
+            if env_name in ("EXHIBIT_A_EVENTS", "EXHIBIT_A_CANARY", _CONNECT_ENV) and observe:
                 continue
             extra_args += ["-e", f"{env_name}={value}"]
 
@@ -654,6 +743,10 @@ def run(
             if effect == "canary_exec":
                 payload["canary_ran"] = marker_holds_token(
                     Path(outside_dir, _MARKER_NAME), extra_env[_TOKEN_ENV])
+            if effect == "canary_connect":
+                # Untrusted listener log: the judge needs signed plugin events for the same
+                # request before it counts (see oracle._judge_connect).
+                payload["connect_log"] = _read_connect_log(os.path.join(tmpdir, "connect.jsonl"))
             return payload
 
         # 1) Resolve the prebuilt image (built once with network, reused across runs).
@@ -696,6 +789,12 @@ def run(
                 "bash", "-c",
                 'pytest "${@:4}"; rc=$?; python -I -S -c "$1" "$2" "$3" ' + _OUTSIDE_MOUNT + '; exit $rc',
                 "exhibit-a", _OUTSIDE_DUMP, str(canary_work), str(mount), *pytest_args,
+            ]
+        elif effect == "canary_connect":
+            pytest_argv = [
+                "bash", "-c", _CONNECT_SHELL,
+                "exhibit-a", _SERVER_MOUNT, str(connect_port), connect_secret, extra_env[_TOKEN_ENV],
+                _CONNECT_LOG_MOUNT, *pytest_args,
             ]
         else:
             pytest_argv = ["pytest", *pytest_args]

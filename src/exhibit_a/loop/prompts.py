@@ -263,6 +263,25 @@ def test_contract(effect: str = "canary_read", packages: Sequence[str] = ()) -> 
             "code, modules or attributes; never use ctypes, subprocess, eval, exec or importlib tricks. "
             f"Imports: the Python standard library, pytest, the application, and the installed packages: {allowed}."
         )
+    elif effect == "canary_connect":
+        # Its own text from start to end: the shared tail's file-oriented advice ("never open the
+        # canary from the test") does not fit a network service.
+        url = "os.environ['EXHIBIT_A_CANARY_URL']"
+        allowed = ", ".join(packages) if packages else "nothing beyond the application itself"
+        return (
+            f"PROOF CONTRACT: A canary HTTP service listens at {url} (a loopback URL with an "
+            f"unguessable path); a GET there returns the token {token}. The flaw (server-side request "
+            "forgery) is proven only if the APPLICATION, handling input the test sends through its entry "
+            "point, requests that URL itself and the token comes back in the application's response or "
+            "return value. The test must FAIL on vulnerable code: assert the token is NOT in the response. "
+            "The test must PASS once the flaw is fixed: if the application refuses the input by raising an "
+            "exception or answering with an error, catch that and treat it as safe, so that only that "
+            "assertion can fail. The test must never open a socket, connect, resolve, or request the URL "
+            "itself, and never read the listener's log; any connection from the test refuses the run. "
+            "Never monkeypatch, replace or edit application code, modules or attributes; never use "
+            "ctypes, subprocess, eval, exec or importlib tricks. "
+            f"Imports: the Python standard library, pytest, the application, and the installed packages: {allowed}."
+        )
     else:
         raise ValueError(f"unknown oracle effect {effect!r}")
     allowed = ", ".join(packages) if packages else "nothing beyond the application itself"
