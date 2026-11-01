@@ -884,12 +884,8 @@ def test_exploit():
 
 
 @pytest.mark.docker
-@pytest.mark.xfail(
-    strict=True, raises=AssertionError,
-    reason="R1 (docs/oracle/oracle-provenance.md 7.1 and 3.11): in the sandbox the log path is "
-           "fixed, so a test that steals the key can forge both the signed events and the log",
-)
 def test_r1_key_theft_and_log_forgery_forge_a_proof_in_the_sandbox(tmp_path, unguarded_sandbox):
+    """R1 plugin-only forgery is blocked in the sandbox: the OS witness saw no accept()."""
     test_source = PRELUDE + '''\
 import json
 import sys
@@ -920,6 +916,7 @@ def test_exploit():
 '''
     j = sandbox(tmp_path, ALLOWLIST_APP, test_source)
     assert shape(j) != PROVEN, j.reason
+    assert j.reason_code == "witness_mismatch"
 
 
 @pytest.mark.docker

@@ -225,9 +225,9 @@ def test_container_user_never_returns_root(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_declared_mounts_audit_rejects_undeclared_or_host_mounts(tmp_path: Path) -> None:
-    # 11 base mounts, the two canary_connect mounts (listener read-only, log writable) and the
-    # canary_access store (seeded copy, read-only).
-    assert len(DECLARED_MOUNTS) == 14
+    # 11 base mounts, the two canary_connect mounts (listener read-only, log writable), the
+    # canary_access store (seeded copy, read-only), and the three OS-witness mounts.
+    assert len(DECLARED_MOUNTS) == 17
     tmpdir = tmp_path / "sandbox_tmp"
     workspace = tmpdir / "workspace"
     workspace.mkdir(parents=True)

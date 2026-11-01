@@ -357,7 +357,8 @@ def test_sandbox_runner_stages_the_exploit_with_a_canary_and_judges_container_ev
         event = {"path": "/tmp/exhibit_a_oracle/outside/canary.txt", "mode": "r", "flags": 0, "access": "read",
                  "requested": "/tmp/exhibit_a_oracle/allowed/../outside/canary.txt", "stack": stack}
         events = [event, {"garbage": True}]
-        return {"outcome": "failed", "exit_code": 1, "stdout": "", "stderr": "", "oracle_events": events}
+        return {"outcome": "failed", "exit_code": 1, "stdout": "", "stderr": "", "oracle_events": events,
+                "witness_status": "ok", "witness_observed": ["canary_read"]}
 
     monkeypatch.setattr("exhibit_a.sandbox.run", fake_run)
     clone = make_clone(tmp_path)
