@@ -297,6 +297,9 @@ def test_load_findings_rejects_malformed_facts(tmp_path: Path) -> None:
     (run / "packages" / "S3" / "verdict.json").write_text("{not json", encoding="utf-8")
     found, skipped = load_findings(run)
     assert found == [] and len(skipped) == 3
+    reasons = {s["package"]: s["reason"] for s in skipped}
+    assert "no oracle facts" in reasons["packages/S1"]
+    assert reasons["packages/S2"] == "effect 'telepathy' has no frame identity in findings.dedupe yet"
     assert load_findings(tmp_path / "missing") == ([], [])
 
 

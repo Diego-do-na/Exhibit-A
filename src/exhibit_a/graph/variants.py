@@ -192,7 +192,13 @@ def load_findings(run_dir: str | Path) -> tuple[list[ProvenFinding], list[dict[s
         sid = _text(suspicion.get("id")) if isinstance(suspicion, Mapping) else None
         finding = finding_from_evidence(sid or name, rel, evidence)
         if finding is None:
-            skipped.append({"package": rel, "reason": "no oracle facts (effect and admitted frames)"})
+            facts = evidence.get("facts")
+            effect = facts.get("effect") if isinstance(facts, Mapping) else None
+            if isinstance(effect, str) and effect not in EFFECTS:
+                reason = f"effect {effect[:40]!r} has no frame identity in findings.dedupe yet"
+            else:
+                reason = "no oracle facts (effect and admitted frames)"
+            skipped.append({"package": rel, "reason": reason})
             continue
         found.append(finding)
     if len(names) > MAX_PACKAGES:
