@@ -12,7 +12,7 @@ function runLookup(base: string, name: string): Promise<string> {
 }
 
 function lookupHandler(base: string) {
-  return async (req: any, res: any): Promise<void> => {
+  return async function lookupHandler(req: any, res: any): Promise<void> {
     const name: any = req.body ? req.body.name : undefined;
     if (typeof name !== "string") {
       res.status(400).type("text/plain").send("name is required");

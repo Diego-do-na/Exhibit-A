@@ -5,7 +5,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 function resolveName(base, name) {
-  const target = path.normalize(path.join(base, name));
+  const target = base + path.sep + name;
   if (!target.startsWith(base)) {
     return null;
   }
@@ -13,7 +13,7 @@ function resolveName(base, name) {
 }
 
 function downloadHandler(base) {
-  return (req, res) => {
+  return function downloadHandler(req, res) {
     const raw = req.originalUrl || req.url || "";
     if (raw.includes("..")) {
       res.status(404).type("text/plain").send("not found");

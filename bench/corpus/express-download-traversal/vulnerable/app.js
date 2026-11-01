@@ -9,7 +9,7 @@ function resolveName(base, name) {
 }
 
 function downloadHandler(base) {
-  return (req, res) => {
+  return function downloadHandler(req, res) {
     const target = resolveName(base, String(req.query.name || ""));
     fs.readFile(target, (err, data) => {
       if (err) {

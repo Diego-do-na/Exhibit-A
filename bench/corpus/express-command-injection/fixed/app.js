@@ -11,7 +11,7 @@ function runLookup(base, name) {
 }
 
 function lookupHandler(base) {
-  return async (req, res) => {
+  return async function lookupHandler(req, res) {
     const name = req.body ? req.body.name : undefined;
     if (typeof name !== "string") {
       res.status(400).type("text/plain").send("name is required");

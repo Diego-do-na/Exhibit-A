@@ -13,7 +13,7 @@ function resolveName(base, name) {
 }
 
 function downloadHandler(base) {
-  return (req, res) => {
+  return function downloadHandler(req, res) {
     const target = resolveName(base, String(req.query.name || ""));
     if (target === null) {
       res.status(404).type("text/plain").send("not found");
