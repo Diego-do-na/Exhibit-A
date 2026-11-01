@@ -24,6 +24,7 @@ _channel_problem = _oracle.channel_problem
 _exec_problem = _oracle.exec_problem
 _sql_problem = _oracle.sql_problem
 _connect_problem = _oracle.connect_problem
+_dos_problem = _oracle.dos_problem
 
 SQL_DB = "data/app.db"
 
@@ -47,6 +48,7 @@ def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeo
     _oracle.exec_problem = _exec_problem if GUARD else (lambda path: None)
     _oracle.sql_problem = _sql_problem if GUARD else (lambda path: None)
     _oracle.connect_problem = _connect_problem if GUARD else (lambda path: None)
+    _oracle.dos_problem = _dos_problem if GUARD else (lambda path: None)
     sql_db = None
     if effect == "canary_sql":
         # The application's own database, as a case's ``run.sql_db`` would declare it.
@@ -64,6 +66,7 @@ def run(app_src: str, exploit_src: str, entry_points, *, extra_files=None, timeo
         _oracle.exec_problem = _exec_problem
         _oracle.sql_problem = _sql_problem
         _oracle.connect_problem = _connect_problem
+        _oracle.dos_problem = _dos_problem
 
 
 def classify(j: Judgement, *, app_is_safe: bool) -> str:
