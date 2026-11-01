@@ -19,3 +19,5 @@ build/
 node_modules/
 *.log
 runs/
+audit-out/
+deps-out/
