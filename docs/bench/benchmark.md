@@ -141,3 +141,9 @@ python -m bench.probe --provider ollama --model llama3.1 --out bench/probe-out
 ```
 
 Results go to `summary.json` and `summary.md` in the output directory.
+
+<!-- BEGIN GENERATED: bench.scale -->
+
+unmeasured
+
+<!-- END GENERATED: bench.scale -->

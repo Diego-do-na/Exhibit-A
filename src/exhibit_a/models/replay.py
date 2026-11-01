@@ -54,8 +54,11 @@ class ReplayProvider:
             raise ReplayMiss(f"no recording for {role} request {key[:12]}")
         completion = self.recorder.complete(role, prompt, schema)
         self._entries[key] = completion
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        record = {"key": key, "role": str(role), **completion.__dict__}
-        with self.path.open("a") as handle:
-            handle.write(json.dumps(record, sort_keys=True) + "\n")
+        # RecordingProvider already persists this exact completion. Avoid
+        # duplicating the line when it is used as the recorder.
+        if Path(getattr(self.recorder, "path", "")) != self.path:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            record = {"key": key, "role": str(role), **completion.__dict__}
+            with self.path.open("a") as handle:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
         return completion
