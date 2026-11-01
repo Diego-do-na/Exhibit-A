@@ -8,6 +8,7 @@ and the oracle effect (``canary_read``/``canary_write``/``canary_exec``/``canary
 """
 from __future__ import annotations
 
+import difflib
 import inspect
 import json
 import re
@@ -33,6 +34,19 @@ Pipeline = Callable[[Case, Flags, Ledger, str], None]
 #: File the baseline test is staged as inside the clone (the loop convention).
 STAGED_BASELINE = "test_baseline.py"
 
+#: Baseline file name per case language (the sandbox and the oracle pick the
+#: runner from the suffix; the Node cases ship node:test baselines).
+STAGED_BASELINES = {
+    "python": "test_baseline.py",
+    "javascript": "test_baseline.js",
+    "typescript": "test_baseline.ts",
+}
+
+
+def _staged_baseline(case: Case) -> str:
+    """The staged baseline name for the case's language (Python keeps history)."""
+    return STAGED_BASELINES.get(case.language, STAGED_BASELINE)
+
 _STAGED_OK = ".staged-ok"
 
 
@@ -55,14 +69,14 @@ def _pick_source_file(clone: Path, case: Case) -> str:
         return case.source_file
     if case.ground_truth:
         return case.ground_truth[0]["file"]
-    app = clone / "app.py"
-    if app.exists():
-        return "app.py"
+    for name in ("app.py", "app.js", "app.ts"):
+        if (clone / name).exists():
+            return name
     for p in sorted(clone.iterdir()):
-        if p.is_file() and p.suffix == ".py":
+        if p.is_file() and p.suffix in (".py", ".js", ".ts"):
             return p.name
     # Fallback to the baseline test; VerificationLoop will raise if it cannot read it.
-    return STAGED_BASELINE
+    return _staged_baseline(case)
 
 
 def _stage_case(case: Case, out_dir: Path) -> Path:
@@ -115,7 +129,7 @@ def _stage_case(case: Case, out_dir: Path) -> Path:
         raise FileNotFoundError(
             f"case {case.id!r}: baseline test {case.baseline_test!r} not found in {case_dir}"
         )
-    shutil.copyfile(baseline_src, clone / STAGED_BASELINE)
+    shutil.copyfile(baseline_src, clone / _staged_baseline(case))
     (clone / _STAGED_OK).write_text("ok\n", encoding="utf-8")
     return clone
 
@@ -167,6 +181,34 @@ def _tree_relative(location: str, tree: str) -> str:
     return location
 
 
+def _minimal_edits(path: str, before: str, after: str) -> list[dict[str, str]]:
+    """Search/replace edits turning ``before`` into ``after``, each find unique.
+
+    Opcode hunks are widened with context lines until the find text occurs
+    exactly once, so the loop's ``_edits_to_files`` accepts them.
+    """
+    if not before or before == after:
+        raise ValueError("the case materials hold no vulnerable source to derive edits from")
+    a, b = before.splitlines(keepends=True), after.splitlines(keepends=True)
+    edits = []
+    for tag, i1, i2, j1, j2 in reversed(difflib.SequenceMatcher(None, a, b).get_opcodes()):
+        if tag == "equal":
+            continue
+        lo, hi = i1, i2
+        while True:  # widen with context until the find text is unique
+            lo, hi = max(lo - 1, 0), min(hi + 1, len(a))
+            find = "".join(a[lo:hi])
+            if before.count(find) == 1:
+                break
+            if lo == 0 and hi == len(a):
+                raise ValueError("cannot derive a unique search/replace edit from the case materials")
+        replace = "".join(a[lo:i1]) + "".join(b[j1:j2]) + "".join(a[i2:hi])
+        edits.append({"path": path, "find": find, "replace": replace})
+    if not edits:
+        raise ValueError("the case materials hold no fix to derive edits from")
+    return edits
+
+
 class CaseMaterialsProvider:
     """Deterministic provider built from a case's own materials.
 
@@ -205,6 +247,11 @@ class CaseMaterialsProvider:
             raise ValueError(f"case {case.id!r}: no source_file to build the fixer answer from")
         self._fix_path = source_file
         self._fixed = self._read_material(case, case_dir, f"{fixed_tree}/{source_file}")
+        vulnerable_tree = trees.get("vulnerable", "") or case.tree
+        try:
+            self._vulnerable = self._read_material(case, case_dir, f"{vulnerable_tree}/{source_file}")
+        except ValueError:
+            self._vulnerable = ""
         bypass = (run.get("bypass") or {}).get("exploit", "")
         self._variant_name = Path(bypass).stem if bypass else "bypass"
         self._variant = self._read_material(case, case_dir, bypass) if bypass else ""
@@ -234,7 +281,12 @@ class CaseMaterialsProvider:
         elif role == Role.TEST_WRITER:
             body = {"test_source": self._exploit}
         elif role == Role.FIXER:
-            body = {"files": [{"path": self._fix_path, "content": self._fixed}]}
+            if isinstance(schema, dict) and "edits" in (schema.get("properties") or {}):
+                # The compact profile asks for search/replace edits, not whole
+                # files; derive them from the vulnerable/fixed trees of the case.
+                body = {"edits": _minimal_edits(self._fix_path, self._vulnerable, self._fixed)}
+            else:
+                body = {"files": [{"path": self._fix_path, "content": self._fixed}]}
         else:
             variants = (
                 [{"name": self._variant_name, "test_source": self._variant}]
@@ -294,6 +346,7 @@ def make_pipeline(
                     access_db=case.access_db or None,
                     access=dict(case.access) or None,
                     redirect_meta=case.redirect_meta,
+                    language=case.language,
                 )
             else:
                 effective_runner = SandboxRunner(
@@ -302,6 +355,7 @@ def make_pipeline(
                     access_db=case.access_db or None,
                     access=dict(case.access) or None,
                     redirect_meta=case.redirect_meta,
+                    language=case.language,
                 )
             if not _runner_supports_effect(effective_runner, case.effect):
                 # Fail closed before anything executes: the runner cannot
@@ -338,13 +392,14 @@ def make_pipeline(
                 out_dir,
                 proxy_ledger,
                 roles,
-                STAGED_BASELINE,
+                _staged_baseline(case),
                 run_id=run_id,
                 runner=effective_runner,
                 requirements=tuple(case.requirements),
                 judge=_make_judge(effective_runner, case.effect),
                 flags=flags,
                 effect=case.effect,
+                language=case.language,
             )
 
             source = _pick_source_file(clone, case)
