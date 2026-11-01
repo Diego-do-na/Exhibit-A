@@ -4,69 +4,33 @@ Which CWEs Exhibit A can prove, from the corpus cases and the oracle effects the
 
 A green result means nothing could be proven, never that the target is safe. The sandbox is isolated and resource-limited, never "100% safe".
 
-<!-- BEGIN GENERATED: python -m bench.coverage -->
-Coverage is generated from corpus `case.json` files (`python -m bench.coverage`).
+<!-- BEGIN GENERATED: python -m bench.coverage_matrix -->
+Coverage is derived from the corpus case manifests, the oracle effects, and the CWE table.
 A green result still means nothing could be proven, never that the target is safe.
 The sandbox is isolated and resource-limited, never "100% safe".
 
-| CWE id and name | effect | corpus case | proven live | notes |
-|---|---|---|---|---|
-| CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal') | canary_write | `archive-extraction-pathtraversal` | yes | CVE-2007-4559 |
-| CWE-78 Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') | canary_exec | `command-injection-shell` | not yet recorded | CVE-2021-22205 |
-| CWE-77 Improper Neutralization of Special Elements used in a Command ('Command Injection') | canary_exec | `docsuite-large-command-injection` | not yet recorded | CVE-2021-22205 |
-| CWE-89 Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') | canary_sql | `sql-injection-login` | not yet recorded | CVE-2004-1737 |
-| CWE-89 Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') | canary_sql | `sql-injection-search` | not yet recorded | CVE-2017-8917 |
-| CWE-89 Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') | canary_sql | `sql-trunc-kind-injection` | not yet recorded | CVE-2022-34265 |
-| CWE-1336 Improper Neutralization of Special Elements Used in a Template Engine | canary_exec | `ssti-jinja-preview` | not yet recorded | CVE-2019-8341 |
-| CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal') | canary_read | `starlette-cve-2023-29159` | yes | path_traversal |
-| CWE-23 Relative Path Traversal | canary_read | `static-route-traversal` | not yet recorded | CVE-2024-23334 |
-| CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal') | canary_write | `tar-slip-restore` | not yet recorded | CVE-2007-4559 |
-| CWE-502 Deserialization of Untrusted Data | canary_exec | `unsafe-deserialization-pickle` | not yet recorded | CVE-2015-7501 |
-| CWE-434 Unrestricted Upload of File with Dangerous Type | canary_write | `upload-avatar` | not yet recorded | CVE-2021-31542 |
-| CWE-73 External Control of File Name or Path | canary_write | `upload-filename-traversal` | not yet recorded | CVE-2021-31542 |
-| CWE-611 Improper Restriction of XML External Entity Reference | canary_read | `xxe-catalog` | not yet recorded | CVE-2018-1999002 |
-| CWE-502 Deserialization of Untrusted Data | canary_exec | `yaml-job-load` | not yet recorded | CVE-2017-18342 |
-
-### Classes Exhibit A does not claim
-
-These classes have no oracle-observable effect in the current proof loop, so a
-suspicion of them is never a finding. A green result means nothing could be
-proven, never that the code is free of them.
-
-- **Weak cryptography** (for example CWE-327, CWE-328): a short key or a broken
-  hash does not read, write, execute, query or connect in a way the oracle can
-  observe. There is no canary for "this ciphertext is weakly protected".
-- **Hard-coded secrets** (CWE-798): a token sitting in source is not an
-  observed effect. Exhibit A does not scan configuration or secrets.
-- **Logic bugs without an observable effect**: a wrong discount, a skipped
-  authorisation check that does not reach a sink, or a state machine that
-  accepts a bad transition. The oracle proves a read, write, exec, SQL or
-  connect through an entry point; it does not prove that business rules hold.
-
-<!-- END GENERATED: python -m bench.coverage -->
-
-<!-- BEGIN GENERATED: python -m bench.coverage_matrix -->
-Coverage is derived from the corpus case manifests, the oracle effects, and the SARIF CWE table.
-
-| vulnerability class | CWE | oracle effect | corpus cases (count) | held-out cases (count) | measured status |
-|---|---|---|---:|---:|---|
-| arbitrary_file_write | CWE-73 | canary_write | 0 | 0 | not covered |
-| archive_extraction_path_traversal | CWE-22 | canary_write | 2 | 0 | measured |
-| code_injection | CWE-95 | canary_exec | 0 | 0 | not covered |
-| command_injection | CWE-78 | canary_exec | 2 | 1 | unmeasured |
-| eval_injection | CWE-95 | canary_exec | 0 | 0 | not covered |
-| insecure_deserialization | CWE-502 | canary_exec | 2 | 0 | unmeasured |
-| os_command_injection | CWE-78 | canary_exec | 0 | 0 | not covered |
-| path_traversal | CWE-22 | canary_read | 2 | 1 | measured |
-| path_traversal | CWE-22 | canary_write | 0 | 0 | not covered |
-| path_traversal_write | CWE-22 | canary_write | 1 | 1 | unmeasured |
-| server_side_template_injection | CWE-1336 | canary_exec | 1 | 0 | unmeasured |
-| sql_injection | CWE-89 | canary_exec | 0 | 0 | not covered |
-| sql_injection | CWE-89 | canary_sql | 3 | 1 | unmeasured |
-| ssti | CWE-1336 | canary_exec | 0 | 0 | not covered |
-| unrestricted_file_upload | CWE-434 | canary_write | 1 | 0 | unmeasured |
-| unsafe_deserialization | CWE-502 | canary_exec | 0 | 0 | not covered |
-| xml_external_entity | CWE-611 | canary_read | 1 | 0 | unmeasured |
+| vulnerability class | CWE id and name | oracle effect | corpus cases | held-out cases | proven live | measured status |
+|---|---|---|---|---:|---|---|
+| algorithmic_complexity | CWE-407 Inefficient Algorithmic Complexity | canary_dos | not covered (0) | 0 | not yet recorded | not covered |
+| arbitrary_file_write | CWE-73 External Control of File Name or Path | canary_write | not covered (0) | 0 | not yet recorded | not covered |
+| archive_extraction_path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal') | canary_write | `archive-extraction-pathtraversal`, `tar-slip-restore` (2) | 0 | yes | measured |
+| code_injection | CWE-95 Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
+| command_injection | CWE-77 Improper Neutralization of Special Elements used in a Command ('Command Injection')<br>CWE-78 Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') | canary_exec | `command-injection-shell`, `docsuite-large-command-injection` (2) | 1 | not yet recorded | unmeasured |
+| eval_injection | CWE-95 Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
+| insecure_deserialization | CWE-502 Deserialization of Untrusted Data | canary_exec | `unsafe-deserialization-pickle`, `yaml-job-load` (2) | 0 | not yet recorded | unmeasured |
+| os_command_injection | CWE-78 Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
+| path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')<br>CWE-23 Relative Path Traversal | canary_read | `starlette-cve-2023-29159`, `static-route-traversal` (2) | 1 | yes | measured |
+| path_traversal | CWE-22 Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal') | canary_write | not covered (0) | 0 | not yet recorded | not covered |
+| path_traversal_write | CWE-73 External Control of File Name or Path | canary_write | `upload-filename-traversal` (1) | 1 | not yet recorded | unmeasured |
+| redos | CWE-1333 Inefficient Regular Expression Complexity | canary_dos | not covered (0) | 0 | not yet recorded | not covered |
+| regex_denial_of_service | CWE-1333 Inefficient Regular Expression Complexity | canary_dos | not covered (0) | 0 | not yet recorded | not covered |
+| server_side_template_injection | CWE-1336 Improper Neutralization of Special Elements Used in a Template Engine | canary_exec | `ssti-jinja-preview` (1) | 0 | not yet recorded | unmeasured |
+| sql_injection | CWE-89 Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
+| sql_injection | CWE-89 Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') | canary_sql | `sql-injection-login`, `sql-injection-search`, `sql-trunc-kind-injection` (3) | 1 | not yet recorded | unmeasured |
+| ssti | CWE-1336 Improper Neutralization of Special Elements Used in a Template Engine | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
+| unrestricted_file_upload | CWE-434 Unrestricted Upload of File with Dangerous Type | canary_write | `upload-avatar` (1) | 0 | not yet recorded | unmeasured |
+| unsafe_deserialization | CWE-502 Deserialization of Untrusted Data | canary_exec | not covered (0) | 0 | not yet recorded | not covered |
+| xml_external_entity | CWE-611 Improper Restriction of XML External Entity Reference | canary_read | `xxe-catalog` (1) | 0 | not yet recorded | unmeasured |
 
 ### Corpus case IDs
 
@@ -86,6 +50,22 @@ Coverage is derived from the corpus case manifests, the oracle effects, and the 
 - `upload-filename-traversal`
 - `xxe-catalog`
 - `yaml-job-load`
+
+### Classes Exhibit A does not claim
+
+These classes have no oracle-observable effect in the current proof loop, so a
+suspicion of them is never a finding. A green result means nothing could be
+proven, never that the code is free of them.
+
+- **Weak cryptography** (for example CWE-327, CWE-328): a short key or a broken
+  hash does not read, write, execute, query or connect in a way the oracle can
+  observe. There is no canary for "this ciphertext is weakly protected".
+- **Hard-coded secrets** (CWE-798): a token sitting in source is not an
+  observed effect. Exhibit A does not scan configuration or secrets.
+- **Logic bugs without an observable effect**: a wrong discount, a skipped
+  authorisation check that does not reach a sink, or a state machine that
+  accepts a bad transition. The oracle proves a read, write, exec, SQL or
+  connect through an entry point; it does not prove that business rules hold.
 
 ### Not covered by design
 
