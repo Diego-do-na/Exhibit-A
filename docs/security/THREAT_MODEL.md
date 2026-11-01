@@ -24,8 +24,9 @@ flowchart LR
     LOOP -->|"staged app + exploit test"| SB
     subgraph SB["sandbox container: isolated, resource-limited, no network, no secrets"]
         TEST["exploit test (UNTRUSTED)"] --- ORA["oracle plugin<br/>(same process as the test)"]
+        WIT["OS witness supervisor<br/>(sibling process)"]
     end
-    SB -->|"signed events"| JUDGE["judge + manifest recheck<br/>(host, TRUSTED)"]
+    SB -->|"signed events + signed OS observations"| JUDGE["judge + manifest recheck<br/>(host, TRUSTED)"]
     JUDGE --> LEDGER[("ledger.jsonl<br/>source of truth")]
     LEDGER --> LIVE["live view<br/>127.0.0.1 only"]
     LEDGER --> REPORT["PR comment / summary<br/>(untrusted text escaped)"]
@@ -92,7 +93,7 @@ execution; code it ships is trusted only as "the app" by the oracle (see R2).
 | `dir_fd` opens | real read dropped as relative path | resolve against the registered directory descriptor | done | `tests/test_oracle_provenance.py::test_dir_fd_read_of_the_canary_is_observed_and_proven` |
 | Wrong-reason failures | test fails for an unrelated reason | verdict needs the canary read, through an entry point, called by the test | done | `src/exhibit_a/oracle/oracle.py`, `tests/test_oracle_eval.py` |
 | Archive class | second effect class (write) | oracle eval set for archive extraction; the write effect runs in the sandbox with no canary file, a size-capped tmpfs and a post-run dump (T076) | done | `tests/test_oracle_eval_archive.py`, `tests/test_sandbox_fake_docker.py` (write-effect tests), `docs/reference/sandbox-write-effect.md` |
-| R1: plugin introspection | test finds the hook via `gc`, reads the key, signs a forged event | none in-process; out-of-process stack reconstruction is post-freeze roadmap | limit | `tests/test_oracle_residual.py::test_r1_key_read_from_the_plugin_closure_forges_a_proof` (strict xfail) |
+| R1: plugin introspection | test finds the hook via `gc`, reads the key, signs a forged event | sandbox: OS witness (inotify / loopback listener / SQLite file watch) must agree with the plugin or the run is `witness_mismatch` (T114). Host path and effects with no OS canary (dos, redirect, access) keep the in-process limit; out-of-process stack reconstruction is post-freeze roadmap | limit on host path and on unobservable effects; closed in the sandbox for read/write/sql/connect fact-forgery | `tests/test_oracle_witness.py`, `tests/test_oracle_connect.py` (sandbox R1 now BLOCKED); `tests/test_oracle_residual.py` (host-path strict xfail) |
 | R2: `sitecustomize` in app tree | start-up file captures the hook on the host path | sandbox does not put `/workspace` on `sys.path` at start; host path unprotected | limit | `tests/test_oracle_residual.py` (`test_r2_*`), `docs/oracle/oracle-provenance.md` 7.2 |
 | R3: subprocess reads | vulnerable read by a child process is missed (recall only) | none; out-of-process observer is a deferred second signal | limit | `tests/test_oracle_residual.py` (`test_r3_*`), `docs/oracle/oracle-observer-spike.md` |
 | R4: ctypes / native reads | libc `open` raises no audit event (recall only) | none | limit | `tests/test_oracle_residual.py` (`test_r4_*`) |
@@ -193,7 +194,7 @@ tree after T075, T076, T078, T079 and T082 were merged.
 | F18 | low | `tests/test_probe.py` assertion style | fixed: T081 (`test_repeats_must_be_positive` uses `pytest.raises(ValueError)`) | `tests/test_probe.py` |
 | F19 | low | action install not hash-pinned; engine output not scanned | open | `action.yml` |
 | F20 | low | host path: `package_src` writable | fixed: T081 (`run_oracle` loads a private per-run copy of the plugin, mode 0400 in a 0500 directory, instead of putting the repository's `src/` on `PYTHONPATH`) | `src/exhibit_a/oracle/oracle.py`, `tests/test_oracle_plugin_copy.py` |
-| R1 | residual | plugin introspection (FALSE_PROVEN) | limit | `tests/test_oracle_residual.py` (strict xfail) |
+| R1 | residual | plugin introspection (FALSE_PROVEN on the host path; sandbox fact-forgery BLOCKED for read/write/sql/connect) | limit (host / dos / redirect / access); closed in sandbox for observable effects (T114) | `tests/test_oracle_witness.py`; `tests/test_oracle_residual.py` (host-path strict xfail) |
 | R2 | residual | `sitecustomize` in app tree (FALSE_PROVEN, host path) | limit | `tests/test_oracle_residual.py` (strict xfail) |
 | R3 | residual | subprocess reads (recall) | limit | `tests/test_oracle_residual.py` (strict xfail) |
 | R4 | residual | ctypes / native reads (recall) | limit | `tests/test_oracle_residual.py` (strict xfail) |

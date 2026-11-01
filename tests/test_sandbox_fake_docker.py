@@ -51,6 +51,7 @@ class FakeDocker:
         self.last = {"key": key, "app": app, "mounts": mounts, "env": env}
         if self.play is not None:
             self.play(self.last)
+        _ensure_witness_start(self.last.get("mounts") or {})
         return subprocess.CompletedProcess(cmd, self.exit_code, b"", b"")
 
     @property
@@ -78,6 +79,48 @@ def _write_events(state, *bodies, key=None, seq0=0):
     with open(state["mounts"]["/oracle/events.jsonl"], "a", encoding="utf-8") as fh:
         for i, body in enumerate(bodies):
             fh.write(json.dumps(sign_event(key or state["key"], seq0 + i, body)) + "\n")
+
+
+def _witness_key(mounts):
+    cfg_path = mounts.get("/oracle/witness.cfg")
+    if not cfg_path:
+        return None, None
+    cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
+    return bytes.fromhex(cfg["key"]), cfg
+
+
+def _write_witness(state, kinds=("start", "access")):
+    """Sign OS-witness lines with the per-run key the runner left in the config file."""
+    key, cfg = _witness_key(state["mounts"])
+    if key is None:
+        raise AssertionError("the runner did not mount a witness config")
+    log = state["mounts"]["/oracle/witness.jsonl"]
+    effect = cfg["effect"]
+    path = (cfg.get("paths") or [""])[0]
+    seq = 0
+    if Path(log).exists() and Path(log).read_text(encoding="utf-8").strip():
+        seq = sum(1 for line in Path(log).read_text(encoding="utf-8").splitlines() if line.strip())
+    with open(log, "a", encoding="utf-8") as fh:
+        for kind in kinds:
+            body = {"kind": kind, "effect": effect, "path": path, "mask": 32}
+            fh.write(json.dumps(sign_event(key, seq, body)) + "\n")
+            seq += 1
+
+
+def _ensure_witness_start(mounts):
+    """A fake container never runs the supervisor; a start line means it was 'available'."""
+    log = mounts.get("/oracle/witness.jsonl")
+    if not log:
+        return
+    if Path(log).exists() and Path(log).read_text(encoding="utf-8").strip():
+        return
+    key, cfg = _witness_key(mounts)
+    if key is None:
+        return
+    Path(log).write_text(
+        json.dumps(sign_event(key, 0, {"kind": "start", "effect": cfg["effect"], "path": "", "mask": 0})) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _repo(tmp_path):
@@ -230,7 +273,11 @@ def _genuine(state, line_of=None):
 
 
 def test_run_exploit_proves_a_genuine_signed_admitted_event(docker, tmp_path):
-    fake = docker(play=lambda state: _write_events(state, _genuine(state)))
+    def play(state):
+        _write_events(state, _genuine(state))
+        _write_witness(state)
+
+    fake = docker(play=play)
     clone, exploit = _clone(tmp_path)
     j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0)
     assert j.test_outcome == "failed" and j.observed_effect and j.provenance_ok, j.reason
@@ -274,7 +321,11 @@ def test_run_exploit_tamper_on_a_passing_run_is_an_error(docker, tmp_path):
 def test_run_exploit_rechecks_admitted_frames_against_the_host_stage(docker, tmp_path):
     # The in-container plugin claims admission for a frame the staged source does not have
     # at that line (a fooled plugin, or a test that stole the key): the host says no.
-    docker(play=lambda state: _write_events(state, _genuine(state, {"App.handle_request": 1})))
+    def play(state):
+        _write_events(state, _genuine(state, {"App.handle_request": 1}))
+        _write_witness(state)
+
+    docker(play=play)
     clone, exploit = _clone(tmp_path)
     j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0)
     # The entry frame drops out, so the outermost admitted app frame is the view: no proof.
@@ -324,14 +375,17 @@ def test_write_effect_mounts_no_canary_and_gives_outside_a_size_capped_tmpfs(doc
     assert cmd[cmd.index("--tmpfs", cmd.index(f"{WORK}:rw,size=16m,mode=1777") - 1) + 1] == f"{WORK}:rw,size=16m,mode=1777"
     # No canary file, and no host directory, is mounted: only workspace, plugin, events, result file.
     assert set(fake.last["mounts"]) == {"/workspace", f"/opt/exhibit_a_plugin/exhibit_a_oracle_plugin.py",
-                                        "/oracle/events.jsonl", OUTSIDE}
+                                        "/oracle/events.jsonl", OUTSIDE,
+                                        "/opt/exhibit_a_plugin/witness.py", "/oracle/witness.cfg",
+                                        "/oracle/witness.jsonl"}
     assert WRITE_MOUNT not in fake.last["mounts"] and "/oracle/canary" not in fake.last["mounts"]
     assert fake.last["env"]["EXHIBIT_A_CANARY"] == WRITE_MOUNT
     # pytest's exit status survives the dump that follows it.
     i = cmd.index("bash")
     assert cmd[i + 1] == "-c"
     script = cmd[i + 2]
-    assert script.startswith('pytest "${@:4}"') and "; rc=$?; python -I -S -c " in script and script.endswith("; exit $rc")
+    assert "witness.py" in script or "/opt/exhibit_a_plugin/witness.py" in cmd
+    assert "pytest" in script and "/oracle/outside.json" in script
     # Paths and the dump program reach the shell as arguments, not as part of its text.
     assert "/workspace/tests/test_x.py" not in script and WRITE_MOUNT not in script
     assert cmd[-1] == "/workspace/tests/test_x.py" and WRITE_MOUNT in cmd
@@ -354,11 +408,14 @@ def test_the_read_effect_command_and_result_are_unchanged(docker, tmp_path):
     repo, canary = _repo(tmp_path)
     r = run(str(repo), "tests/test_x.py", timeout=60, image="fake", canary_path=str(canary))
     cmd = fake.runs[0]["cmd"]
-    assert cmd[cmd.index("pytest"):] == ["pytest", "-q", "-p", "no:cacheprovider", "-p", "exhibit_a_oracle_plugin",
-                                         "/workspace/tests/test_x.py"]
-    assert "bash" not in cmd
+    # The OS witness starts as a sibling of pytest; pytest argv is unchanged after that.
+    assert "bash" in cmd
+    assert cmd[-6:] == ["-q", "-p", "no:cacheprovider", "-p", "exhibit_a_oracle_plugin",
+                        "/workspace/tests/test_x.py"]
+    assert "/opt/exhibit_a_plugin/witness.py" in " ".join(cmd)
     assert "canary_written" not in r and "outside_listing" not in r
     assert OUTSIDE not in fake.last["mounts"]
+    assert r.get("witness_status") == "ok"
 
 
 @pytest.mark.parametrize("raw", [
@@ -418,6 +475,7 @@ def test_run_exploit_write_effect_proves_when_the_dump_confirms_the_file(docker,
     def play(state):
         _write_events(state, _write_event(state))
         _write_outside(state, written=True)
+        _write_witness(state, kinds=("start", "access"))
 
     fake = docker(play=play)
     clone, exploit = _write_exploit(tmp_path)
@@ -452,6 +510,7 @@ def test_app_tree_check_ignores_writes_outside_the_app_tree_but_not_inside_it(do
     def outside_only(state):
         _write_events(state, _write_event(state))
         _write_outside(state, written=True)  # the app wrote into the tmpfs, not into /workspace
+        _write_witness(state, kinds=("start", "access"))
 
     docker(play=outside_only)
     clone, exploit = _write_exploit(tmp_path)
@@ -469,7 +528,11 @@ def test_app_tree_check_ignores_writes_outside_the_app_tree_but_not_inside_it(do
 
 
 def test_run_exploit_defaults_to_the_read_effect(docker, tmp_path):
-    fake = docker(play=lambda state: _write_events(state, _genuine(state)))
+    def play(state):
+        _write_events(state, _genuine(state))
+        _write_witness(state)
+
+    fake = docker(play=play)
     clone, exploit = _clone(tmp_path)
     j = SandboxRunner(image="fake").run_exploit(clone, exploit, {ENTRY}, timeout=30.0)
     assert j.provenance_ok and "/oracle/canary" not in fake.last["mounts"]

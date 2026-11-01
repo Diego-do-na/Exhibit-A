@@ -933,6 +933,51 @@ Trees used by the tests live under `tests/fixtures/access/` (vulnerable / fixed,
 each with its store), not in `bench/corpus/`: bench files were not treated as free
 for a new corpus case.
 
+### 3.15 Layer 14: OS-level witness (T114)
+
+The in-process plugin is a first witness. Residual limit R1 exists because that plugin
+lives in the untrusted test process: a test that finds the signing key can emit a
+perfect event without ever touching the canary. An observer **outside that process**,
+inside the same isolated and resource-limited container, is a second witness. A
+suspicion is proven only when both agree on the fact of the effect.
+
+**Supervisor.** `src/exhibit_a/sandbox/witness/supervisor.py` is copied into the
+container as `/opt/exhibit_a_plugin/witness.py` and started **before** pytest, as a
+sibling (not a child of the test). It reads a per-run config that includes its own
+HMAC key, unlinks that file, then watches:
+
+- `canary_read` / `canary_write`: inotify (`IN_OPEN` / `IN_ACCESS` / `IN_CREATE` /
+  `IN_CLOSE_WRITE`) on the canary path;
+- `canary_exec`: the same on the executable and on the marker the canary writes;
+- `canary_sql`: inotify on the seeded SQLite file (a read of the canary table opens
+  that file);
+- `canary_connect`: the loopback listener itself (the supervisor *is* the process
+  that `accept()`s; a forged `connect.jsonl` line is not an observation).
+
+Signed observations go to `/oracle/witness.jsonl`. The judge (`_apply_witness`)
+applies agreement last, and only when the in-process verdict is already a proof:
+both witnesses must have seen the effect, or that proof becomes `witness_mismatch`
+(plugin saw, OS did not) or `witness_unavailable` (missing or tampered log). A
+more specific in-process refusal (`sql_from_test`, `no_effect`, `canary_tampered`,
+provenance, …) is kept. The host path (`run_oracle`) passes no witness payload
+and keeps the in-process standard.
+
+**What it cannot observe.** `canary_dos` (CPU), `canary_redirect` and
+`canary_access` (in-process response objects) have no OS-level canary the
+supervisor can watch. They keep the in-process standard, including their R1
+strict xfails.
+
+**What it closes.** Plugin-only fact forgery (the R1 of `attack_key_introspection`,
+`attack_sql_r1_forge_events`, `attack_connect_r1_forge_events` in the sandbox) is
+now BLOCKED: the plugin claims a read/query/connect the OS never saw. Tests:
+`tests/test_oracle_witness.py` (agreement, mismatch, unavailable, sandbox R1) and
+`tests/test_oracle_connect.py::test_r1_key_theft_and_log_forgery_forge_a_proof_in_the_sandbox`
+(no longer an xfail). Host-path R1 remains a declared limit
+(`tests/test_oracle_residual.py`). A test that really opens the canary and then
+forges the stack (`cheat_read_then_forge` in the observer spike) still makes both
+witnesses agree on the fact; provenance stays in-process (section 8). R5 is a
+genuine app access, which any observer would confirm.
+
 ## 4. What each layer defends
 
 | attack | L1 manifest | L2 admission | L3 tree check | L4 tripwire | L5 dir_fd |
@@ -961,7 +1006,7 @@ PoCs added in this change were run against that tree's `src/` in a temporary wor
 | `attack_modify_import_restore` (new) | safe | **FALSE_PROVEN** | BLOCKED | BLOCKED | L4; L2 (code object) |
 | `attack_differential_bypass` | safe | **FALSE_PROVEN**, differential defeated | BLOCKED | BLOCKED | L4; L2 on the vulnerable-marked run |
 | `attack_forge_events` | safe | BLOCKED | BLOCKED | BLOCKED | A-1 (channel guard; events path not in env; signatures) |
-| `attack_key_introspection` (new, R1) | safe | BLOCKED, by accident¹ | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R1) |
+| `attack_key_introspection` (new, R1) | safe | BLOCKED, by accident¹ | **FALSE_PROVEN** (host) | **FALSE_PROVEN** (host) | host path: not stopped (R1). Sandbox: BLOCKED by L14 (`witness_mismatch`; `tests/test_oracle_witness.py`) |
 | `attack_dependency_monkeypatch` (new, R5) | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
 | `attack_subprocess_sink` | vulnerable | SUPPRESSED_TRUE | SUPPRESSED_TRUE | SUPPRESSED_TRUE | not observed (R3) |
 | `attack_os_open_dir_fd` | vulnerable | SUPPRESSED_TRUE | **DETECTED** | **DETECTED** | L5 |
@@ -1039,7 +1084,7 @@ vulnerable apps are the controls: each is proven (DETECTED) with and without the
 | `attack_connect_true_host` | vulnerable | DETECTED | DETECTED | control |
 | `attack_connect_true_redirect` | vulnerable | DETECTED | DETECTED | control (test serves the 302, the app follows) |
 | `attack_connect_true_localhost` | vulnerable | DETECTED | DETECTED | control (`localhost` names the same loopback service) |
-| `attack_connect_r1_forge_events` | safe | BLOCKED | BLOCKED | `no_effect` on the host path: signed events alone match no listener record (in the sandbox the fixed log path completes the forgery: R1, pinned xfail) |
+| `attack_connect_r1_forge_events` | safe | BLOCKED | BLOCKED | `no_effect` on the host path: signed events alone match no listener record. Sandbox: BLOCKED by L14 (`witness_mismatch`; the OS listener never `accept()`ed) |
 | `attack_connect_r5_app_binding` | safe | **FALSE_PROVEN** | **FALSE_PROVEN** | not stopped (R5) |
 
 No new FALSE_PROVEN beyond the two declared residual limits. The sandbox runs the same cheats
@@ -1141,7 +1186,7 @@ Each limit is pinned by a strict xfail in `tests/test_oracle_residual.py`
 (`raises=AssertionError`, preconditions via `pytest.fail`). A fix shows up as XPASS and fails
 the suite until this section is updated.
 
-### 7.1 R1: in-process introspection of the plugin (FALSE_PROVEN)
+### 7.1 R1: in-process introspection of the plugin (FALSE_PROVEN on the host path)
 
 The key, `seq`, events descriptor and admission object live in the audit hook's closure, in
 the test's own process. A test can:
@@ -1151,15 +1196,22 @@ the test's own process. A test can:
 3. sign an event that claims admitted frames at the entry point's real qualname and line.
 
 The host re-check passes because those are real. The same access allows patching the
-admission object or reading `/proc/self/mem`. `test_r1_*` demonstrates it end to end; it was
-only declared in `docs/oracle/oracle-a1.md`. Nothing in-process can close this. File,
-`canary_connect` and `canary_dos` effects are all exposed: a stolen `emit` can sign a
-`dos` event that names the entry point (`tests/test_oracle_dos.py::test_r1_forged_dos_event_is_a_false_proof`,
-strict xfail). The response effects are exposed the same way: a stolen `emit` signs a
-`response` naming the entry point's real frame and the canary host or token
-(`tests/test_oracle_redirect.py` and `tests/test_oracle_access.py` R1 pins, strict
-xfails; sandbox runs forge the same way for `canary_redirect`, which has no listener
-log to stop them).
+admission object or reading `/proc/self/mem`. `test_r1_*` on the host path
+(`tests/test_oracle_residual.py`, strict xfail) demonstrates it end to end.
+
+**Closed in the sandbox for every effect the OS witness can see** (section 3.15): a
+plugin-only forgery that never opens the canary, never reads the SQLite file, and never
+`accept()`s on the loopback listener is `witness_mismatch` and is not a proof. The host
+path has no supervisor and keeps this limit. Effects the witness cannot observe
+(`canary_dos`, `canary_redirect`, `canary_access`) keep the in-process standard, including
+their strict xfails. `canary_exec` R1 that rewrites the hook and still writes the marker
+while the safe app's `ls` names the canary remains a fact the OS would confirm (pinned
+xfail in `tests/test_oracle_exec.py`).
+
+A stolen `emit` can still sign a `dos` event that names the entry point
+(`tests/test_oracle_dos.py::test_r1_forged_dos_event_is_a_false_proof`, strict xfail).
+The response effects are exposed the same way (`tests/test_oracle_redirect.py` and
+`tests/test_oracle_access.py` R1 pins, strict xfails).
 
 ### 7.2 R2: `sitecustomize` in the app tree (FALSE_PROVEN, host path)
 
@@ -1227,24 +1279,16 @@ the test, to construct the app, for example a harness-owned app factory in the c
 - An app that writes into its own tree during the run cannot be proven (§3.3). This is a
   recall cost.
 
-## 8. Why the ptrace/fanotify observer stays a deferred second signal
+## 8. The OS witness is the second signal; provenance stays in-process
 
 `docs/oracle/oracle-observer-spike.md` §1 separates *fact* (was the canary opened) from *provenance*
-(by which code). A syscall observer outside the test process, such as host-side fanotify or a
-ptrace parent, can make the fact unforgeable. Per spike §4 step 1 it would also close R3 and
-R4 and catch suppression: if the hook claims a proof but fanotify saw no open, downgrade.
-
-It cannot recover provenance. The spike's §5 names the residual false positive
-(`cheat_read_then_forge`). Of what remains here:
-
-- R1 is a provenance forgery that a fact signal does not stop;
-- R5 is a genuine app read, which any observer would confirm.
-
-So this change hardens provenance where it lives, in-process and authenticated against the
-staged app. The observer stays the second signal the spike recommends (§4 steps 1–2). The
-only mechanism that makes provenance itself unforgeable by an in-process test is
-out-of-process CPython stack reconstruction (§4 step 4), and it stays on the post-freeze
-roadmap. Neither is built here.
+(by which code). Layer 14 (section 3.15) is that second signal, in-container: inotify on the
+canary paths, the exec marker, the loopback listener, a read watch on the SQLite file.
+Plugin-only R1 fact forgery is now BLOCKED in the sandbox for every effect the supervisor
+can see. The spike's §5 residual (`cheat_read_then_forge`: really open the canary, then
+forge the stack) still makes both witnesses agree on the fact; R5 is a genuine app
+access, which any observer would confirm. Out-of-process CPython stack reconstruction
+(spike §4 step 4) stays on the post-freeze roadmap.
 
 ## 9. Commands
 
