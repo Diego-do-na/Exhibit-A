@@ -45,6 +45,16 @@ function safeHref(value) {
   return "#";
 }
 
+// The server's CSP (style-src 'self') blocks style="" attributes, so declarations
+// from code (bar widths) are applied through the CSSOM, which the CSP allows.
+function applyStyle(el, css) {
+  for (const decl of css.split(";")) {
+    const i = decl.indexOf(":");
+    if (i < 1) continue;
+    el.style.setProperty(decl.slice(0, i).trim(), decl.slice(i + 1).trim());
+  }
+}
+
 function h(tag, props, ...children) {
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(props || {})) {
@@ -52,6 +62,7 @@ function h(tag, props, ...children) {
     if (key === "class") el.className = value;
     else if (key === "text") el.textContent = String(value);
     else if (key === "href") el.setAttribute("href", safeHref(value));
+    else if (key === "style") applyStyle(el, String(value));
     else if (key.startsWith("on") && typeof value === "function") el.addEventListener(key.slice(2), value);
     else el.setAttribute(key, String(value));
   }
@@ -337,6 +348,7 @@ function updateShellNavLinks() {
 function setShellHeader(breadcrumbNodes, title, actionText = null, actionHandler = null, actionIconName = "download") {
   headerBreadcrumb.replaceChildren(...(Array.isArray(breadcrumbNodes) ? breadcrumbNodes : [breadcrumbNodes]));
   pageTitle.textContent = title;
+  pageTitle.title = title;
   if (actionText && actionHandler) {
     actionBtnText.textContent = actionText;
     actionBtnIcon.replaceChildren(icon(actionIconName, 18));
@@ -395,10 +407,7 @@ function initTheme() {
 
 function toggleTheme() {
   let current = document.documentElement.getAttribute("data-theme");
-  if (!current) {
-    const isDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    current = isDark ? "dark" : "light";
-  }
+  if (!current) current = "light";
   const next = current === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
   try {
@@ -410,8 +419,7 @@ function toggleTheme() {
 function updateThemeIcon() {
   const iconHost = document.getElementById("icon-theme");
   if (!iconHost) return;
-  const isDark = document.documentElement.getAttribute("data-theme") === "dark" ||
-    (!document.documentElement.getAttribute("data-theme") && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
   iconHost.replaceChildren(icon(isDark ? "sun" : "moon", 18));
 }
 
@@ -556,7 +564,7 @@ async function renderRunOverview(id) {
     h("div", { class: "summary-card-big-cost", text: costText }),
     h("div", { class: "summary-card-sub", text: "Budget limit: not available" }),
     h("div", { class: "budget-meter" },
-      h("div", { class: "budget-meter-fill", style: "width: 25%;" })),
+      h("div", { class: "budget-meter-fill", style: "width: 0%;" })),
     h("div", { class: "elapsed-time" },
       icon("clock-3", 22),
       h("span", { text: fmtDuration(row.duration_s) })));
@@ -697,7 +705,7 @@ async function renderFindingDetail(runId, findingId) {
 
   // 2. Boundary assertion section (Before fix & After fix cards)
   const isHttp = Boolean(ev.expected_status || ev.received_status);
-  const expectedVal = isHttp ? String(ev.expected_status || 403) : "FAIL";
+  const expectedVal = isHttp ? String(ev.expected_status || 403) : "PASS";
   const receivedFailVal = isHttp ? String(ev.received_status || 200) : "FAIL";
   const receivedPassVal = isHttp ? String(ev.expected_status || 403) : "PASS";
 

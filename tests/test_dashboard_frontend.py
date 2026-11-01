@@ -183,9 +183,10 @@ def test_style_css_supports_dark_mode_and_responsive_layout(state):
     assert status == 200
     css = body.decode("utf-8")
 
-    # Dark mode preference and manual toggle selector
-    assert "@media (prefers-color-scheme: dark)" in css
+    # Dark mode is an explicit opt-in through the theme toggle: the approved design
+    # is light by default, so the OS preference must not switch the theme by itself.
     assert '[data-theme="dark"]' in css
+    assert "prefers-color-scheme: dark" not in css
 
     # Responsive media query for mobile/phone width
     assert re.search(r"@media\s*\(\s*max-width:\s*\d+px\s*\)", css) is not None
