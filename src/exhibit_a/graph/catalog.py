@@ -50,6 +50,15 @@ class SinkRule:
     #: is a sink only when that argument is not a constant (``dynamic_address``): a fixed
     #: target cannot carry input.
     target_arg: tuple[int, tuple[str, ...]] | None = None
+    #: Where a code, template, XML, YAML or upload-path call takes its payload: (position,
+    #: keyword names). The call is a sink only when that argument is not a constant
+    #: (``dynamic_source``): a literal cannot carry input.
+    source_arg: tuple[int, tuple[str, ...]] | None = None
+    #: How XML entity resolution is decided for this rule. ``always``: any non-constant
+    #: source is a sink (minidom, sax). ``lxml``: a sink unless ``resolve_entities`` is
+    #: False and no custom resolver is set. ``etree``: a sink only when a parser argument
+    #: is supplied (the stdlib parser does not resolve entities on its own).
+    xml_mode: str | None = None
 
 
 #: Write-side class and effect for open-like sinks called with a write mode.
@@ -90,6 +99,33 @@ SINKS: tuple[SinkRule, ...] = (
               "shutil.unpack_archive"),
              "archive", "archive_extraction_path_traversal", WRITE, "write",
              "archive extraction; member names decide where files land"),
+    SinkRule(("werkzeug.datastructures.FileStorage.save",
+              "starlette.datastructures.UploadFile.write"),
+             "filesystem", "unrestricted_file_upload", WRITE, "write",
+             "saves an uploaded file; a constant destination cannot carry a name",
+             source_arg=(0, ("dst", "path", "location", "filename"))),
+    SinkRule(("xml.dom.minidom.parse", "xml.dom.minidom.parseString",
+              "xml.sax.parse", "xml.sax.parseString", "xml.sax.make_parser.parse"),
+             "xml", "xml_external_entity", READ, "read",
+             "XML parse that may resolve external entities; a constant source cannot carry input",
+             source_arg=(0, ("source", "string", "filename", "stream")), xml_mode="always"),
+    SinkRule(("lxml.etree.parse", "lxml.etree.fromstring", "lxml.etree.XML"),
+             "xml", "xml_external_entity", READ, "read",
+             "lxml parse; resolve_entities or a custom resolver makes it a sink",
+             source_arg=(0, ("source", "text", "tag")), xml_mode="lxml"),
+    SinkRule(("lxml.etree.XMLParser",),
+             "xml", "xml_external_entity", READ, "read",
+             "lxml XMLParser; resolve_entities or a custom resolver makes it a sink",
+             xml_mode="lxml"),
+    SinkRule(("xml.etree.ElementTree.parse", "xml.etree.ElementTree.fromstring",
+              "xml.etree.ElementTree.XML"),
+             "xml", "xml_external_entity", READ, "read",
+             "ElementTree parse; only a caller-supplied XMLParser may enable entities",
+             source_arg=(0, ("source", "text", "tag")), xml_mode="etree"),
+    SinkRule(("jinja2.Template", "jinja2.Environment.from_string"),
+             "template", "server_side_template_injection", EXEC, "code",
+             "compiles a template; a constant source cannot carry input",
+             source_arg=(0, ("source", "sourcecode", "src"))),
     SinkRule(("subprocess.run", "subprocess.call", "subprocess.check_call",
               "subprocess.check_output", "subprocess.Popen", "subprocess.getoutput",
               "subprocess.getstatusoutput", "os.system", "os.popen", "os.execv", "os.execve",
@@ -97,17 +133,26 @@ SINKS: tuple[SinkRule, ...] = (
               "asyncio.create_subprocess_exec"),
              "process", "command_injection", EXEC, "exec", "runs a process"),
     SinkRule(("builtins.eval", "builtins.exec"),
-             "dynamic_code", "code_injection", EXEC, "code", "runs code"),
-    SinkRule(("builtins.compile", "builtins.__import__", "importlib.import_module"),
-             "dynamic_code", "code_injection", None, "code", "builds or loads code"),
+             "dynamic_code", "code_injection", EXEC, "code",
+             "runs code; a constant argument cannot carry input",
+             source_arg=(0, ("source", "code", "object"))),
+    SinkRule(("builtins.compile",),
+             "dynamic_code", "code_injection", None, "code",
+             "compiles code; a constant argument cannot carry input",
+             source_arg=(0, ("source", "code"))),
+    SinkRule(("builtins.__import__", "importlib.import_module"),
+             "dynamic_code", "code_injection", None, "code", "loads a module"),
     SinkRule(("pickle.loads", "pickle.load", "pickle.Unpickler", "shelve.open",
               "dill.loads", "yaml.unsafe_load", "yaml.full_load"),
-             "deserialization", "insecure_deserialization", EXEC, "code", "unsafe deserialisation"),
+             "deserialization", "insecure_deserialization", EXEC, "code",
+             "unsafe deserialisation; a constant argument cannot carry input",
+             source_arg=(0, ("stream", "data"))),
     SinkRule(("marshal.loads",), "deserialization", "insecure_deserialization", None, "code",
              "unmarshals code objects without running them"),
     SinkRule(("yaml.load",), "deserialization", "insecure_deserialization", EXEC, "code",
-             "yaml.load without a SafeLoader",
-             safe_arg=(1, "Loader", ("SafeLoader", "CSafeLoader", "BaseLoader"))),
+             "yaml.load without a SafeLoader; a constant argument cannot carry input",
+             safe_arg=(1, "Loader", ("SafeLoader", "CSafeLoader", "BaseLoader")),
+             source_arg=(0, ("stream", "data"))),
     SinkRule(SQL_QUERY_CALLS, "database", "sql_injection", SQL, "query",
              "runs SQL; a statement that is not a constant string can carry input", query_arg=(0, ("sql", "query", "statement"))),
     SinkRule(("urllib.request.urlopen", "urllib.request.urlretrieve", "http.client.HTTPConnection",
@@ -202,19 +247,56 @@ def _constant_text(text: str) -> bool:
     return fixed(node)
 
 
-def _dynamic_query(rule: SinkRule, edge: GraphEdge) -> bool:
-    """Whether a query-running call may carry input: its statement is not a constant string.
+def _dynamic_payload(edge: GraphEdge, spec: tuple[int, tuple[str, ...]]) -> bool:
+    """Whether a call may carry input: the named argument is not a constant.
 
-    A call with no statement argument runs nothing; one whose statement the graph did not keep
-    (``*args``, ``**kwargs``) counts as dynamic, because it cannot be shown to be constant.
+    A call with no such argument kept by the graph (``*args``, ``**kwargs``) counts as
+    dynamic, because it cannot be shown to be constant.
     """
-    assert rule.query_arg is not None
-    position, keywords = rule.query_arg
+    position, keywords = spec
     value = edge.args[position] if len(edge.args) > position else next(
         (edge.kwargs[k] for k in keywords if k in edge.kwargs), None)
     if value is None:
         return bool(edge.args or edge.kwargs)
     return not _constant_text(value)
+
+
+def _dynamic_query(rule: SinkRule, edge: GraphEdge) -> bool:
+    """Whether a query-running call may carry input: its statement is not a constant string."""
+    assert rule.query_arg is not None
+    return _dynamic_payload(edge, rule.query_arg)
+
+
+def _false_literal(value: str | None) -> bool:
+    """Whether the source text of an argument names False."""
+    if value is None:
+        return False
+    return value.replace(" ", "") in ("False", "false", "0")
+
+
+def _xml_entities_on(rule: SinkRule, edge: GraphEdge) -> bool:
+    """Whether an XML parse or parser call may resolve external entities."""
+    mode = rule.xml_mode
+    if mode is None or mode == "always":
+        return True
+    if edge.kwargs.get("resolver"):
+        return True
+    if mode == "lxml":
+        if edge.dst.endswith("XMLParser"):
+            return not _false_literal(edge.kwargs.get("resolve_entities"))
+        parser = edge.kwargs.get("parser")
+        if parser is None and len(edge.args) > 1:
+            parser = edge.args[1]
+        if parser:
+            compact = parser.replace(" ", "")
+            if "resolver=" in compact:
+                return True
+            if "resolve_entities=False" in compact:
+                return False
+        return True
+    if mode == "etree":
+        return "parser" in edge.kwargs or len(edge.args) > 1
+    return True
 
 
 def _dynamic_address(rule: SinkRule, edge: GraphEdge) -> bool:
@@ -262,7 +344,11 @@ def _edge_hit(edge: GraphEdge) -> SinkHit | None:
                 return None
         if rule.query_arg is not None and (edge.ref or not _dynamic_query(rule, edge)):
             return None
+        if rule.source_arg is not None and (edge.ref or not _dynamic_payload(edge, rule.source_arg)):
+            return None
         if rule.target_arg is not None and (edge.ref or not _dynamic_address(rule, edge)):
+            return None
+        if rule.xml_mode is not None and not edge.ref and not _xml_entities_on(rule, edge):
             return None
         vuln_class, effect, access = rule.vuln_class, rule.effect, rule.access
         if not edge.ref and _is_write(rule, edge):

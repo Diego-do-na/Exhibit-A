@@ -237,6 +237,12 @@ from pathlib import Path
 
 import anyio
 import requests
+import jinja2
+import lxml.etree
+import werkzeug.datastructures
+import xml.dom.minidom
+import xml.etree.ElementTree
+import xml.sax
 import yaml
 
 
@@ -290,6 +296,10 @@ def code(text):
     return eval(text)
 
 
+def run_exec(text):
+    return exec(text)
+
+
 def unpickle(blob):
     return pickle.loads(blob)
 
@@ -300,6 +310,86 @@ def safe_yaml(text):
 
 def unsafe_yaml(text):
     return yaml.load(text)
+
+
+def yaml_unsafe(text):
+    return yaml.unsafe_load(text)
+
+
+def yaml_full(text):
+    return yaml.full_load(text)
+
+
+def const_eval():
+    return eval("1 + 1")
+
+
+def const_yaml():
+    return yaml.unsafe_load("a: 1")
+
+
+def const_compile():
+    return compile("print(1)", "<s>", "exec")
+
+
+def xxe_minidom(document):
+    return xml.dom.minidom.parseString(document)
+
+
+def xxe_sax(document, handler):
+    return xml.sax.parseString(document, handler)
+
+
+def xxe_lxml(document):
+    return lxml.etree.parse(document)
+
+
+def xxe_lxml_parser():
+    return lxml.etree.XMLParser()
+
+
+def xxe_lxml_safe_parser():
+    return lxml.etree.XMLParser(resolve_entities=False)
+
+
+def xxe_lxml_resolver(resolver):
+    return lxml.etree.XMLParser(resolve_entities=False, resolver=resolver)
+
+
+def xxe_etree(document):
+    return xml.etree.ElementTree.parse(document)
+
+
+def xxe_etree_custom(document, parser):
+    return xml.etree.ElementTree.parse(document, parser=parser)
+
+
+def ssti_template(source):
+    return jinja2.Template(source).render()
+
+
+def ssti_from_string(source):
+    return jinja2.Environment().from_string(source)
+
+
+def ssti_constant():
+    return jinja2.Template("hello {{ name }}").render(name="Ada")
+
+
+def zip_member(f, d):
+    zipfile.ZipFile(f).extract(d)
+
+
+def tar_member(f, d):
+    tarfile.TarFile(f).extract(d)
+
+
+def upload_save(stream, dest):
+    return werkzeug.datastructures.FileStorage(stream).save(dest)
+
+
+def upload_constant(stream):
+    return werkzeug.datastructures.FileStorage(stream).save("/tmp/avatar.png")
 
 
 def fetch(url):
@@ -347,8 +437,22 @@ def sinks(tmp_path_factory):
     ("shell", "subprocess.run", "command_injection", "canary_exec"),
     ("system", "os.system", "command_injection", "canary_exec"),
     ("code", "builtins.eval", "code_injection", "canary_exec"),
+    ("run_exec", "builtins.exec", "code_injection", "canary_exec"),
     ("unpickle", "pickle.loads", "insecure_deserialization", "canary_exec"),
     ("unsafe_yaml", "yaml.load", "insecure_deserialization", "canary_exec"),
+    ("yaml_unsafe", "yaml.unsafe_load", "insecure_deserialization", "canary_exec"),
+    ("yaml_full", "yaml.full_load", "insecure_deserialization", "canary_exec"),
+    ("xxe_minidom", "xml.dom.minidom.parseString", "xml_external_entity", "canary_read"),
+    ("xxe_sax", "xml.sax.parseString", "xml_external_entity", "canary_read"),
+    ("xxe_lxml", "lxml.etree.parse", "xml_external_entity", "canary_read"),
+    ("xxe_lxml_parser", "lxml.etree.XMLParser", "xml_external_entity", "canary_read"),
+    ("xxe_lxml_resolver", "lxml.etree.XMLParser", "xml_external_entity", "canary_read"),
+    ("xxe_etree_custom", "xml.etree.ElementTree.parse", "xml_external_entity", "canary_read"),
+    ("ssti_template", "jinja2.Template", "server_side_template_injection", "canary_exec"),
+    ("ssti_from_string", "jinja2.Environment.from_string", "server_side_template_injection", "canary_exec"),
+    ("zip_member", "zipfile.ZipFile.extract", "archive_extraction_path_traversal", "canary_write"),
+    ("tar_member", "tarfile.TarFile.extract", "archive_extraction_path_traversal", "canary_write"),
+    ("upload_save", "werkzeug.datastructures.FileStorage.save", "unrestricted_file_upload", "canary_write"),
     ("fetch", "requests.get", "ssrf", "canary_connect"),
     ("dial", "socket.create_connection", "ssrf", "canary_connect"),
     ("threaded", "os.stat", "path_traversal", "canary_read"),
@@ -367,6 +471,13 @@ def test_a_sink_on_an_unknown_receiver_is_weak(sinks):
 def test_safe_calls_are_not_sinks(sinks):
     assert "safe_yaml" not in sinks
     assert "harmless" not in sinks
+    assert "const_eval" not in sinks
+    assert "const_yaml" not in sinks
+    assert "const_compile" not in sinks
+    assert "ssti_constant" not in sinks
+    assert "xxe_lxml_safe_parser" not in sinks
+    assert "xxe_etree" not in sinks
+    assert "upload_constant" not in sinks
 
 
 def test_a_constant_connection_target_is_not_a_sink(sinks):

@@ -15,7 +15,10 @@ from exhibit_a.report.cwe import (
     CWE_78,
     CWE_89,
     CWE_95,
+    CWE_434,
     CWE_502,
+    CWE_611,
+    CWE_1336,
     CWE_TABLE,
     get_cwe,
     sarif_level_from_severity,
@@ -54,6 +57,11 @@ def test_cwe_table_mappings() -> None:
     # SQL injection CWE-89
     assert get_cwe("sql", "sql_injection") == CWE_89
     assert get_cwe("canary_sql", "sql_injection") == CWE_89
+
+    # XXE, SSTI, unrestricted upload
+    assert get_cwe("canary_read", "xml_external_entity") == CWE_611
+    assert get_cwe("canary_exec", "server_side_template_injection") == CWE_1336
+    assert get_cwe("canary_write", "unrestricted_file_upload") == CWE_434
 
 
 def test_severity_derived_from_proven_effect_never_model_text() -> None:
