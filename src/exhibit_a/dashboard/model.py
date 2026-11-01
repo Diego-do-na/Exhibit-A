@@ -232,6 +232,7 @@ def _ledger_meta(events: Sequence[Event]) -> dict[str, Any]:
                 "pr": _text(p.get("pr"), 64),
                 "commit": commit if _SHA.match(commit) else "",
                 "branch": _text(p.get("branch"), 200),
+                "title": _text(p.get("title"), 200),
                 "synthetic": p.get("synthetic") is True,
             }
     return {}
@@ -256,6 +257,7 @@ def run_row(data: RunData) -> dict[str, Any]:
         "pr": ref.pr or meta.get("pr", ""),
         "commit": ref.commit or meta.get("commit", ""),
         "branch": ref.branch or meta.get("branch", ""),
+        "title": meta.get("title", ""),
         "url": ref.url,
         "synthetic": ref.synthetic or bool(meta.get("synthetic")),
         "started_at": ref.started_at or (data.events[0].ts if data.events else ""),

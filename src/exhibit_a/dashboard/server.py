@@ -17,7 +17,8 @@ Security posture (threat model in docs/design/dashboard.md):
 
 Endpoints (GET):
 
-- ``/``, ``/app.js``, ``/style.css``: the UI in ``web/dashboard/``.
+- ``/``, ``/app.js``, ``/style.css``, ``/fonts/<name>.woff2``: the UI in
+  ``web/dashboard/`` (fonts are self-hosted; the CSP allows ``font-src 'self'`` only).
 - ``/auth?token=``: one-time bootstrap; redirects to ``/``.
 - ``/api/info``: source label and caps.
 - ``/api/runs?page=&per_page=``: runs list rows, newest first.
@@ -61,6 +62,19 @@ STATIC_FILES = {
     "app.js": "text/javascript; charset=utf-8",
     "style.css": "text/css; charset=utf-8",
 }
+
+#: Self-hosted fonts under ``fonts/``: lowercase woff2 names only, nothing else.
+FONT_RE = re.compile(r"^fonts/[a-z0-9][a-z0-9-]{0,80}\.woff2\Z")
+FONT_TYPE = "font/woff2"
+
+
+def static_type(name: str) -> str | None:
+    """Content type of a servable static file name, or None when it is not servable."""
+    if name in STATIC_FILES:
+        return STATIC_FILES[name]
+    if FONT_RE.match(name):
+        return FONT_TYPE
+    return None
 
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
@@ -252,7 +266,7 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                     self._auth()
                 elif route in ("/", "/index.html"):
                     self._static("index.html")
-                elif route.lstrip("/") in STATIC_FILES:
+                elif static_type(route.lstrip("/")) is not None:
                     self._static(route.lstrip("/"))
                 elif route.startswith("/api/"):
                     self._api(route)
@@ -282,10 +296,11 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
         def _static(self, name: str) -> None:
             root = state.web_dir.resolve()
             target = (root / name).resolve()
-            if target != root / name or not target.is_file():
+            content_type = static_type(name)
+            if content_type is None or target != root / name or not target.is_file():
                 self._error(404, "not found")
                 return
-            self._send(200, target.read_bytes(), STATIC_FILES[name])
+            self._send(200, target.read_bytes(), content_type)
 
         def _api(self, route: str) -> None:
             if self._cross_site():

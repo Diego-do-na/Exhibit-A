@@ -50,7 +50,13 @@ def test_export_is_self_contained_and_uses_relative_references(tmp_path: Path):
         "runs/synthetic-01-starlette-proven/result.json",
     } <= names
 
-    generated = b"\n".join(path.read_bytes() for path in _files(output))
+    # The self-hosted fonts ship with their SIL OFL licence texts, which cite the licence's
+    # home page as text; nothing loads them. Every other exported byte must be URL-free.
+    licences = {name for name in names if name.startswith("fonts/LICENSE-") and name.endswith(".txt")}
+    assert {"fonts/LICENSE-lora.txt", "fonts/LICENSE-ibm-plex-sans.txt", "fonts/LICENSE-jetbrains-mono.txt"} <= licences
+    assert any(name.endswith(".woff2") for name in names)
+    generated = b"\n".join(path.read_bytes() for path in _files(output)
+                           if path.relative_to(output).as_posix() not in licences)
     assert not re.search(rb"https?://", generated)
     assert b"file://" not in generated
     html = (output / "index.html").read_text(encoding="utf-8")

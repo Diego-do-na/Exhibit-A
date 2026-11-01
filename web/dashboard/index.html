@@ -9,55 +9,71 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="backdrop" id="backdrop" aria-hidden="true"></div>
 <div class="app-layout">
   <aside class="sidebar" id="sidebar" aria-label="Dashboard navigation">
-    <div class="brand">
+    <a class="brand" href="#/" aria-label="Exhibit A home">
       <span class="brand-mark" aria-hidden="true">A</span>
       <span class="brand-name">Exhibit A</span>
-    </div>
+    </a>
+
+    <nav class="nav-section" aria-label="Repository">
+      <div class="nav-menu">
+        <a href="#/" class="nav-item" data-nav="home" id="nav-home">
+          <span class="nav-icon" id="icon-home" aria-hidden="true"></span>
+          <span class="nav-text">Home</span>
+        </a>
+        <a href="#/runs" class="nav-item" data-nav="runs" id="nav-runs">
+          <span class="nav-icon" id="icon-runs" aria-hidden="true"></span>
+          <span class="nav-text">All runs</span>
+        </a>
+      </div>
+    </nav>
 
     <div class="run-context-card">
       <label class="run-context-label" for="run-select">Current run</label>
-      <div class="run-context-select-wrap">
-        <select id="run-select" class="run-context-select" aria-label="Current run selector"></select>
+      <div class="run-context-main">
         <span class="run-context-id" id="run-current-id">Loading…</span>
-        <span class="run-context-chevron" aria-hidden="true">▾</span>
+        <span class="run-context-chevron" id="icon-chevron" aria-hidden="true"></span>
       </div>
       <div class="run-context-sub" id="run-current-sub">Proof before accusation</div>
+      <select id="run-select" class="run-context-select"></select>
     </div>
 
-    <nav class="nav-menu" aria-label="Views">
-      <a href="#/runs" class="nav-item" data-nav="overview" id="nav-overview">
-        <span class="nav-icon" id="icon-overview" aria-hidden="true"></span>
-        <span class="nav-text">Overview</span>
-      </a>
-      <a href="#/replay" class="nav-item" data-nav="liverun" id="nav-liverun">
-        <span class="nav-icon" id="icon-liverun" aria-hidden="true"></span>
-        <span class="nav-text">Live run</span>
-      </a>
-      <a href="#/findings" class="nav-item" data-nav="findings" id="nav-findings">
-        <span class="nav-icon" id="icon-findings" aria-hidden="true"></span>
-        <span class="nav-text">Findings</span>
-      </a>
-      <a href="#/trends" class="nav-item" data-nav="benchmark" id="nav-benchmark">
-        <span class="nav-icon" id="icon-benchmark" aria-hidden="true"></span>
-        <span class="nav-text">Benchmark</span>
-      </a>
-      <a href="#/dependencies" class="nav-item" data-nav="dependencies" id="nav-dependencies">
-        <span class="nav-icon" id="icon-dependencies" aria-hidden="true"></span>
-        <span class="nav-text">Dependencies</span>
-      </a>
+    <nav class="nav-section" aria-label="Run views">
+      <div class="nav-menu">
+        <a href="#/runs" class="nav-item" data-nav="overview" id="nav-overview">
+          <span class="nav-icon" id="icon-overview" aria-hidden="true"></span>
+          <span class="nav-text">Overview</span>
+        </a>
+        <a href="#/replay" class="nav-item" data-nav="liverun" id="nav-liverun">
+          <span class="nav-icon" id="icon-liverun" aria-hidden="true"></span>
+          <span class="nav-text">Live run</span>
+        </a>
+        <a href="#/findings" class="nav-item" data-nav="findings" id="nav-findings">
+          <span class="nav-icon" id="icon-findings" aria-hidden="true"></span>
+          <span class="nav-text">Findings</span>
+        </a>
+        <a href="#/dependencies" class="nav-item" data-nav="dependencies" id="nav-dependencies">
+          <span class="nav-icon" id="icon-dependencies" aria-hidden="true"></span>
+          <span class="nav-text">Code graph</span>
+        </a>
+        <a href="#/trends" class="nav-item" data-nav="benchmark" id="nav-benchmark">
+          <span class="nav-icon" id="icon-benchmark" aria-hidden="true"></span>
+          <span class="nav-text">Benchmark</span>
+        </a>
+      </div>
     </nav>
 
     <div class="sidebar-footer">
       <div class="env-info">
         <span class="env-icon" id="icon-monitor" aria-hidden="true"></span>
         <div class="env-details">
-          <span class="env-label">Local replay</span>
-          <span class="env-branch" id="env-branch">main</span>
+          <span class="env-label" id="env-label">Local replay</span>
+          <span class="env-branch" id="env-branch">not available</span>
         </div>
       </div>
-      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme">
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark theme">
         <span class="theme-toggle-icon" id="icon-theme" aria-hidden="true"></span>
       </button>
     </div>
@@ -67,12 +83,12 @@
     <header class="workspace-header">
       <div class="workspace-header-meta">
         <nav class="breadcrumb" id="header-breadcrumb" aria-label="Breadcrumb">Exhibit A</nav>
-        <h1 class="page-title" id="page-title">Run overview</h1>
+        <h1 class="page-title" id="page-title">Loading</h1>
       </div>
       <div class="workspace-header-actions">
-        <button type="button" class="action-btn" id="action-btn">
+        <button type="button" class="action-btn" id="action-btn" hidden>
           <span class="action-btn-icon" id="icon-action" aria-hidden="true"></span>
-          <span id="action-btn-text">Export report</span>
+          <span id="action-btn-text">Export</span>
         </button>
       </div>
     </header>
@@ -80,8 +96,8 @@
     <main id="view" class="data-workspace" aria-live="polite"></main>
 
     <footer class="record-footer">
-      <span class="record-footer-left">Proof before accusation</span>
-      <span class="record-footer-right" id="record-footer-right">Illustrative data · Local replay</span>
+      <span class="record-footer-left">Proof before accusation. A green result means nothing could be proven.</span>
+      <span class="record-footer-right" id="record-footer-right">Local replay</span>
     </footer>
   </div>
 </div>
