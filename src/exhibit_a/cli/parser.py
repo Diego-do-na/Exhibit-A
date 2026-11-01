@@ -201,6 +201,9 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard = sub.add_parser("dashboard", help="Serve the optional local dashboard.")
     dashboard.add_argument("--source", required=True, help="Dashboard source, such as local:RUNS.")
     dashboard.add_argument("--port", type=int, default=8765)
+    dashboard.add_argument("--export", default=None, metavar="DIR", help="Export a self-contained static dashboard to DIR.")
+    dashboard.add_argument("--run", default=None, metavar="RUN_ID", help="Run to include in a static export (default: newest).")
+    dashboard.add_argument("--open", action="store_true", help="Open the live dashboard URL in the default browser.")
     dashboard.set_defaults(func=cmd_dashboard)
 
     register_extensions(sub)

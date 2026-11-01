@@ -17,6 +17,12 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         print("dashboard: dashboard not installed in this build", file=sys.stderr)
         return 2
     forwarded = ["--source", args.source, "--port", str(args.port)]
+    if getattr(args, "export", None):
+        forwarded.extend(["--export", args.export])
+    if getattr(args, "run", None):
+        forwarded.extend(["--run", args.run])
+    if getattr(args, "open", False):
+        forwarded.append("--open")
     try:
         return int(dashboard_main(forwarded))
     except (OSError, ValueError) as exc:
