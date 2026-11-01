@@ -129,20 +129,28 @@ class UpgradePlan:
 
 
 def upgrade_plan(repo: Path, package: str, version: str, fixed_in: str, dependency_source: str) -> UpgradePlan:
-    """Where the pin lives: ``requirements.txt:3`` or ``pyproject.toml:project.dependencies``."""
+    """Where the pin lives: ``requirements.txt:3`` or ``pyproject.toml:project.dependencies``.
+
+    Only a regular file inside the repository is ever rewritten (in a copy of it); a source
+    outside it, or one that is not a plain relative path, leaves the upgrade to the install.
+    """
     file, _, where = dependency_source.rpartition(":")
     if not file:
         return UpgradePlan(package, version, fixed_in, None)
     path = Path(file)
-    try:
-        rel = (path if path.is_absolute() else (Path.cwd() / path)).resolve().relative_to(repo.resolve())
-    except ValueError:
-        candidate = repo / file
-        rel = Path(file) if candidate.is_file() and not Path(file).is_absolute() else None
-    if rel is None or not (repo / rel).is_file():
+    root = repo.resolve()
+    if path.is_absolute():
+        try:
+            path = path.resolve().relative_to(root)
+        except ValueError:
+            return UpgradePlan(package, version, fixed_in, None)
+    if any(part in {"", ".", ".."} for part in path.parts):
+        return UpgradePlan(package, version, fixed_in, None)
+    target = repo / path
+    if target.is_symlink() or not target.is_file() or not target.resolve().is_relative_to(root):
         return UpgradePlan(package, version, fixed_in, None)
     line = int(where) if where.isdigit() else None
-    return UpgradePlan(package, version, fixed_in, rel.as_posix(), line)
+    return UpgradePlan(package, version, fixed_in, path.as_posix(), line)
 
 
 def reach_paths(paths: Sequence[DependencyPath], vuln_class: str, effect: str) -> list[ReachPath]:
@@ -228,7 +236,8 @@ class DependencyProofLoop(VerificationLoop):
             rel = Path(item["path"])
             if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
                 raise ValueError(f"invalid fix path: {item['path']!r}")
-            if rel.parts[0] in self.protected or rel.as_posix() == self.upgrade.requirement_file:
+            if rel.parts[0] in self.protected or rel.as_posix() in (self.upgrade.requirement_file,
+                                                                     self.baseline_test):
                 dropped.append(rel.as_posix())
                 continue
             kept.append(item)

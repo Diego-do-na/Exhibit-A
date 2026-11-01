@@ -607,7 +607,7 @@ def test_starlette_0261_advisory_is_reachable_and_proven_in_the_sandbox(tmp_path
     assert item.reachability.status == "reachable"
     assert item.reachability.paths[0].oracle_entry_point == "StaticFiles.__call__"
     suspicion = {
-        "id": "starlette-staticfiles-commonprefix", "class": "path_traversal",
+        "id": "staticfiles-commonprefix", "class": "path_traversal",
         "location": {"file": "app.py", "line": 7}, "entry_point": "StaticFiles.__call__",
         "hypothesis": "the mounted StaticFiles checks containment with a character prefix",
         "source": "scope['path']",
@@ -625,3 +625,12 @@ def test_starlette_0261_advisory_is_reachable_and_proven_in_the_sandbox(tmp_path
     assert _only(report).fixed_by == "upgrade to 0.27.0 (verified)"
     assert (out / proof.package / "verdict.json").is_file()
     shutil.rmtree(out / "deps", ignore_errors=True)
+
+
+def test_upgrade_plan_never_points_outside_the_repository(tmp_path) -> None:
+    repo = _write(tmp_path / "repo", APP_CALLS_LIBRARY)
+    _write(tmp_path, {"outside.txt": "fakelib==1.0\n"})
+    for source in ("../outside.txt:1", f"{tmp_path / 'outside.txt'}:1", "missing.txt:1"):
+        assert upgrade_plan(repo, "fakelib", "1.0", "1.1", source).requirement_file is None, source
+    absolute = upgrade_plan(repo, "fakelib", "1.0", "1.1", f"{repo / 'requirements.txt'}:1")
+    assert absolute.requirement_file == "requirements.txt"

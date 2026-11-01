@@ -60,10 +60,11 @@ class Inputs:
 
 
 def _rel(path: Path, repo: Path) -> str:
+    """Repository-relative label of a dependency file, or its absolute path when outside."""
     try:
         return path.resolve().relative_to(repo.resolve()).as_posix()
     except ValueError:
-        return str(path)
+        return str(path.resolve())
 
 
 def _parse_file(path: Path, label: str) -> tuple[list[PinnedDependency], list[Unsupported]]:
