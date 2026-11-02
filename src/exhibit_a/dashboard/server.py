@@ -27,6 +27,8 @@ Endpoints (GET):
 - ``/api/runs/<id>/replay?speed=&from=``: Server-Sent Events replay of a
   finished ledger, paced by ``exhibit_a.live.replay.Replayer``.
 - ``/api/trends?limit=``: verdict counts of the most recent runs, oldest first.
+- ``/api/runs/<id>/codegraph``: the run's whole code tree as a graph (files, functions,
+  sinks, entry points, pull request changes, reach and proven paths); ast-only, never run.
 - ``/api/repos``: one summary per repository (runs, proven findings, last run, proven
   findings per run, severity mix), aggregated from the run data; nothing is stored.
 - ``/api/repos/<id>``: one repository's headline metrics across its runs, its recent
@@ -55,6 +57,7 @@ from ..live.replay import Replayer, format_done, parse_speed, select_events
 from .model import (
     EFFECT_SCHEMA,
     MAX_REPO_RUNS,
+    build_code_graph,
     build_graph_view,
     build_repo_detail,
     build_repo_index,
@@ -117,7 +120,7 @@ DEFAULT_TREND_RUNS = 50
 #: Fastest replay accepted; faster requests are clamped.
 MAX_SPEED = 64.0
 
-_RUN_ROUTE = re.compile(r"^/api/runs/([^/]+)(/events|/replay|/trace|/graph|/costs)?$")
+_RUN_ROUTE = re.compile(r"^/api/runs/([^/]+)(/events|/replay|/trace|/graph|/codegraph|/costs)?$")
 _REPO_ROUTE = re.compile(r"^/api/repos/([^/]+)$")
 REPO_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}\Z")
 
@@ -451,6 +454,9 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 return
             if tail == "/graph":
                 self._json(build_graph_view(data))
+                return
+            if tail == "/codegraph":
+                self._json(build_code_graph(data))
                 return
             if tail == "/costs":
                 self._json(run_detail(data)["costs"])

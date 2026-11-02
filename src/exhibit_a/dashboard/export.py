@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .model import (
+    build_code_graph,
     build_graph_view,
     build_repo_detail,
     build_repo_index,
@@ -80,6 +81,8 @@ function staticPath(path) {{
   if (!run) return {{ error: "unknown run" }};
   if (parts[3] === "events") return run.events;
   if (parts[3] === "replay") return run.replay;
+  if (parts[3] === "graph") return run.graph;
+  if (parts[3] === "codegraph") return run.codegraph;
   if (!parts[3]) return run.detail;
   return {{ error: "not found" }};
 }}
@@ -167,6 +170,7 @@ def export_dashboard(
                 "replay": {"events": events["events"]},
                 "ledger": f"runs/{selected}/{LEDGER_NAME}",
                 "graph": build_graph_view(data),
+                "codegraph": build_code_graph(data),
             }
         },
     }

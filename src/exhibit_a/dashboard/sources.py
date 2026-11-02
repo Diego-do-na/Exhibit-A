@@ -47,6 +47,8 @@ MAX_LINE_BYTES = 256 * 1024
 MAX_EVENTS = 20_000
 #: Largest CI result JSON accepted, in bytes.
 MAX_RESULT_BYTES = 256 * 1024
+#: Largest pull request diff (pr.diff) accepted, in bytes; a larger one is ignored.
+MAX_DIFF_BYTES = 1024 * 1024
 #: Largest runs.jsonl index accepted, in bytes.
 MAX_INDEX_BYTES = 2 * 1024 * 1024
 #: Most runs a source lists.
@@ -72,6 +74,7 @@ _TOKEN_RE = re.compile(r"(gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}
 
 LEDGER_NAME = "ledger.jsonl"
 RESULT_NAME = "result.json"
+DIFF_NAME = "pr.diff"
 INDEX_NAME = "runs.jsonl"
 DEFAULT_ARTIFACT = "exhibit-a-ledger"
 
@@ -110,6 +113,9 @@ class RunData:
     result: dict[str, Any] | None = None
     error: str = ""
     tree: Path | None = None
+    #: The pull request's unified diff, when the run folder carries one (untrusted text:
+    #: only parsed for changed line numbers, never applied or executed).
+    diff: str = ""
 
 
 class RunSource(Protocol):
@@ -397,6 +403,12 @@ class LocalRunsSource:
                         break
                 if data.tree is None and any(folder.glob("*.py")):
                     data.tree = folder
+                try:
+                    raw_diff = _read_capped(folder / DIFF_NAME, MAX_DIFF_BYTES)
+                except SourceError:
+                    raw_diff = None  # a symlinked or oversized diff is ignored, never followed
+                if raw_diff:
+                    data.diff = raw_diff.decode("utf-8", errors="replace")
         self._cache.put(stamp, data)
         return data
 

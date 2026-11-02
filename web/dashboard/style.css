@@ -199,6 +199,31 @@
   --bg-sky: #9fcaf8;
   --bg-glow: #eef6ff;
 
+  /* Code graph (drawn on a deep navy stage in both themes) */
+  --g-stage: #050d1f;
+  --g-stage-edge: #0d1d3d;
+  --g-node: #7ea6dd;
+  --g-file: #c9d8ef;
+  --g-edge: #6f8fbf;
+  --g-defines: #3d5680;
+  --g-entry: #5fd3a5;
+  --g-changed: #ffc857;
+  --g-proven: #ffb199;
+  --g-glow: #ff5a3c;
+  --g-reach: #6ab8ff;
+  --g-label: #dbe7f7;
+  --g-halo: #050d1f;
+  --g-select: #ffffff;
+  --g-effect-read: #4fc3f7;
+  --g-effect-write: #b39ddb;
+  --g-effect-exec: #ff7a7a;
+  --g-effect-sql: #ffb74d;
+  --g-effect-connect: #81c784;
+  --g-effect-dos: #f06292;
+  --g-effect-redirect: #4dd0e1;
+  --g-effect-access: #aed581;
+  --g-effect-none: #8a9bb3;
+
   --effect-layer-blur: 34px;
   --effect-background-blur: 24px;
   --effect-drop-shadow: 0 8px 24px rgba(8, 9, 24, 0.25);
@@ -407,9 +432,10 @@ pre,
 }
 
 /* -- Backdrop: a slow mesh of soft blue fields ------------------------------------
- * Fixed behind everything. The fields are large radial gradients that only move
- * with transform (compositor work, no repaint), slowly. Reduced motion gets the
- * same picture standing still, and app.js pauses it while the tab is hidden.
+ * Fixed behind everything. The fields are large radial gradients that app.js moves
+ * with transform only (no layout, no repaint), a few pixels per second, stepped five
+ * times a second: the steps are sub-pixel, and the glass above re-blurs 5 times a
+ * second instead of 60. Reduced motion and hidden tabs get the picture standing still.
  */
 
 .backdrop {
@@ -436,10 +462,6 @@ pre,
   position: absolute;
   border-radius: 50%;
   will-change: transform;
-  animation-duration: 64s;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
-  animation-direction: alternate;
 }
 
 .field-1 {
@@ -449,8 +471,6 @@ pre,
   left: -24vmax;
   top: -30vmax;
   background: radial-gradient(closest-side, rgba(1, 5, 13, 0.92), rgba(1, 5, 13, 0));
-  animation-name: drift-a;
-  animation-duration: 58s;
 }
 
 .field-2 {
@@ -460,8 +480,6 @@ pre,
   left: 18vw;
   top: 10vh;
   background: radial-gradient(closest-side, rgba(21, 68, 196, 0.62), rgba(21, 68, 196, 0));
-  animation-name: drift-b;
-  animation-duration: 71s;
 }
 
 .field-3 {
@@ -471,8 +489,6 @@ pre,
   right: -14vmax;
   top: 18vh;
   background: radial-gradient(closest-side, rgba(63, 132, 238, 0.5), rgba(63, 132, 238, 0));
-  animation-name: drift-c;
-  animation-duration: 83s;
 }
 
 .field-4 {
@@ -482,8 +498,6 @@ pre,
   right: -22vmax;
   bottom: -30vmax;
   background: radial-gradient(closest-side, rgba(238, 246, 255, 0.85), rgba(159, 202, 248, 0.45) 45%, rgba(159, 202, 248, 0));
-  animation-name: drift-d;
-  animation-duration: 67s;
 }
 
 .field-5 {
@@ -493,37 +507,6 @@ pre,
   left: -8vmax;
   bottom: -18vmax;
   background: radial-gradient(closest-side, rgba(7, 34, 96, 0.7), rgba(7, 34, 96, 0));
-  animation-name: drift-e;
-  animation-duration: 76s;
-}
-
-@keyframes drift-a {
-  from { transform: translate3d(0, 0, 0) scale(1); }
-  to { transform: translate3d(9vw, 7vh, 0) scale(1.12); }
-}
-
-@keyframes drift-b {
-  from { transform: translate3d(0, 0, 0) scale(1); }
-  to { transform: translate3d(-12vw, 10vh, 0) scale(1.18); }
-}
-
-@keyframes drift-c {
-  from { transform: translate3d(0, 0, 0) scale(1.05); }
-  to { transform: translate3d(-10vw, 16vh, 0) scale(0.92); }
-}
-
-@keyframes drift-d {
-  from { transform: translate3d(0, 0, 0) scale(1); }
-  to { transform: translate3d(-8vw, -9vh, 0) scale(1.15); }
-}
-
-@keyframes drift-e {
-  from { transform: translate3d(0, 0, 0) scale(1); }
-  to { transform: translate3d(22vw, -6vh, 0) scale(1.1); }
-}
-
-.backdrop.is-paused .field {
-  animation-play-state: paused;
 }
 
 :root[data-theme="dark"] .backdrop .field-4 {
@@ -532,12 +515,6 @@ pre,
 
 :root[data-theme="dark"] .backdrop::after {
   background: linear-gradient(180deg, rgba(1, 5, 13, 0.66) 0%, rgba(1, 5, 13, 0.3) 22%, rgba(1, 5, 13, 0.34) 100%);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .field {
-    animation: none;
-  }
 }
 
 /* -- Liquid glass ----------------------------------------------------------------
@@ -2592,6 +2569,376 @@ a.run-title:hover {
   color: var(--ink-2);
 }
 
+/* The graph canvas repaints while it settles or moves; a blurred ancestor would have to
+ * be recomposited on every one of those frames (measured: 12 fps instead of 60 without a
+ * GPU). On this route the panel is solid; the sidebar and header keep their glass. */
+.route-graph .data-workspace,
+.route-graph .record-footer {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--panel-solid);
+}
+
+/* -- Code graph ------------------------------------------------------------------ */
+
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-10);
+}
+
+.seg {
+  display: inline-flex;
+  padding: 0.1875rem;
+  border: var(--rule-1) solid var(--card-border);
+  border-radius: var(--radius-10);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+.seg-btn {
+  min-height: 2.125rem;
+  padding: 0 var(--space-14);
+  border: 0;
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--type-size-15);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.seg-btn[aria-pressed="true"] {
+  background: var(--accent-primary);
+  color: var(--text-inverse);
+}
+
+.seg-btn:disabled {
+  opacity: 0.45;
+}
+
+.graph-search-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 2.5rem;
+  padding: 0 var(--space-12);
+  border: var(--rule-1) solid var(--card-border);
+  border-radius: var(--radius-10);
+  background: var(--card-bg);
+  color: var(--ink-2);
+  flex: 0 1 18rem;
+  min-width: 12rem;
+}
+
+.graph-search-wrap:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.graph-search {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+  font-size: var(--type-size-15);
+}
+
+.icon-btn {
+  min-width: 2.5rem;
+  padding: 0 var(--space-10);
+}
+
+.graph-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 21rem);
+  gap: var(--space-20);
+  align-items: start;
+}
+
+.graph-main {
+  display: grid;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.graph-stage {
+  position: relative;
+  height: clamp(26rem, calc(100vh - 21rem), 48rem);
+  border: var(--rule-1) solid var(--g-stage-edge);
+  border-radius: var(--radius-18);
+  background:
+    radial-gradient(90% 70% at 70% 100%, rgba(31, 78, 168, 0.32), rgba(31, 78, 168, 0) 70%),
+    radial-gradient(60% 50% at 10% 0%, rgba(8, 26, 66, 0.9), rgba(8, 26, 66, 0) 80%),
+    var(--g-stage);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 18px 40px -24px rgba(1, 8, 28, 0.7);
+  overflow: hidden;
+}
+
+.graph-canvas-el {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.graph-canvas-el.is-dragging {
+  cursor: grabbing;
+}
+
+.graph-canvas-el:focus-visible {
+  outline: 2px solid var(--g-select);
+  outline-offset: -4px;
+  border-radius: var(--radius-18);
+}
+
+.graph-tip {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 0.0625rem;
+  max-width: 15rem;
+  padding: var(--space-8) var(--space-10);
+  border: var(--rule-1) solid rgba(173, 203, 245, 0.25);
+  border-radius: var(--radius-8);
+  background: rgba(5, 13, 31, 0.92);
+  color: var(--g-label);
+  font-size: var(--type-size-13);
+  pointer-events: none;
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.8);
+}
+
+.graph-tip strong {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.graph-foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-16);
+  flex-wrap: wrap;
+}
+
+.graph-status {
+  font-size: var(--type-size-14);
+  color: var(--ink-2);
+}
+
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6) var(--space-16);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--type-size-13);
+  color: var(--ink-2);
+}
+
+.graph-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.lg {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--g-node);
+}
+
+.lg-file { background: var(--g-file); box-shadow: 0 0 0 1.5px var(--g-stage) inset; }
+.lg-entry { background: transparent; box-shadow: 0 0 0 2px var(--g-entry) inset; }
+.lg-sink { border-radius: 2px; transform: rotate(45deg) scale(0.85); background: var(--g-effect-exec); }
+.lg-changed { background: transparent; box-shadow: 0 0 0 2px var(--g-changed) inset; }
+.lg-reach { height: 0.1875rem; width: 1.125rem; border-radius: 2px; background: var(--g-reach); }
+.lg-proven { height: 0.25rem; width: 1.125rem; border-radius: 2px; background: var(--g-glow); box-shadow: 0 0 6px 1px var(--g-glow); }
+
+.graph-panel {
+  display: grid;
+  gap: var(--space-12);
+  align-content: start;
+  max-height: clamp(26rem, calc(100vh - 17rem), 52rem);
+  overflow-y: auto;
+  padding: var(--space-20);
+  border: var(--rule-1) solid var(--card-border);
+  border-radius: var(--radius-18);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+.graph-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.graph-panel-head .btn {
+  min-height: 2rem;
+  min-width: 2rem;
+  padding: 0;
+}
+
+.graph-panel-title {
+  font-size: var(--type-size-18);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.graph-panel-title.mono {
+  font-size: var(--type-size-16);
+}
+
+.graph-where {
+  font-size: var(--type-size-13);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.graph-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
+
+.badge.entry {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.badge.sev-badge.sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical); }
+.badge.sev-badge.sev-high { background: var(--sev-high-bg); color: var(--sev-high); }
+.badge.sev-badge.sev-medium { background: var(--sev-medium-bg); color: var(--sev-medium); }
+.badge.sev-badge.sev-low { background: var(--sev-low-bg); color: var(--sev-low); }
+
+.graph-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+  margin: 0;
+}
+
+.graph-facts div {
+  display: grid;
+  gap: 0.0625rem;
+}
+
+.graph-facts dt {
+  font-size: var(--type-size-13);
+  color: var(--ink-2);
+}
+
+.graph-facts dd {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-weight: 700;
+  font-size: var(--type-size-24);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.graph-facts dd.proven {
+  color: var(--c-proven);
+}
+
+.graph-note {
+  font-size: var(--type-size-14);
+  color: var(--ink-2);
+}
+
+.graph-rel {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.graph-rel h4 {
+  margin: 0;
+  font-size: var(--type-size-14);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.graph-rel ul {
+  display: grid;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.graph-findings li {
+  font-size: var(--type-size-14);
+}
+
+.node-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  max-width: 100%;
+  padding: var(--space-2) var(--space-6);
+  margin-left: calc(-1 * var(--space-6));
+  border: 0;
+  border-radius: var(--radius-6);
+  background: transparent;
+  color: var(--link);
+  font-family: var(--font-mono);
+  font-size: var(--type-size-13);
+  text-align: left;
+}
+
+.node-link:hover {
+  background: var(--row-hover);
+}
+
+.node-link-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.dot {
+  flex: none;
+  width: 0.5625rem;
+  height: 0.5625rem;
+  border-radius: 50%;
+  background: var(--g-node);
+}
+
+.dot-file { background: var(--g-file); box-shadow: 0 0 0 1px var(--card-border); }
+.dot-effect-read { background: var(--g-effect-read); }
+.dot-effect-write { background: var(--g-effect-write); }
+.dot-effect-exec { background: var(--g-effect-exec); }
+.dot-effect-sql { background: var(--g-effect-sql); }
+.dot-effect-connect { background: var(--g-effect-connect); }
+.dot-effect-dos { background: var(--g-effect-dos); }
+.dot-effect-redirect { background: var(--g-effect-redirect); }
+.dot-effect-access { background: var(--g-effect-access); }
+.dot-effect-none { background: var(--g-effect-none); }
+
+.graph-list {
+  max-height: clamp(26rem, calc(100vh - 21rem), 48rem);
+  overflow: auto;
+  padding: var(--space-8) var(--space-16);
+  border: var(--rule-1) solid var(--card-border);
+  border-radius: var(--radius-18);
+  background: var(--card-bg);
+}
+
+.graph-table td {
+  padding-top: var(--space-6);
+  padding-bottom: var(--space-6);
+}
+
 /* -- Trends chart ---------------------------------------------------------------- */
 
 .legend {
@@ -2692,6 +3039,9 @@ a.run-title:hover {
 @media (max-width: 1100px) {
   .metric-row {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .graph-workspace {
+    grid-template-columns: minmax(0, 1fr);
   }
   .findings-grid,
   .home-columns,

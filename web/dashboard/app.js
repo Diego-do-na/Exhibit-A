@@ -1111,7 +1111,7 @@ async function renderFindingDetail(runId, findingId) {
       h("span", { class: "status-code-sep", "aria-hidden": "true", text: "/" }),
       statCol("Observed", before === null ? NA : String(before), before === null ? "na" : "fail")),
     h("div", { class: "boundary-result-text", text: effect.observed
-      ? `Exploit failed in ${runsText} runs; the oracle saw ${effect.label || humanize(effect.type) || "the effect"}${effect.path ? ` of ${effect.path}` : ""}.`
+      ? `Exploit failed in ${runsText} runs; the oracle observed ${effect.type || "the intended effect"}${effect.path ? ` on ${effect.path}` : ""}.`
       : (finding.reason || "Exploit failed on the vulnerable code.") }));
 
   const bypassed = (bypass.variants || []).filter((v) => v.bypassed);
@@ -1476,44 +1476,862 @@ async function renderBenchmark() {
 }
 
 // ==============================================================================
-// Code graph (entry to sink)
+// Code graph: a force-directed graph drawn on canvas.
+// The layout (Barnes-Hut repulsion, springs, gravity) is written here; no library.
 // ==============================================================================
 
-function graphView(graph) {
-  if (!graph || !graph.available) {
-    return emptyState("No code graph is available for this run.", graph && graph.reason ? graph.reason : null);
+const GRAPH_SEVERITIES = ["critical", "high", "medium", "low"];
+
+// Small deterministic PRNG so the same graph always starts from the same layout.
+function seededRandom(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hashString(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-  const nodes = graph.nodes || [];
-  const edges = graph.edges || [];
-  const order = nodes.slice().sort((a, b) => (a.file || "").localeCompare(b.file || "") || a.line - b.line);
-  const positions = Object.fromEntries(order.map((n, i) => [n.id, { x: 80 + (i % 5) * 190, y: 70 + Math.floor(i / 5) * 100 }]));
-  const width = Math.max(900, 120 + (Math.min(order.length, 5) * 190));
-  const height = Math.max(260, 140 + Math.ceil(order.length / 5) * 100);
-  const root = svg("svg", { class: "graph-svg", viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Entry to sink code graph" });
-  edges.forEach((edge) => {
-    const a = positions[edge.src], b = positions[edge.dst];
-    if (!a || !b) return;
-    root.appendChild(svg("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: edge.proven ? "graph-edge proven" : "graph-edge" }));
-  });
-  order.forEach((node) => {
-    const p = positions[node.id];
-    const group = svg("g", { class: `graph-node ${node.proven ? "proven" : ""} ${node.entry_point ? "entry" : ""}` });
-    group.appendChild(svg("rect", { x: p.x - 75, y: p.y - 22, width: 150, height: 44, rx: 6 }));
-    group.appendChild(svg("text", { x: p.x, y: p.y + 4, "text-anchor": "middle", text: String(node.name || node.id).slice(0, 22) }));
-    root.appendChild(group);
-  });
-  return h("div", { class: "card graph-card" },
-    h("div", { class: "card-head" }, h("h2", { class: "card-title", text: "Entry to sink graph" }), h("span", { class: "muted", text: `${nodes.length} nodes, ${edges.length} edges` })),
-    h("div", { class: "graph-canvas" }, root));
+  return h >>> 0;
+}
+
+// Quadtree for Barnes-Hut: each cell keeps the count and centre of mass of its bodies.
+function buildQuadtree(nodes) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of nodes) {
+    if (n.x < x0) x0 = n.x;
+    if (n.y < y0) y0 = n.y;
+    if (n.x > x1) x1 = n.x;
+    if (n.y > y1) y1 = n.y;
+  }
+  const size = Math.max(x1 - x0, y1 - y0, 1) + 1;
+  const root = { x0, y0, size, mass: 0, cx: 0, cy: 0, body: null, kids: null };
+  const quadrant = (cell, n) => {
+    const half = cell.size / 2;
+    return (n.x >= cell.x0 + half ? 1 : 0) + (n.y >= cell.y0 + half ? 2 : 0);
+  };
+  const child = (cell, q) => {
+    if (!cell.kids[q]) {
+      const half = cell.size / 2;
+      cell.kids[q] = { x0: cell.x0 + (q & 1 ? half : 0), y0: cell.y0 + (q & 2 ? half : 0), size: half, mass: 0, cx: 0, cy: 0, body: null, kids: null };
+    }
+    return cell.kids[q];
+  };
+  const insert = (cell, n, depth) => {
+    cell.cx = (cell.cx * cell.mass + n.x) / (cell.mass + 1);
+    cell.cy = (cell.cy * cell.mass + n.y) / (cell.mass + 1);
+    cell.mass += 1;
+    if (cell.mass === 1) { cell.body = n; return; }
+    if (depth > 28) return; // coincident points: keep the aggregate only
+    if (!cell.kids) {
+      cell.kids = [null, null, null, null];
+      const prev = cell.body;
+      cell.body = null;
+      if (prev) insert(child(cell, quadrant(cell, prev)), prev, depth + 1);
+    }
+    insert(child(cell, quadrant(cell, n)), n, depth + 1);
+  };
+  for (const n of nodes) insert(root, n, 0);
+  return root;
+}
+
+class ForceGraph {
+  constructor(canvas, data, hooks) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.hooks = hooks;
+    this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
+    this.alpha = 1;
+    this.alphaTarget = 0;
+    this.hover = null;
+    this.selected = null;
+    this.focus = null; // Set of node ids matching search/filters, or null
+    this.scope = "repo";
+    this.autoFit = true; // refit once the layout settles, until the user moves the view
+    this.raf = 0;
+    this.dirty = true;
+    this.width = 0;
+    this.height = 0;
+    this.colors = {};
+
+    const rand = seededRandom(hashString(data.nodes.map((n) => n.id).join("|")));
+    this.nodes = data.nodes.map((raw, index) => ({ ...raw, index, x: 0, y: 0, vx: 0, vy: 0, fx: null, fy: null, visible: true }));
+    this.byId = new Map(this.nodes.map((n) => [n.id, n]));
+    this.links = [];
+    this.adjacent = new Map(this.nodes.map((n) => [n.id, new Set()]));
+    for (const e of data.edges) {
+      const s = this.byId.get(e.source);
+      const t = this.byId.get(e.target);
+      if (!s || !t) continue;
+      this.links.push({ ...e, s, t });
+      this.adjacent.get(s.id).add(t.id);
+      this.adjacent.get(t.id).add(s.id);
+    }
+    // Starting positions: files on a ring, everything else near its file (or the centre).
+    const files = this.nodes.filter((n) => n.kind === "file");
+    const ring = 40 + Math.sqrt(this.nodes.length) * 22;
+    files.forEach((f, i) => {
+      const a = (i / Math.max(files.length, 1)) * Math.PI * 2;
+      f.x = Math.cos(a) * ring;
+      f.y = Math.sin(a) * ring;
+    });
+    const fileOf = new Map(files.map((f) => [f.file, f]));
+    for (const n of this.nodes) {
+      if (n.kind === "file") continue;
+      const home = fileOf.get(n.file);
+      const spread = home ? 40 : ring * 0.5;
+      n.x = (home ? home.x : 0) + (rand() - 0.5) * spread;
+      n.y = (home ? home.y : 0) + (rand() - 0.5) * spread;
+    }
+    for (const n of this.nodes) n.r = this.radius(n);
+    // A file and the functions it defines form a cluster; clusters repel as units (tick()).
+    const clusterOf = new Map(files.map((f) => [f.file, { file: f, members: [f] }]));
+    for (const n of this.nodes) {
+      if (n.kind === "file" || !clusterOf.has(n.file)) continue;
+      clusterOf.get(n.file).members.push(n);
+    }
+    this.clusters = [...clusterOf.values()];
+    this.refreshColors();
+    this.applyScope("repo");
+  }
+
+  radius(n) {
+    const base = n.kind === "file" ? 7 : n.kind === "sink" ? 7 : 4.5;
+    return Math.min(26, base + Math.sqrt(n.degree || 0) * 1.5);
+  }
+
+  refreshColors() {
+    const css = getComputedStyle(document.documentElement);
+    const v = (name) => css.getPropertyValue(name).trim();
+    this.colors = {
+      node: v("--g-node"), file: v("--g-file"), edge: v("--g-edge"), defines: v("--g-defines"),
+      entry: v("--g-entry"), changed: v("--g-changed"), proven: v("--g-proven"), glow: v("--g-glow"),
+      reach: v("--g-reach"), label: v("--g-label"), halo: v("--g-halo"), select: v("--g-select"),
+      effect: {
+        canary_read: v("--g-effect-read"), canary_write: v("--g-effect-write"), canary_exec: v("--g-effect-exec"),
+        canary_sql: v("--g-effect-sql"), canary_connect: v("--g-effect-connect"), canary_dos: v("--g-effect-dos"),
+        canary_redirect: v("--g-effect-redirect"), canary_access: v("--g-effect-access"), "": v("--g-effect-none"),
+      },
+      font: v("--font-ui") || "sans-serif",
+    };
+    this.invalidate();
+  }
+
+  // Which nodes the current scope shows: everything, or what the pull request touched.
+  applyScope(scope) {
+    this.scope = scope;
+    const prFiles = new Set(this.nodes.filter((n) => n.in_pr && n.kind !== "file" && n.file).map((n) => n.file));
+    for (const n of this.nodes) {
+      n.visible = scope === "repo" || n.in_pr || n.changed || (n.kind === "file" && prFiles.has(n.file));
+    }
+    this.visibleNodes = this.nodes.filter((n) => n.visible);
+    this.visibleClusters = this.clusters
+      .map((c) => ({ members: c.members.filter((n) => n.visible) }))
+      .filter((c) => c.members.length);
+    this.visibleLinks = this.links.filter((l) => l.s.visible && l.t.visible);
+    this.order = this.visibleNodes.slice().sort((a, b) =>
+      (a.kind === "sink") - (b.kind === "sink") || (a.file || "").localeCompare(b.file || "") || (a.line || 0) - (b.line || 0) || a.id.localeCompare(b.id));
+    if (this.selected && !this.selected.visible) this.select(null);
+    this.reheat(0.9);
+  }
+
+  reheat(alpha = 0.6) {
+    this.alpha = Math.max(this.alpha, alpha);
+    this.start();
+  }
+
+  tick() {
+    const nodes = this.visibleNodes;
+    const alpha = this.alpha;
+    // repulsion
+    const tree = buildQuadtree(nodes);
+    const theta2 = 0.81;
+    const strength = -150; // local spacing; clusters keep their distance below
+    for (const n of nodes) {
+      const stack = [tree];
+      while (stack.length) {
+        const cell = stack.pop();
+        if (!cell.mass) continue;
+        const dx = cell.cx - n.x;
+        const dy = cell.cy - n.y;
+        let d2 = dx * dx + dy * dy;
+        if (cell.body === n && cell.mass === 1) continue;
+        if (cell.kids && (cell.size * cell.size) / Math.max(d2, 1e-6) >= theta2) {
+          for (const k of cell.kids) if (k) stack.push(k);
+          continue;
+        }
+        if (d2 > 90000) continue; // beyond 300 units node-to-node repulsion is left to the clusters
+        if (d2 < 1) d2 = 1;
+        const f = (strength * cell.mass * alpha) / d2;
+        n.vx += dx * f;
+        n.vy += dy * f;
+      }
+    }
+    // cluster repulsion: each file's cluster pushes the others away as one body
+    const cs = this.visibleClusters;
+    for (const c of cs) {
+      let x = 0, y = 0;
+      for (const m of c.members) { x += m.x; y += m.y; }
+      c.x = x / c.members.length;
+      c.y = y / c.members.length;
+      c.size = Math.sqrt(c.members.length);
+      c.fx = 0;
+      c.fy = 0;
+    }
+    for (let i = 0; i < cs.length; i++) {
+      for (let j = i + 1; j < cs.length; j++) {
+        const a = cs[i], b = cs[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d2 = Math.max(dx * dx + dy * dy, 400);
+        const f = (-900 * a.size * b.size * alpha) / d2;
+        a.fx += dx * f; a.fy += dy * f;
+        b.fx -= dx * f; b.fy -= dy * f;
+      }
+    }
+    for (const c of cs) {
+      const share = 1 / c.members.length;
+      for (const m of c.members) { m.vx += c.fx * share; m.vy += c.fy * share; }
+    }
+    // springs (a small graph, such as one pull request, can afford stiffer call springs)
+    const stiff = Math.max(1, Math.min(20, 150 / Math.max(nodes.length, 1)));
+    for (const l of this.visibleLinks) {
+      // Short, stiff springs hold a file's functions around it (the clusters); calls
+      // between functions are long and soft, so they connect clusters without fusing them.
+      const want = l.kind === "defines" ? 14 + l.s.r : l.kind === "sink" ? 120 : 100;
+      const k = l.kind === "defines" ? 0.45 : (l.kind === "sink" ? 0.004 : 0.01) * stiff;
+      const dx = l.t.x - l.s.x;
+      const dy = l.t.y - l.s.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const f = ((dist - want) / dist) * k * alpha;
+      const sw = l.t.degree / ((l.s.degree + l.t.degree) || 1);
+      l.t.vx -= dx * f * (1 - sw);
+      l.t.vy -= dy * f * (1 - sw);
+      l.s.vx += dx * f * sw;
+      l.s.vy += dy * f * sw;
+    }
+    // gravity and integration
+    for (const n of nodes) {
+      const pull = n.degree ? 0.005 : 0.03; // isolated nodes would drift off without links
+      n.vx -= n.x * pull * alpha;
+      n.vy -= n.y * pull * alpha;
+      if (n.fx !== null) { n.x = n.fx; n.y = n.fy; n.vx = 0; n.vy = 0; continue; }
+      n.vx *= 0.58;
+      n.vy *= 0.58;
+      n.x += n.vx;
+      n.y += n.vy;
+    }
+    this.alpha += (this.alphaTarget - this.alpha) * 0.016;
+  }
+
+  warmup(ticks) {
+    for (let i = 0; i < ticks && this.alpha > 0.02; i++) this.tick();
+  }
+
+  start() {
+    if (this.raf) return;
+    const step = () => {
+      this.raf = 0;
+      if (document.hidden) return; // resumed by visibilitychange
+      const moving = this.alpha > 0.004;
+      if (moving) this.tick();
+      if (!moving && this.autoFit) { this.autoFit = false; this.fit(); }
+      if (moving || this.dirty) {
+        this.draw();
+        this.raf = requestAnimationFrame(step);
+      }
+    };
+    this.raf = requestAnimationFrame(step);
+  }
+
+  stop() {
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+
+  invalidate() {
+    this.dirty = true;
+    this.start();
+  }
+
+  resize(width, height) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.width = width;
+    this.height = height;
+    this.dpr = dpr;
+    this.canvas.width = Math.max(1, Math.round(width * dpr));
+    this.canvas.height = Math.max(1, Math.round(height * dpr));
+    this.invalidate();
+  }
+
+  toWorld(sx, sy) {
+    return { x: (sx - this.width / 2 - this.panX) / this.zoom, y: (sy - this.height / 2 - this.panY) / this.zoom };
+  }
+
+  toScreen(n) {
+    return { x: n.x * this.zoom + this.width / 2 + this.panX, y: n.y * this.zoom + this.height / 2 + this.panY };
+  }
+
+  nodeAt(sx, sy) {
+    const p = this.toWorld(sx, sy);
+    let best = null;
+    let bestD = Infinity;
+    for (const n of this.visibleNodes) {
+      const dx = n.x - p.x;
+      const dy = n.y - p.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      const reach = n.r + 5 / this.zoom;
+      if (d <= reach && d < bestD) { best = n; bestD = d; }
+    }
+    return best;
+  }
+
+  fit(padding = 40, labelRoom = 120) {
+    const nodes = this.visibleNodes;
+    if (!nodes.length || !this.width) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of nodes) {
+      x0 = Math.min(x0, n.x - n.r); y0 = Math.min(y0, n.y - n.r);
+      x1 = Math.max(x1, n.x + n.r); y1 = Math.max(y1, n.y + n.r);
+    }
+    // labels sit to the right of their node: keep room for them inside the stage
+    const zoom = Math.min((this.width - padding * 2 - labelRoom) / Math.max(x1 - x0, 1), (this.height - padding * 2) / Math.max(y1 - y0, 1));
+    this.zoom = Math.max(0.12, Math.min(2.5, zoom));
+    this.panX = -((x0 + x1) / 2) * this.zoom - labelRoom / 2;
+    this.panY = -((y0 + y1) / 2) * this.zoom;
+    this.invalidate();
+  }
+
+  zoomAt(sx, sy, factor) {
+    const before = this.toWorld(sx, sy);
+    this.zoom = Math.max(0.12, Math.min(6, this.zoom * factor));
+    this.panX = sx - this.width / 2 - before.x * this.zoom;
+    this.panY = sy - this.height / 2 - before.y * this.zoom;
+    this.invalidate();
+  }
+
+  centerOn(n) {
+    const s = this.toScreen(n);
+    if (s.x < 60 || s.y < 60 || s.x > this.width - 60 || s.y > this.height - 60) {
+      this.panX = -n.x * this.zoom;
+      this.panY = -n.y * this.zoom;
+    }
+    this.invalidate();
+  }
+
+  select(n) {
+    this.selected = n;
+    this.hooks.onSelect(n);
+    if (n) this.centerOn(n); else this.invalidate();
+  }
+
+  setHover(n) {
+    if (n === this.hover) return;
+    this.hover = n;
+    this.hooks.onHover(n);
+    this.invalidate();
+  }
+
+  // The set of nodes drawn at full strength: hover and selection win, then search/filters.
+  emphasis() {
+    const pivot = this.hover || this.selected;
+    if (pivot) {
+      const set = new Set(this.adjacent.get(pivot.id));
+      set.add(pivot.id);
+      return set;
+    }
+    return this.focus;
+  }
+
+  draw() {
+    this.dirty = false;
+    const { ctx, colors } = this;
+    const dpr = this.dpr || 1;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.setTransform(dpr * this.zoom, 0, 0, dpr * this.zoom, dpr * (this.width / 2 + this.panX), dpr * (this.height / 2 + this.panY));
+    const strong = this.emphasis();
+    const lit = (n) => !strong || strong.has(n.id);
+    const pivot = this.hover || this.selected;
+    const z = this.zoom;
+
+    // edges, batched by style
+    const batches = new Map();
+    const push = (key, l) => { if (!batches.has(key)) batches.set(key, []); batches.get(key).push(l); };
+    for (const l of this.visibleLinks) {
+      const on = pivot ? (l.s === pivot || l.t === pivot) : (lit(l.s) && lit(l.t));
+      const kind = l.proven ? "proven" : l.in_pr ? "reach" : l.kind === "defines" ? "defines" : "edge";
+      push(`${kind}:${on ? 1 : 0}`, l);
+    }
+    const stroke = (key, color, width, alpha) => {
+      const list = batches.get(key);
+      if (!list) return;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width / z;
+      ctx.beginPath();
+      for (const l of list) { ctx.moveTo(l.s.x, l.s.y); ctx.lineTo(l.t.x, l.t.y); }
+      ctx.stroke();
+    };
+    const dim = strong ? 0.08 : 1;
+    stroke("defines:0", colors.defines, 0.8, 0.55 * dim);
+    stroke("edge:0", colors.edge, 0.8, 0.2 * dim);
+    stroke("reach:0", colors.reach, 1.4, 0.5 * dim);
+    stroke("defines:1", colors.defines, 0.9, 0.7);
+    stroke("edge:1", colors.edge, pivot ? 1.6 : 1, pivot ? 0.95 : 0.6);
+    stroke("reach:1", colors.reach, 2, 0.9);
+    // the proven path glows: wide soft passes under a bright core
+    for (const key of ["proven:0", "proven:1"]) {
+      if (!batches.has(key)) continue;
+      const a = key.endsWith(":1") || !strong ? 1 : 0.25;
+      stroke(key, colors.glow, 14, 0.12 * a);
+      stroke(key, colors.glow, 7, 0.22 * a);
+      stroke(key, colors.proven, 2.4, 0.95 * a);
+    }
+
+    // nodes
+    const minR = 2.4 / z; // keep small nodes visible when zoomed out
+    for (const n of this.visibleNodes) {
+      const on = lit(n);
+      const nr = Math.max(n.r, minR * (n.kind === "file" ? 1.6 : 1));
+      ctx.globalAlpha = on ? 1 : 0.14;
+      const color = n.kind === "sink" ? (colors.effect[n.effect] || colors.effect[""]) : n.kind === "file" ? colors.file : colors.node;
+      if (n.proven && on) {
+        ctx.fillStyle = colors.glow;
+        ctx.globalAlpha = 0.18;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, nr + 9 / z, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      if (n.kind === "sink") {
+        const r = nr * 1.15;
+        ctx.moveTo(n.x, n.y - r); ctx.lineTo(n.x + r, n.y); ctx.lineTo(n.x, n.y + r); ctx.lineTo(n.x - r, n.y); ctx.closePath();
+      } else {
+        ctx.arc(n.x, n.y, nr, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      if (n.kind === "file") {
+        ctx.strokeStyle = colors.halo;
+        ctx.lineWidth = 1.5 / z;
+        ctx.stroke();
+      }
+      if (n.entry) {
+        ctx.strokeStyle = colors.entry;
+        ctx.lineWidth = 2.2 / z;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, nr + 3 / z, 0, Math.PI * 2);
+        ctx.stroke();
+        // a small arrowhead pointing in: where requests enter
+        const s = 5 / z;
+        ctx.fillStyle = colors.entry;
+        ctx.beginPath();
+        ctx.moveTo(n.x - nr - 4 / z - s, n.y - s * 0.8);
+        ctx.lineTo(n.x - nr - 4 / z, n.y);
+        ctx.lineTo(n.x - nr - 4 / z - s, n.y + s * 0.8);
+        ctx.closePath();
+        ctx.fill();
+      }
+      if (n.changed) {
+        ctx.strokeStyle = colors.changed;
+        ctx.lineWidth = 2 / z;
+        ctx.setLineDash([3 / z, 2.5 / z]);
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, nr + (n.entry ? 6.5 : 3.5) / z, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (n === this.selected) {
+        ctx.strokeStyle = colors.select;
+        ctx.lineWidth = 2.5 / z;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, nr + 9 / z, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // labels in screen space, so they keep their size at any zoom
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `500 12px ${colors.font}`;
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    const labelAll = z >= 1.15;
+    const rank = (n) => (n === pivot ? 0 : n.proven ? 1 : n.changed ? 2 : n.entry ? 3 : n.kind === "file" ? 4 : n.kind === "sink" ? 5 : 6);
+    const candidates = [];
+    for (const n of this.visibleNodes) {
+      const important = n === pivot || (pivot && strong.has(n.id)) || n.proven || (n.entry && z > 0.6) || (n.kind === "file" && z > 0.18) || n.kind === "sink" || n.changed;
+      if (!(labelAll || important)) continue;
+      if (strong && !strong.has(n.id)) continue;
+      const s = this.toScreen(n);
+      if (s.x < -50 || s.y < -20 || s.x > this.width + 50 || s.y > this.height + 20) continue;
+      candidates.push({ n, s });
+    }
+    // Draw the most important labels first and skip any that would overlap one already drawn.
+    candidates.sort((a, b) => rank(a.n) - rank(b.n) || b.n.degree - a.n.degree);
+    const placed = [];
+    for (const { n, s } of candidates.slice(0, 260)) {
+      const text = n.label;
+      const w = ctx.measureText(text).width;
+      const x = s.x + Math.max(n.r * z, 2.4) + 6;
+      const box = { x0: x - 2, y0: s.y - 8, x1: x + w + 2, y1: s.y + 8 };
+      if (placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) continue;
+      placed.push(box);
+      ctx.strokeStyle = colors.halo;
+      ctx.lineWidth = 3.5;
+      ctx.strokeText(text, x, s.y);
+      ctx.fillStyle = colors.label;
+      ctx.fillText(text, x, s.y);
+    }
+  }
+}
+
+function graphColorKey(n) {
+  if (n.kind === "sink") return `effect-${(n.effect || "none").replace("canary_", "")}`;
+  return n.kind === "file" ? "file" : "node";
+}
+
+function nodeKindText(n) {
+  if (n.kind === "sink") return "Sink";
+  if (n.kind === "file") return "File";
+  return n.kind === "method" ? "Method" : "Function";
+}
+
+function nodeWhere(n) {
+  if (n.kind === "sink") return n.category ? `external call · ${n.category}` : "external call";
+  if (n.kind === "file") return n.file;
+  return `${n.file}:${n.line}${n.end && n.end !== n.line ? `–${n.end}` : ""}`;
 }
 
 async function renderDependencies(runId) {
   setActiveNav("dependencies");
   updateRunContextCard(runId);
-  const data = await api(`/api/runs/${encodeURIComponent(runId)}`);
-  const row = data.run;
-  setShellHeader([repoCrumb(row), runCrumb(row), { text: "Code graph" }], "Code graph");
-  show(h("p", { class: "lede", text: "Static call graph and sink reach paths computed for this run." }), graphView(data.graph));
+  const [detail, graph] = await Promise.all([
+    api(`/api/runs/${encodeURIComponent(runId)}`),
+    api(`/api/runs/${encodeURIComponent(runId)}/codegraph`),
+  ]);
+  const row = detail.run;
+  setShellHeader([repoCrumb(row), runCrumb(row), { text: "Code graph" }], "Code graph", "Export graph",
+    () => downloadData(`codegraph-${runId}.json`, graph), "download");
+  setFooter("Parsed with ast only; the code was never run here. Reach paths are proposals; proven paths were observed.");
+
+  if (!graph.available) {
+    show(syntheticBanner([row]), emptyState("No code graph is available for this run.", graph.reason || null));
+    return;
+  }
+
+  const stats = graph.stats || {};
+  const prCount = graph.nodes.filter((n) => n.in_pr && n.kind !== "file").length;
+  const effectsPresent = [...new Set(graph.nodes.filter((n) => n.kind === "sink" && n.effect).map((n) => n.effect))];
+  const severitiesPresent = GRAPH_SEVERITIES.filter((s) => graph.nodes.some((n) => n.severity === s));
+
+  // -- controls
+  const scopeRepo = h("button", { type: "button", class: "seg-btn", "aria-pressed": "true", text: `Whole repository` });
+  const scopePr = h("button", { type: "button", class: "seg-btn", "aria-pressed": "false", text: `This pull request` });
+  const scopeGroup = h("div", { class: "seg", role: "group", "aria-label": "Graph scope" }, scopeRepo, scopePr);
+  const search = h("input", { type: "search", class: "graph-search", placeholder: "Search functions and files", "aria-label": "Search the graph", autocomplete: "off", spellcheck: "false" });
+  const effectSel = h("select", { class: "select", "aria-label": "Filter by effect" },
+    h("option", { value: "", text: "All effects" }),
+    effectsPresent.map((e) => h("option", { value: e, text: humanize(e.replace("canary_", "")) })));
+  const sevSel = h("select", { class: "select", "aria-label": "Filter by severity" },
+    h("option", { value: "", text: "All severities" }),
+    severitiesPresent.map((s) => h("option", { value: s, text: humanize(s) })));
+  const fitBtn = h("button", { type: "button", class: "btn icon-btn", "aria-label": "Fit graph to view", title: "Fit (0)" }, icon("maximize", 16));
+  const viewGraph = h("button", { type: "button", class: "seg-btn", "aria-pressed": "true", text: "Graph" });
+  const viewList = h("button", { type: "button", class: "seg-btn", "aria-pressed": "false", text: "List" });
+  const viewGroup = h("div", { class: "seg", role: "group", "aria-label": "Presentation" }, viewGraph, viewList);
+
+  const canvas = h("canvas", {
+    class: "graph-canvas-el",
+    tabindex: "0",
+    role: "application",
+    "aria-roledescription": "code graph",
+    "aria-label": `Code graph of ${stats.files || 0} files and ${stats.functions || 0} functions. Arrow keys move between nodes, Enter opens a finding, plus and minus zoom, 0 fits. The List view shows the same nodes as a table.`,
+  });
+  const tip = h("div", { class: "graph-tip", hidden: "hidden", "aria-hidden": "true" });
+  const stage = h("div", { class: "graph-stage" }, canvas, tip);
+  const panel = h("aside", { class: "graph-panel", "aria-live": "polite", "aria-label": "Selected node" });
+  const listHost = h("div", { class: "graph-list", hidden: "hidden" });
+  const status = h("p", { class: "graph-status", role: "status" });
+
+  const legend = h("ul", { class: "graph-legend", "aria-label": "Legend" },
+    h("li", {}, h("span", { class: "lg lg-node" }), "Function"),
+    h("li", {}, h("span", { class: "lg lg-file" }), "File"),
+    h("li", {}, h("span", { class: "lg lg-entry" }), "Entry point"),
+    h("li", {}, h("span", { class: "lg lg-sink" }), "Sink (colour = effect)"),
+    h("li", {}, h("span", { class: "lg lg-changed" }), "Changed in this PR"),
+    h("li", {}, h("span", { class: "lg lg-reach" }), "Reach path (proposal)"),
+    h("li", {}, h("span", { class: "lg lg-proven" }), "Proven path (observed)"));
+
+  // -- engine
+  let fg = null;
+  const callers = (n) => fg.links.filter((l) => l.t === n && l.kind !== "defines").map((l) => l.s);
+  // a file "calls" what it defines and what its module-level code references
+  const callees = (n) => fg.links.filter((l) => l.s === n && (l.kind !== "defines" || n.kind === "file")).map((l) => l.t);
+  const nodeButton = (n) => h("button", { type: "button", class: "node-link", onclick: () => { fg.select(n); canvas.focus(); } },
+    h("span", { class: `dot dot-${graphColorKey(n)}` }), h("span", { class: "node-link-text", text: n.kind === "file" ? n.file : n.name }));
+
+  const summaryPanel = () => {
+    const proven = graph.proven_paths || [];
+    return [
+      h("h3", { class: "graph-panel-title", text: "This graph" }),
+      h("dl", { class: "graph-facts" },
+        h("div", {}, h("dt", { text: "Files" }), h("dd", { text: String(stats.files || 0) })),
+        h("div", {}, h("dt", { text: "Functions" }), h("dd", { text: String(stats.functions || 0) })),
+        h("div", {}, h("dt", { text: "Entry points" }), h("dd", { text: String(stats.entries || 0) })),
+        h("div", {}, h("dt", { text: "Sinks" }), h("dd", { text: String(stats.sinks || 0) })),
+        h("div", {}, h("dt", { text: "Changed in PR" }), h("dd", { text: graph.changed_source === "diff" ? String(stats.changed || 0) : NA })),
+        h("div", {}, h("dt", { text: "Proven paths" }), h("dd", { class: proven.length ? "proven" : "", text: String(proven.length) }))),
+      proven.length
+        ? h("p", { class: "graph-note", text: `${plural(proven.length, "path")} from an entry point to a sink ${proven.length === 1 ? "was" : "were"} observed by the oracle in this run. Click a glowing node to inspect it.` })
+        : h("p", { class: "graph-note", text: "Nothing could be proven along these paths in this run. That is not a statement that the code is safe." }),
+      h("p", { class: "graph-note muted", text: "Drag to pan, scroll to zoom, drag a node to move it. Hover a node to light up its neighbours." }),
+    ];
+  };
+
+  const nodePanel = (n) => {
+    const findings = n.findings || [];
+    const ins = callers(n);
+    const outs = callees(n);
+    const badges = [
+      n.entry ? h("span", { class: "badge entry", text: `entry · ${n.entry_kind.replace("_", " ")}` }) : null,
+      n.sink ? h("span", { class: "badge", text: n.effect ? `sink · ${humanize(n.effect.replace("canary_", ""))}` : "sink · no oracle effect" }) : null,
+      n.changed ? h("span", { class: "badge warn", text: "changed in this PR" }) : null,
+      n.proven ? h("span", { class: "badge fail", text: "on a proven path" }) : (n.in_pr ? h("span", { class: "badge proven", text: "on a reach path" }) : null),
+      n.severity ? h("span", { class: `badge sev-badge sev-${n.severity}`, text: humanize(n.severity) }) : null,
+    ].filter(Boolean);
+    const list = (title, nodes) => h("div", { class: "graph-rel" },
+      h("h4", { text: `${title} (${nodes.length})` }),
+      nodes.length ? h("ul", {}, nodes.slice(0, 40).map((m) => h("li", {}, nodeButton(m)))) : h("p", { class: "muted small", text: "none" }),
+      nodes.length > 40 ? h("p", { class: "muted small", text: `and ${nodes.length - 40} more` }) : null);
+    return [
+      h("div", { class: "graph-panel-head" },
+        h("span", { class: "micro-label", text: nodeKindText(n) }),
+        h("button", { type: "button", class: "icon-btn btn", "aria-label": "Clear selection", onclick: () => { fg.select(null); canvas.focus(); } }, icon("x", 14))),
+      h("h3", { class: "graph-panel-title mono", text: n.kind === "file" ? n.label : n.name }),
+      h("p", { class: "graph-where mono", text: nodeWhere(n) }),
+      badges.length ? h("div", { class: "graph-badges" }, badges) : null,
+      n.entry_detail ? h("p", { class: "graph-note", text: n.entry_detail }) : null,
+      findings.length ? h("div", { class: "graph-rel" },
+        h("h4", { text: `Findings (${findings.length})` }),
+        h("ul", { class: "graph-findings" }, findings.map((f) => h("li", {},
+          f.verdict === "proven"
+            ? h("a", { href: runHref(runId, `/finding/${encodeURIComponent(f.id)}`) }, `${f.id} · ${humanize(f.class)}`)
+            : h("span", { text: `${f.id} · ${humanize(f.class)}` }),
+          h("span", { class: "muted small", text: ` · ${humanize(f.verdict)}${f.severity ? ` · ${humanize(f.severity)}` : ""}${f.cwe ? ` · ${f.cwe}` : ""}` }))))) : null,
+      n.kind !== "file" ? list("Callers", ins) : null,
+      list(n.kind === "file" ? "Defines and references" : "Callees", outs),
+    ];
+  };
+
+  const showPanel = (n) => panel.replaceChildren(...(n ? nodePanel(n) : summaryPanel()).filter(Boolean));
+
+  const renderList = () => {
+    const rows = fg.order.filter((n) => !fg.focus || fg.focus.has(n.id));
+    listHost.replaceChildren(h("div", { class: "table-wrap" }, h("table", { class: "graph-table" },
+      h("caption", { class: "sr-only", text: "Graph nodes in the current scope and filters" }),
+      h("thead", {}, h("tr", {},
+        h("th", { scope: "col", text: "Node" }), h("th", { scope: "col", text: "Kind" }), h("th", { scope: "col", text: "Where" }),
+        h("th", { scope: "col", class: "num", text: "Callers" }), h("th", { scope: "col", class: "num", text: "Callees" }), h("th", { scope: "col", text: "Notes" }))),
+      h("tbody", {}, rows.map((n) => h("tr", {},
+        h("td", {}, h("button", { type: "button", class: "node-link", onclick: () => { fg.select(n); } },
+          h("span", { class: `dot dot-${graphColorKey(n)}` }), h("span", { class: "node-link-text", text: n.kind === "file" ? n.file : n.name }))),
+        h("td", { text: nodeKindText(n) }),
+        h("td", { class: "mono small", text: nodeWhere(n) }),
+        h("td", { class: "num", text: String(callers(n).length) }),
+        h("td", { class: "num", text: String(callees(n).length) }),
+        h("td", { class: "small", text: [n.entry ? "entry point" : "", n.sink && n.effect ? n.effect : "", n.changed ? "changed" : "",
+          n.proven ? "proven path" : "", (n.findings || []).map((f) => `${f.id} ${f.verdict}`).join(", ")].filter(Boolean).join(" · ") })))))));
+  };
+
+  const updateStatus = () => {
+    const visible = fg.visibleNodes.length;
+    const matched = fg.focus ? fg.visibleNodes.filter((n) => fg.focus.has(n.id)).length : visible;
+    status.textContent = fg.focus
+      ? `${plural(matched, "node")} match of ${visible} shown`
+      : `${plural(visible, "node")} · ${plural(fg.visibleLinks.length, "edge")}${fg.scope === "pr" ? " in this pull request" : ""}`;
+  };
+
+  const applyFilters = () => {
+    const q = search.value.trim().toLowerCase();
+    const effect = effectSel.value;
+    const sev = sevSel.value;
+    if (!q && !effect && !sev) {
+      fg.focus = null;
+    } else {
+      const keep = new Set();
+      const paths = [...(graph.proven_paths || []), ...(graph.reach_paths || [])];
+      for (const n of fg.visibleNodes) {
+        let ok = true;
+        if (q) ok = (n.name || "").toLowerCase().includes(q) || (n.file || "").toLowerCase().includes(q);
+        if (ok && effect) ok = (n.sink && n.effect === effect) || paths.some((p) => p.effect === effect && p.nodes.includes(n.id));
+        if (ok && sev) ok = n.severity === sev;
+        if (ok) keep.add(n.id);
+      }
+      fg.focus = keep;
+    }
+    fg.invalidate();
+    updateStatus();
+    if (!listHost.hidden) renderList();
+  };
+
+  const setScope = (scope) => {
+    scopeRepo.setAttribute("aria-pressed", String(scope === "repo"));
+    scopePr.setAttribute("aria-pressed", String(scope === "pr"));
+    fg.applyScope(scope);
+    fg.warmup(120);
+    fg.fit();
+    fg.autoFit = true;
+    applyFilters();
+    if (scope === "pr" && !fg.visibleNodes.length) {
+      status.textContent = graph.changed_source === "diff"
+        ? "This pull request changed no Python function in the graph."
+        : "The pull request diff is not available for this run.";
+    }
+  };
+
+  fg = new ForceGraph(canvas, graph, {
+    onSelect: (n) => { showPanel(n); },
+    onHover: (n) => {
+      if (!n) { tip.hidden = true; return; }
+      const s = fg.toScreen(n);
+      tip.replaceChildren(h("strong", { text: n.kind === "file" ? n.file : n.name }), h("span", { text: nodeWhere(n) }));
+      tip.hidden = false;
+      tip.style.setProperty("left", `${Math.min(s.x + 14, fg.width - 240)}px`);
+      tip.style.setProperty("top", `${Math.max(s.y - 12, 4)}px`);
+    },
+  });
+
+  // -- pointer and wheel
+  let drag = null;
+  const local = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  canvas.addEventListener("pointerdown", (e) => {
+    const p = local(e);
+    const n = fg.nodeAt(p.x, p.y);
+    canvas.setPointerCapture(e.pointerId);
+    drag = { node: n, x: p.x, y: p.y, panX: fg.panX, panY: fg.panY, moved: false };
+    fg.autoFit = false;
+    if (n) { n.fx = n.x; n.fy = n.y; fg.alphaTarget = 0.25; fg.reheat(0.3); }
+    canvas.classList.add("is-dragging");
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const p = local(e);
+    if (!drag) { fg.setHover(fg.nodeAt(p.x, p.y)); return; }
+    if (Math.abs(p.x - drag.x) + Math.abs(p.y - drag.y) > 3) drag.moved = true;
+    if (drag.node) {
+      const w = fg.toWorld(p.x, p.y);
+      drag.node.fx = w.x;
+      drag.node.fy = w.y;
+      fg.setHover(null);
+    } else {
+      fg.panX = drag.panX + (p.x - drag.x);
+      fg.panY = drag.panY + (p.y - drag.y);
+      fg.invalidate();
+    }
+  });
+  const endDrag = () => {
+    if (!drag) return;
+    const { node, moved } = drag;
+    if (node) { node.fx = null; node.fy = null; fg.alphaTarget = 0; }
+    if (!moved) fg.select(node || null);
+    drag = null;
+    canvas.classList.remove("is-dragging");
+  };
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+  canvas.addEventListener("pointerleave", () => { if (!drag) fg.setHover(null); });
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    fg.autoFit = false;
+    const p = local(e);
+    fg.zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0015));
+  }, { passive: false });
+
+  // -- keyboard
+  canvas.addEventListener("keydown", (e) => {
+    const list = fg.order.filter((n) => !fg.focus || fg.focus.has(n.id));
+    const at = fg.selected ? list.indexOf(fg.selected) : -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); if (list.length) fg.select(list[(at + 1) % list.length]); }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); if (list.length) fg.select(list[(at - 1 + list.length) % list.length]); }
+    else if (e.key === "Enter" && fg.selected) {
+      const f = (fg.selected.findings || []).find((x) => x.verdict === "proven");
+      if (f) location.hash = runHref(runId, `/finding/${encodeURIComponent(f.id)}`);
+    } else if (e.key === "Escape") { fg.select(null); }
+    else if (e.key === "+" || e.key === "=") { fg.zoomAt(fg.width / 2, fg.height / 2, 1.25); }
+    else if (e.key === "-") { fg.zoomAt(fg.width / 2, fg.height / 2, 0.8); }
+    else if (e.key === "0") { fg.fit(); }
+    else if (e.key === "/") { e.preventDefault(); search.focus(); }
+  });
+
+  search.addEventListener("input", applyFilters);
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const first = fg.order.find((n) => fg.focus && fg.focus.has(n.id));
+      if (first) { fg.select(first); canvas.focus(); }
+    }
+  });
+  effectSel.addEventListener("change", applyFilters);
+  sevSel.addEventListener("change", applyFilters);
+  fitBtn.addEventListener("click", () => fg.fit());
+  scopeRepo.addEventListener("click", () => setScope("repo"));
+  scopePr.addEventListener("click", () => setScope("pr"));
+  const setView = (mode) => {
+    viewGraph.setAttribute("aria-pressed", String(mode === "graph"));
+    viewList.setAttribute("aria-pressed", String(mode === "list"));
+    listHost.hidden = mode !== "list";
+    stage.hidden = mode === "list";
+    if (mode === "list") renderList();
+    else fg.invalidate();
+  };
+  viewGraph.addEventListener("click", () => setView("graph"));
+  viewList.addEventListener("click", () => setView("list"));
+
+  // -- size, theme and lifecycle
+  const resize = () => {
+    const r = stage.getBoundingClientRect();
+    if (r.width && r.height) fg.resize(r.width, r.height);
+  };
+  const observer = new ResizeObserver(resize);
+  observer.observe(stage);
+  const themeObserver = new MutationObserver(() => fg.refreshColors());
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  const onVisible = () => { if (!document.hidden) fg.invalidate(); };
+  document.addEventListener("visibilitychange", onVisible);
+  document.body.classList.add("route-graph");
+  onTeardown(() => {
+    document.body.classList.remove("route-graph");
+    fg.stop();
+    observer.disconnect();
+    themeObserver.disconnect();
+    document.removeEventListener("visibilitychange", onVisible);
+  });
+
+  show(
+    syntheticBanner([row]),
+    h("div", { class: "graph-toolbar" },
+      scopeGroup,
+      h("div", { class: "graph-search-wrap" }, icon("search", 16), search),
+      effectSel, sevSel, fitBtn, h("span", { class: "spacer" }), viewGroup),
+    h("div", { class: "graph-workspace" }, h("div", { class: "graph-main" }, stage, listHost, h("div", { class: "graph-foot" }, status, legend)), panel),
+    graph.truncated ? h("p", { class: "graph-note", text: `Large repository: the graph shows the pull request's nodes and the best-connected ones (${graph.nodes.length} nodes).` }) : null);
+
+  if (!prCount) scopePr.disabled = true;
+  showPanel(null);
+  resize();
+  fg.warmup(320);
+  fg.fit();
+  updateStatus();
 }
 
 // ==============================================================================
@@ -1626,12 +2444,51 @@ async function route() {
 
 // -- Bootstrap -----------------------------------------------------------------
 
-// The backdrop's drift is CSS animation on transforms only; stop it while nobody can see it.
+// The backdrop drifts slowly (a few px/s), so it is stepped 5 times a second from here
+// rather than animated at the display rate: the steps are sub-pixel, and the glass
+// surfaces above re-blur 5 times a second instead of 60. Transform only: no layout or
+// repaint. Stopped while the tab is hidden and when the user prefers reduced motion.
+const DRIFT = [
+  // [x vw, y vh, scale delta, half period s] for .field-1 ... .field-5
+  [9, 7, 0.12, 58],
+  [-12, 10, 0.18, 71],
+  [-10, 16, -0.13, 83],
+  [-8, -9, 0.15, 67],
+  [22, -6, 0.1, 76],
+];
+const DRIFT_STEP_MS = 200;
+
+function driftTransform(spec, seconds) {
+  const [dx, dy, ds, half] = spec;
+  const k = (1 - Math.cos((Math.PI * seconds) / half)) / 2; // eased 0 -> 1 -> 0
+  return `translate3d(${(dx * k).toFixed(3)}vw, ${(dy * k).toFixed(3)}vh, 0) scale(${(1 + ds * k).toFixed(4)})`;
+}
+
 function initBackdrop() {
   const backdrop = document.getElementById("backdrop");
   if (!backdrop) return;
-  const sync = () => backdrop.classList.toggle("is-paused", document.hidden);
+  const fields = [...backdrop.querySelectorAll(".field")];
+  const reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  const origin = performance.now() - 23000; // start mid-drift, not at the rest pose
+  let timer = 0;
+  const step = () => {
+    const seconds = (performance.now() - origin) / 1000;
+    fields.forEach((el, i) => el.style.setProperty("transform", driftTransform(DRIFT[i % DRIFT.length], seconds)));
+  };
+  const sync = () => {
+    clearInterval(timer);
+    timer = 0;
+    const still = document.hidden || (reduce && reduce.matches);
+    backdrop.classList.toggle("is-paused", Boolean(still));
+    if (reduce && reduce.matches) {
+      fields.forEach((el) => el.style.removeProperty("transform"));
+      return;
+    }
+    step();
+    if (!still) timer = setInterval(step, DRIFT_STEP_MS);
+  };
   document.addEventListener("visibilitychange", sync);
+  if (reduce && reduce.addEventListener) reduce.addEventListener("change", sync);
   sync();
 }
 

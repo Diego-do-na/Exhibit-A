@@ -214,19 +214,21 @@ def _generated_module(rng: random.Random, module: str, count: int, lower: list[t
     imports: dict[str, set[str]] = {}
     bodies: list[str] = []
     needs_os = needs_subprocess = needs_sqlite = False
+    # Like real modules, each one depends on a few lower modules, not on all of them.
+    deps = rng.sample(lower, min(len(lower), rng.randint(2, 3))) if lower else []
     for index, name in enumerate(names):
         params = rng.sample(PARAMS, rng.randint(1, 2))
         lines = [f'    """{name.replace("_", " ").capitalize()} ({module}, synthetic)."""']
         value = params[0]
         calls = []
-        if lower:
-            for _ in range(rng.randint(1, 3)):
-                mod, funcs = rng.choice(lower)
+        if deps:
+            for _ in range(rng.randint(1, 2)):
+                mod, funcs = rng.choice(deps)
                 calls.append((mod, rng.choice(funcs)))
         for mod, func in calls:
             imports.setdefault(mod, set()).add(func)
             lines.append(f"    {value} = {func}({value})")
-        if index > 0 and rng.random() < 0.35:
+        if index > 0 and rng.random() < 0.55:
             sibling = rng.choice(names[:index])
             lines.append(f"    {value} = {sibling}({value})")
         if sinks and index % 3 == 0:
@@ -543,7 +545,8 @@ class App:
 def archive_tree() -> Tree:
     # The large tree of the set (~450 graph nodes): it exercises the graph view at scale.
     layers = [
-        [(f"importer.api.{name}", 8, ()) for name in ("uploads", "batches", "admin", "exports", "status", "webhooks")],
+        [(f"importer.api.{name}", 9, ()) for name in ("uploads", "batches", "admin", "exports", "status", "webhooks",
+                                                     "reports", "search")],
         [(f"importer.{name}", 12, sinks) for name, sinks in (
             ("pipeline", ("write",)), ("limits", ()), ("formats", ("read",)), ("scan", ("exec",)),
             ("catalog", ("sql",)), ("thumbnails", ("exec", "write")), ("checksums", ("read",)),
@@ -554,6 +557,7 @@ def archive_tree() -> Tree:
         )],
         [(f"importer.lib.{name}", 12, ()) for name in (
             "paths", "text", "timeutil", "retry", "config", "hashing", "units", "naming", "ids", "logs",
+            "mime", "compress", "intervals", "slugs", "pool", "metrics",
         )],
     ]
     tree = _layered_tree(9, layers, routes="importer.api.router")

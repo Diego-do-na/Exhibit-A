@@ -27,7 +27,7 @@ from typing import Any
 from typing import get_args
 
 from ..ci.summary import build_result
-from ..graph import build_graph, find_paths, functions_in
+from ..graph import build_graph, changed_lines, changed_nodes, find_entries, find_paths, functions_in, sink_hits
 from ..oracle.oracle import Effect
 from ..report.cwe import get_cwe, severity_from_effect
 from ..schemas import Event, EventType, VerdictValue
@@ -917,3 +917,235 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
         "pull_requests": pull_requests,
         "top_findings": serious[:MAX_REPO_ROWS],
     }
+
+
+# -- code graph (whole repository) ------------------------------------------------------
+
+#: Most nodes sent for one repository graph; beyond it, the pull request's nodes and the
+#: best-connected ones are kept and the response says it was truncated.
+MAX_CODEGRAPH_NODES = 3000
+MAX_REACH_PATHS = 60
+_CODEGRAPH_CACHE: dict[str, dict[str, Any]] = {}
+_CODEGRAPH_CACHE_SIZE = 16
+_CALLABLE_KINDS = ("function", "method")
+_SEVERITY_RANK = {name: rank for rank, name in enumerate(reversed(SEVERITIES), start=1)}
+
+
+def _worse(a: str, b: str) -> str:
+    return a if _SEVERITY_RANK.get(a, 0) >= _SEVERITY_RANK.get(b, 0) else b
+
+
+def build_code_graph(data: RunData) -> dict[str, Any]:
+    """The whole repository as a graph for the code graph view.
+
+    Nodes are files, functions/methods and the sinks they call; edges are calls between
+    repository functions (``call``), module-level references such as route tables (also
+    ``call``, from the file), calls into a sink (``sink``) and a file's definitions
+    (``defines``). Entry points come from the graph catalog; "changed" nodes come from
+    the run's pull request diff when the run folder carries one. Reach paths
+    (entry -> changed -> sink) are proposals; only the proven paths were observed by the
+    oracle. The tree is parsed with ``ast`` only, never imported or run.
+    """
+    diff_key = hashlib.sha256(data.diff.encode("utf-8", errors="replace")).hexdigest()[:16]
+    key = f"{data.ref.run_id}:{_tree_key(data.tree)}:{diff_key}:{len(data.events)}"
+    cached = _CODEGRAPH_CACHE.get(key)
+    if cached is not None:
+        return cached
+    empty: dict[str, Any] = {
+        "available": False, "reason": "run archive has no local code tree", "nodes": [], "edges": [],
+        "reach_paths": [], "proven_paths": [], "effects": list(EFFECTS), "changed_source": "none",
+        "stats": {}, "truncated": False,
+    }
+    if data.error or data.tree is None:
+        return empty
+    try:
+        graph = build_graph(data.tree)
+    except (OSError, ValueError):
+        return empty | {"reason": "code tree could not be parsed"}
+
+    callables = {n.id: n for n in graph.nodes if n.kind in _CALLABLE_KINDS}
+    classes = {n.id for n in graph.nodes if n.kind == "class"}
+    modules = {n.id: n for n in graph.nodes if n.kind == "module"}
+    detail = run_detail(data, with_graph=False)
+    run_view = build_graph_view(data)
+
+    # entry points: catalog detection plus the suspicions' declared entry points
+    entries, _ = find_entries(graph)
+    entry_kind = {e.node: (e.kind, e.detail) for e in entries}
+    for item in detail.get("proven", []) + detail.get("discarded", []):
+        declared = item.get("entry_point") or ""
+        for node in callables.values():
+            if declared and node.name == declared and node.id not in entry_kind:
+                entry_kind[node.id] = ("declared", "entry point named by the suspicion")
+
+    files = sorted({n.file for n in callables.values()} | {n.file for n in modules.values()})
+    file_id = {f: f"file:{f}" for f in files}
+    edges: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    def add_edge(src: str, dst: str, kind: str, line: int = 0) -> None:
+        edges.setdefault((src, dst, kind), {"source": src, "target": dst, "kind": kind, "line": line})
+
+    for node in callables.values():
+        add_edge(file_id[node.file], node.id, "defines", node.line)
+    for edge in graph.edges:
+        dst = edge.dst
+        if dst in classes:
+            dst = f"{dst}.__init__"  # Class(...) runs __init__ when the class defines one
+        if dst not in callables:
+            continue
+        if edge.src in callables and edge.src != dst:
+            add_edge(edge.src, dst, "call", edge.line)
+        elif edge.src in modules:
+            add_edge(file_id[modules[edge.src].file], dst, "call", edge.line)
+
+    sinks: dict[str, dict[str, Any]] = {}
+    for src, found in sink_hits(graph).items():
+        if src not in callables:
+            continue
+        for hit in found:
+            sid = f"sink:{hit.target}"
+            meta = sinks.setdefault(sid, {"target": hit.target, "effect": hit.effect or "", "category": hit.category,
+                                          "vuln_class": hit.vuln_class, "weak": hit.weak})
+            if hit.effect and not meta["effect"]:
+                meta["effect"] = hit.effect
+            meta["weak"] = meta["weak"] and hit.weak
+            add_edge(src, sid, "sink", hit.line)
+
+    # what the pull request changed
+    changed: set[str] = set()
+    changed_files: set[str] = set()
+    changed_source = "none"
+    if data.diff:
+        lines = changed_lines(data.diff)
+        changed = set(changed_nodes(graph, lines)[0]) & set(callables)
+        changed_files = {f for f in lines if f in file_id}
+        changed_source = "diff"
+
+    # reach paths from the changed functions (proposals), and the oracle's proven paths
+    reach: list[dict[str, Any]] = []
+    if changed:
+        report = find_paths(graph, sorted(changed))
+        for path in report.paths[:MAX_REACH_PATHS]:
+            nodes = [n for n in dict.fromkeys(path.to_changed + path.to_sink) if n in callables]
+            reach.append({"entry": path.entry, "changed": path.changed, "nodes": nodes + [f"sink:{path.sink.target}"],
+                          "sink": f"sink:{path.sink.target}", "effect": path.sink.effect or "",
+                          "confidence": path.confidence})
+    proven_paths = [
+        {"entry": p["entry"], "nodes": [n for n in p["nodes"] if n in callables] + [f"sink:{p['sink']}"],
+         "sink": f"sink:{p['sink']}", "effect": p.get("effect") or ""}
+        for p in run_view.get("paths", [])
+    ]
+
+    # findings: each suspicion sits on the innermost function holding its location
+    def holder(file: str, line: int) -> str:
+        best = ""
+        best_span = 10**9
+        for node in callables.values():
+            if node.file == file and node.start <= line <= node.end and node.end - node.start < best_span:
+                best, best_span = node.id, node.end - node.start
+        return best
+
+    node_findings: dict[str, list[dict[str, Any]]] = {}
+    effect_severity: dict[str, str] = {}
+    for item in detail.get("proven", []) + detail.get("discarded", []):
+        evidence = _dict(item.get("evidence"))
+        observed = _dict(evidence.get("observed_location"))
+        file = observed.get("file") or item.get("file") or ""
+        line = observed.get("line") or item.get("line") or 0
+        severity = _text(evidence.get("severity"), 32).lower()
+        effect = _text(_dict(evidence.get("effect")).get("type"), 64)
+        if item.get("verdict") == VerdictValue.PROVEN.value and severity in SEVERITIES and effect:
+            effect_severity[effect] = _worse(severity, effect_severity.get(effect, ""))
+        target = holder(file, line) if file and line else ""
+        if target:
+            node_findings.setdefault(target, []).append({
+                "id": item.get("id", ""), "verdict": item.get("verdict", ""), "class": item.get("class", ""),
+                "severity": severity if severity in SEVERITIES else "", "effect": effect,
+                "cwe": _text(evidence.get("cwe"), 80), "line": line,
+            })
+
+    on_reach = {n for p in reach for n in p["nodes"]}
+    on_proven = {n for p in proven_paths for n in p["nodes"]}
+    in_pr = changed | on_reach | on_proven
+    proven_edges = {(a, b) for p in proven_paths for a, b in zip(p["nodes"], p["nodes"][1:])}
+    reach_edges = {(a, b) for p in reach for a, b in zip(p["nodes"], p["nodes"][1:])}
+
+    degree: dict[str, int] = {}
+    for src, dst, _ in edges:
+        degree[src] = degree.get(src, 0) + 1
+        degree[dst] = degree.get(dst, 0) + 1
+
+    node_rows: list[dict[str, Any]] = []
+    for f in files:
+        fid = file_id[f]
+        node_rows.append({
+            "id": fid, "kind": "file", "label": f.rsplit("/", 1)[-1], "name": f, "module": "", "file": f,
+            "line": 0, "end": 0, "entry": False, "entry_kind": "", "entry_detail": "", "sink": False,
+            "effect": "", "category": "", "weak": False, "changed": f in changed_files,
+            "in_pr": f in changed_files or any(callables[n].file == f for n in in_pr if n in callables),
+            "proven": False, "findings": [], "severity": "", "degree": degree.get(fid, 0),
+        })
+    for nid, node in callables.items():
+        kind, detail_text = entry_kind.get(nid, ("", ""))
+        findings = node_findings.get(nid, [])
+        severity = ""
+        for finding in findings:
+            if finding["verdict"] == VerdictValue.PROVEN.value:
+                severity = _worse(finding["severity"], severity)
+        if nid in on_proven:
+            for path in proven_paths:
+                if nid in path["nodes"]:
+                    severity = _worse(effect_severity.get(path["effect"], ""), severity)
+        node_rows.append({
+            "id": nid, "kind": node.kind, "label": node.name.rsplit(".", 1)[-1], "name": node.name,
+            "module": node.module, "file": node.file, "line": node.line, "end": node.end,
+            "entry": bool(kind), "entry_kind": kind, "entry_detail": _text(detail_text, 200), "sink": False,
+            "effect": "", "category": "", "weak": False, "changed": nid in changed, "in_pr": nid in in_pr,
+            "proven": nid in on_proven, "findings": findings, "severity": severity, "degree": degree.get(nid, 0),
+        })
+    for sid, meta in sinks.items():
+        severity = effect_severity.get(meta["effect"], "") if sid in on_proven else ""
+        node_rows.append({
+            "id": sid, "kind": "sink", "label": _text(meta["target"], 120), "name": _text(meta["target"], 200),
+            "module": "", "file": "", "line": 0, "end": 0, "entry": False, "entry_kind": "", "entry_detail": "",
+            "sink": True, "effect": meta["effect"], "category": meta["category"], "weak": meta["weak"],
+            "changed": False, "in_pr": sid in in_pr, "proven": sid in on_proven, "findings": [],
+            "severity": severity, "degree": degree.get(sid, 0),
+        })
+
+    truncated = len(node_rows) > MAX_CODEGRAPH_NODES
+    if truncated:
+        node_rows.sort(key=lambda n: (not n["in_pr"], not n["proven"], -n["degree"], n["id"]))
+        node_rows = node_rows[:MAX_CODEGRAPH_NODES]
+    kept = {n["id"] for n in node_rows}
+    edge_rows = [
+        {**e, "proven": (e["source"], e["target"]) in proven_edges,
+         "in_pr": (e["source"], e["target"]) in proven_edges | reach_edges}
+        for e in edges.values() if e["source"] in kept and e["target"] in kept
+    ]
+    result = {
+        "available": True,
+        "reason": "",
+        "nodes": node_rows,
+        "edges": edge_rows,
+        "reach_paths": reach,
+        "proven_paths": proven_paths,
+        "effects": list(EFFECTS),
+        "changed_source": changed_source,
+        "truncated": truncated,
+        "stats": {
+            "files": len(files),
+            "functions": len(callables),
+            "sinks": len(sinks),
+            "calls": sum(1 for e in edge_rows if e["kind"] == "call"),
+            "entries": sum(1 for n in node_rows if n["entry"]),
+            "changed": len(changed),
+            "reach_paths": len(reach),
+            "proven_paths": len(proven_paths),
+            "graph_truncated": graph.truncated,
+        },
+    }
+    if len(_CODEGRAPH_CACHE) >= _CODEGRAPH_CACHE_SIZE:
+        _CODEGRAPH_CACHE.pop(next(iter(_CODEGRAPH_CACHE)))
+    _CODEGRAPH_CACHE[key] = result
+    return result
