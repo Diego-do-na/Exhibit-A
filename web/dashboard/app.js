@@ -40,16 +40,12 @@ const navBackLabel = document.getElementById("nav-back-label");
 const prContextKicker = document.getElementById("pr-context-kicker");
 const prContextTitle = document.getElementById("pr-context-title");
 const prContextSub = document.getElementById("pr-context-sub");
-const windowSelector = document.getElementById("window-selector");
-const metaWindow = document.getElementById("meta-window");
+const metaRunsCovered = document.getElementById("meta-runs-covered");
 const metaLastUpdate = document.getElementById("meta-last-update");
 const metaSource = document.getElementById("meta-source");
 const themeToggle = document.getElementById("theme-toggle");
 const recordFooterRight = document.getElementById("record-footer-right");
 const envBranch = document.getElementById("env-branch");
-
-const WINDOW_LABELS = { "7d": "7 days", "30d": "30 days", "90d": "90 days", total: "Total" };
-const WINDOW_DAYS = { "7d": 7, "30d": 30, "90d": 90, total: null };
 
 const state = {
   runs: [],
@@ -59,7 +55,6 @@ const state = {
   currentRepoId: null,
   currentRunId: null,
   navLevel: "repo", // "repo" | "pr"
-  windowKey: "total", // "7d" | "30d" | "90d" | "total"
   uiFont: "inter", // candidate tested in Milestone 1: "inter" | "geist" | "manrope"
   sourceLabel: "",
   teardown: [], // callbacks run before the next route renders (streams, animation loops)
@@ -541,28 +536,10 @@ function runHref(id, tail = "") {
   return `#/run/${encodeURIComponent(id)}${tail}`;
 }
 
-function filterRunsByWindow(rows, windowKey = state.windowKey) {
-  const days = WINDOW_DAYS[windowKey];
-  if (!days || !rows || !rows.length) return rows || [];
-  let maxMs = 0;
-  for (const r of rows) {
-    const t = Date.parse(String((r && r.started_at) || ""));
-    if (!isNaN(t) && t > maxMs) maxMs = t;
-  }
-  if (!maxMs) return rows;
-  const cutoff = maxMs - days * 86400000;
-  return rows.filter((r) => {
-    const t = Date.parse(String((r && r.started_at) || ""));
-    return !isNaN(t) && t >= cutoff;
-  });
-}
-
 function updateTopbarMeta(rowsForScope = state.runs) {
-  const scoped = rowsForScope && rowsForScope.length ? rowsForScope : state.runs;
-  const filtered = filterRunsByWindow(scoped, state.windowKey);
-  if (metaWindow) {
-    const label = WINDOW_LABELS[state.windowKey] || "Total";
-    metaWindow.textContent = scoped.length ? `${label} (${filtered.length}/${scoped.length})` : label;
+  const scoped = Array.isArray(rowsForScope) ? rowsForScope : (state.runs || []);
+  if (metaRunsCovered) {
+    metaRunsCovered.textContent = scoped.length ? plural(scoped.length, "PR run") : NA;
   }
   if (metaLastUpdate) {
     let newest = "";
@@ -582,13 +559,6 @@ function updateTopbarMeta(rowsForScope = state.runs) {
   if (metaSource) {
     metaSource.textContent = state.sourceLabel || NA;
   }
-  if (windowSelector) {
-    windowSelector.querySelectorAll(".window-btn").forEach((btn) => {
-      const active = btn.dataset.window === state.windowKey;
-      btn.classList.toggle("active", active);
-      btn.setAttribute("aria-pressed", String(active));
-    });
-  }
 }
 
 function setSidebarLevel(level, rowOrRepoId = null) {
@@ -596,7 +566,6 @@ function setSidebarLevel(level, rowOrRepoId = null) {
   if (repoSwitcherCard) repoSwitcherCard.hidden = state.navLevel === "pr";
   if (repoNav) repoNav.hidden = state.navLevel === "pr";
   if (prNav) prNav.hidden = state.navLevel !== "pr";
-  if (windowSelector) windowSelector.hidden = state.navLevel === "pr";
 
   if (state.navLevel === "pr" && rowOrRepoId && typeof rowOrRepoId === "object") {
     const row = rowOrRepoId;
@@ -1010,11 +979,10 @@ async function renderHome(repoId) {
   const detail = await api(`/api/repos/${encodeURIComponent(selected.id)}`);
   const m = detail.metrics || {};
   const name = repoShort(selected.name);
-  const allPrs = detail.pull_requests || [];
-  const prs = filterRunsByWindow(allPrs, state.windowKey);
+  const prs = detail.pull_requests || [];
   setShellHeader([{ text: name, href: `#/repo/${encodeURIComponent(selected.id)}` }, { text: "Home" }], name.split("/").pop() || name,
     "Export overview", () => downloadData(`repository-${selected.id}.json`, detail));
-  updateTopbarMeta(allPrs);
+  updateTopbarMeta(prs);
   setFooter(`${state.sourceLabel || index.source || "Local replay"} · ${plural(index.runs_considered || 0, "run")} read`);
 
   const last = selected.last_run || {};
@@ -2502,9 +2470,8 @@ async function renderRuns(page = 1) {
     : { text: "All repositories", href: "#/" };
   setShellHeader([firstCrumb, { text: "Pull requests" }], "Pull requests", "Refresh", () => route(), "repeat-2");
   setFooter(state.sourceLabel || "Local replay");
-  const allRows = data.runs || [];
-  const rows = filterRunsByWindow(allRows, state.windowKey);
-  updateTopbarMeta(allRows);
+  const rows = data.runs || [];
+  updateTopbarMeta(rows);
 
   const table = h("table", { class: "runs" },
     h("colgroup", {},
@@ -2751,18 +2718,6 @@ async function boot() {
   applyUiFontFromUrl();
   initBackdrop();
   if (themeToggle) themeToggle.onclick = toggleTheme;
-
-  if (windowSelector) {
-    windowSelector.querySelectorAll(".window-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const w = btn.dataset.window;
-        if (!w || w === state.windowKey) return;
-        state.windowKey = w;
-        updateTopbarMeta();
-        route();
-      });
-    });
-  }
 
   const iconMap = [
     ["icon-home", "house"],

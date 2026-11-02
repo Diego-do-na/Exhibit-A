@@ -103,8 +103,13 @@ The dashboard organizes navigation into two explicit levels:
    - **Breadcrumb**: Always renders `repo / PR / section` (or `repo / section` at repository level).
 
 **Top bar**:
-- **Window selector**: Segmented selector (`7 days`, `30 days`, `90 days`, `Total`) filtering repository runs by `started_at` relative to the latest recorded run timestamp.
-- **Metadata columns**: Small-caps labels with monospace values for `WINDOW`, `LAST UPDATE`, and `SOURCE` (`local replay` / `info.source`), plus a `Synthetic sample data` badge whenever any loaded run has `synthetic == true`.
+- The Home is the complete, cumulative history of the repository since its first run, never filtered by date; KPIs sum all runs.
+- **Metadata columns**: Small-caps labels with monospace values for:
+  - `LAST UPDATE`: timestamp of the most recent PR run ingested (`max(started_at)` formatted in UTC, or `"not available"`).
+  - `SOURCE`: `info.source` (or `"not available"`).
+  - `PR RUNS`: number of pull request runs covered (`metrics.runs` / `runs.length`, or `"not available"`).
+- Sequence / run-order charts use the chronological order of PR runs on the x-axis (`PR #`, short commit SHA, or run order) with the timestamp only as a secondary label. Per-PR detail lives inside each PR report.
+- A `Synthetic sample data` badge is shown whenever any loaded run has `synthetic == true`.
 
 ## Data contracts (grounding rule)
 
@@ -121,22 +126,22 @@ Every number, label, sentence, and chart in the UI comes from a named field of r
 | Widget | Endpoint | Exact field(s) | Formula (if any) | Missing state |
 |---|---|---|---|---|
 | Repository switcher | `GET /api/repos` | `repos[].id`, `repos[].name`, `repos[].runs`, `repos[].proven`, `repos[].synthetic` | None (sorted by `last_run.started_at` descending) | `"not available"` |
-| Top bar: Window | `GET /api/repos/<id>` / `GET /api/runs` | `pull_requests[].started_at` / `runs[].started_at` | Keep runs where `max_ts - started_at <= window_days * 86400s` (`Total` keeps all) | `"not available"` |
-| Top bar: Last update | `GET /api/repos/<id>` / `GET /api/runs` | `runs[].started_at` | `max(started_at)` formatted as `YYYY-MM-DD HH:MM UTC` | `"not available"` |
+| Top bar: Last update | `GET /api/repos/<id>` / `GET /api/runs` | `pull_requests[].started_at` / `runs[].started_at` | `max(started_at)` of the most recent PR run ingested | `"not available"` |
 | Top bar: Source | `GET /api/info` | `source` | Direct string | `"not available"` |
-| KPI: Proven findings | `GET /api/repos/<id>` | `metrics.proven`, `metrics.root_causes`, `pull_requests[].proven` | `sum(r.proven)` across runs in selected window | `"not available"` |
-| KPI: Fixes verified | `GET /api/repos/<id>` | `metrics.fixes_verified`, `pull_requests[].fixes_verified` | Count of proven findings where `passes_on_fixed.fix_verified == true` and `bypass.succeeded == 0` | `"not available"` |
-| KPI: Fixes defeated by bypass | `GET /api/repos/<id>` | `metrics.fixes_bypassed`, `pull_requests[].fixes_bypassed` | Count of proven findings where `bypass.succeeded > 0` | `"not available"` |
-| KPI: Discarded suspicions | `GET /api/repos/<id>` | `metrics.discarded`, `pull_requests[].dropped` | `sum(r.dropped)` across runs in selected window | `"not available"` |
+| Top bar: PR runs covered | `GET /api/repos/<id>` / `GET /api/runs` | `metrics.runs` / `runs.length` | Cumulative count of PR runs covered (`N PR runs`) | `"not available"` |
+| KPI: Proven findings | `GET /api/repos/<id>` | `metrics.proven`, `metrics.root_causes`, `pull_requests[].proven` | `sum(r.proven)` across all repository runs | `"not available"` |
+| KPI: Fixes verified | `GET /api/repos/<id>` | `metrics.fixes_verified`, `pull_requests[].fixes_verified` | Cumulative count of proven findings where `passes_on_fixed.fix_verified == true` and `bypass.succeeded == 0` | `"not available"` |
+| KPI: Fixes defeated by bypass | `GET /api/repos/<id>` | `metrics.fixes_bypassed`, `pull_requests[].fixes_bypassed` | Cumulative count of proven findings where `bypass.succeeded > 0` | `"not available"` |
+| KPI: Discarded suspicions | `GET /api/repos/<id>` | `metrics.discarded`, `pull_requests[].dropped` | `sum(r.dropped)` across all repository runs | `"not available"` |
 | KPI: Total cost | `GET /api/repos/<id>` | `metrics.cost_usd`, `metrics.tokens_in`, `metrics.tokens_out`, `pull_requests[].cost_usd` | `sum(r.cost_usd)` formatted in USD; subtext `sum(tokens_in + tokens_out)` | `"not available"` |
-| KPI: Median run duration | `GET /api/repos/<id>` | `pull_requests[].duration_s` | Median of non-null `duration_s` values in window | `"not available"` |
-| Chart: Proven findings over time (stacked by effect) | `GET /api/repos/<id>` | `pull_requests[].started_at`, `pull_requests[].pr`, `pull_requests[].effects_breakdown` | Per run count of proven findings grouped by `evidence.effect.type` | `"not available"` |
-| Chart: Verification funnel | `GET /api/repos/<id>` | `funnel.{suspicions_raised, exploits_written, proven, fix_verified, bypass_resistant}` | Direct counts summed across runs in window | `"not available"` |
-| Chart: Verdict outcome donut | `GET /api/repos/<id>` | `verdict_totals.{proven, discarded_unproven, invalid_test, flaky, env_failure}` | `total = sum(counts)`, `share_pct = round(count * 100 / total, 1)` | `"not available"` |
-| Chart: Hot files heatmap (`file x run`) | `GET /api/repos/<id>` | `hot_files.files[]`, `hot_files.runs[]`, `hot_files.cells[][]` | Count of findings (`proven` and `discarded`) per `(file, run_id)` | `"not available"` |
-| Chart: Cost & tokens per run by role | `GET /api/repos/<id>` | `role_costs[]` (`run_id`, `pr`, `by_role.{adversary, test_writer, fixer, defender}.{cost_usd, tokens_in, tokens_out, events}`) | Stacked per role across runs in window | `"not available"` |
+| KPI: Median run duration | `GET /api/repos/<id>` | `metrics.median_duration_s`, `pull_requests[].duration_s` | Median of non-null `duration_s` values across all repository runs | `"not available"` |
+| Chart: Proven findings per PR run (stacked by effect) | `GET /api/repos/<id>` | `pull_requests[].pr`, `pull_requests[].commit`, `pull_requests[].started_at`, `pull_requests[].effects` | Ordered oldest-to-newest by PR run (`PR #` / commit on x-axis, date as secondary label); stacked by `effect` | `"not available"` |
+| Chart: Verification funnel | `GET /api/repos/<id>` | `metrics.{suspicions_raised, exploits_written, proven, fixes_verified, fixes_bypassed}` | Cumulative counts across all repository runs (`bypass_resistant = fixes_verified`) | `"not available"` |
+| Chart: Verdict outcome donut | `GET /api/repos/<id>` | `pull_requests[].verdicts.{proven, discarded_unproven, invalid_test, flaky, env_failure}` | `total = sum(counts)`, `share_pct = round(count * 100 / total, 1)` | `"not available"` |
+| Chart: Hot files heatmap (`file x PR run`) | `GET /api/repos/<id>` | `pull_requests[].files_touched[]`, `top_findings[].file`, `pull_requests[].pr` | Matrix of touched/finding files × PR runs in run order | `"not available"` |
+| Chart: Cost & tokens per PR run by role | `GET /api/repos/<id>` | `role_costs[]` (`run_id`, `pr`, `by_role.{adversary, test_writer, fixer, defender}.{cost_usd, tokens_in, tokens_out, events}`) | Ordered by PR run on x-axis, stacked per role | `"not available"` |
 | Chart: Time per stage | `GET /api/repos/<id>` | `stage_durations[]` (`stage`, `seconds`, `events`) | Sum of stage durations derived from ledger event timestamps and `latency_ms` | `"not available"` |
-| Chart: Severity & CWE distribution | `GET /api/repos/<id>` | `cwe_distribution[]` (`cwe`, `name`, `severity`, `effect`, `count`) | Count of proven findings per `(cwe, severity)` | `"not available"` |
+| Chart: Severity & CWE distribution | `GET /api/repos/<id>` | `top_findings[]` (`cwe`, `severity`, `effect`, `occurrences`) | Cumulative count of proven findings per `(cwe, severity)` | `"not available"` |
 | Pull requests filter panel + sortable table | `GET /api/repos/<id>` / `GET /api/runs` | `run_id`, `pr`, `title`, `branch`, `commit`, `status`, `highest_severity`, `effects[]`, `cwes[]`, `risk`, `duration_s`, `cost_usd`, `proven`, `dropped` | Left row border coloured by `highest_severity` (neutral when `proven == 0`); client sort & filter on exact fields | `"not available"` per missing cell |
 | Repository Findings table | `GET /api/repos/<id>` | `top_findings[]`, `all_findings[]` (`run_id`, `finding_id`, `class`, `severity`, `cwe`, `effect`, `file`, `line`, `fix_status`, `pr`, `started_at`, `occurrences`) | Sorted by severity rank then fix status then recency | `"not available"` |
 | Repository Code graph | `GET /api/runs/<latest_run_id>/codegraph` | `available`, `nodes[]`, `edges[]`, `reach_paths[]`, `proven_paths[]`, `stats` | Force-directed layout (`ForceGraph`) over AST nodes and edges | `reason` or `"not available"` |

@@ -86,7 +86,7 @@
   color-scheme: light;
 
   --font-editorial: "Lora", Georgia, "Times New Roman", serif;
-  --font-ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-ui: "Inter", "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* Type sizes: tokens.json px values expressed in rem (1rem = 16px at 1728 px wide). */
@@ -149,16 +149,16 @@
 
   /* Palette (tokens.json, contrast-tuned >= 4.5:1 over glass in both themes) */
   --surface-raised: #ffffff;
-  --surface-workspace: #f0f5fb;
+  --surface-workspace: rgba(235, 244, 255, 0.62);
   --surface-workspace-white: #f4f7fc;
-  --surface-selected: #eaf2ff;
-  --border-default: #c8d6e8;
-  --text-primary: #0b1829;
-  --text-secondary: #243852;
+  --surface-selected: rgba(219, 234, 254, 0.78);
+  --border-default: rgba(186, 208, 236, 0.75);
+  --text-primary: #081526;
+  --text-secondary: #1c314a;
   --text-navy: #091830;
-  --text-slate: #284260;
+  --text-slate: #223a56;
   --text-inverse: #ffffff;
-  --accent-primary: #124ec2;
+  --accent-primary: #0f48b8;
   --severity-high: #784900;
   --severity-critical: #961d24;
   --severity-medium: #694b00;
@@ -258,28 +258,28 @@
 
   /* Semantic roles, light theme (default) */
   --shell-ink: var(--text-inverse);
-  --panel-bg: rgba(244, 247, 252, 0.9);
+  --panel-bg: linear-gradient(145deg, rgba(244, 249, 255, 0.72) 0%, rgba(224, 238, 255, 0.62) 52%, rgba(236, 245, 255, 0.70) 100%);
   --panel-solid: var(--surface-workspace-white);
-  --panel-border: rgba(255, 255, 255, 0.55);
-  --panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.25);
-  --panel-shadow: 0 24px 60px -24px rgba(1, 8, 28, 0.55);
-  --card-bg: rgba(255, 255, 255, 0.84);
+  --panel-border: rgba(255, 255, 255, 0.78);
+  --panel-highlight: inset 0 1.5px 0 rgba(255, 255, 255, 0.96), inset 1px 0 0 rgba(255, 255, 255, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+  --panel-shadow: 0 28px 68px -22px rgba(1, 10, 32, 0.58);
+  --card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.78) 0%, rgba(240, 247, 255, 0.64) 100%);
   --card-solid: var(--surface-raised);
-  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), 0 1px 2px rgba(13, 31, 60, 0.04), 0 10px 28px -16px rgba(13, 31, 60, 0.22);
-  --sidebar-bg: linear-gradient(180deg, rgba(2, 8, 20, 0.66), rgba(3, 12, 30, 0.58));
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 1px 0 0 rgba(255, 255, 255, 0.65), 0 2px 5px rgba(9, 24, 52, 0.06), 0 14px 32px -14px rgba(9, 24, 52, 0.24);
+  --sidebar-bg: linear-gradient(180deg, rgba(2, 10, 26, 0.58), rgba(4, 16, 40, 0.48));
   --sidebar-solid: #040d20;
-  --control-glass: rgba(10, 30, 70, 0.42);
+  --control-glass: rgba(8, 26, 64, 0.44);
   --control-solid: #0b1f45;
-  --glass-specular: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.55) 30%, rgba(255, 255, 255, 0.55) 70%, rgba(255, 255, 255, 0));
-  --card-border: var(--border-default);
+  --glass-specular: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.92) 25%, rgba(255, 255, 255, 0.92) 75%, rgba(255, 255, 255, 0));
+  --card-border: rgba(255, 255, 255, 0.82);
   --subtle-bg: var(--surface-workspace);
   --selected-bg: var(--surface-selected);
   --ink: var(--text-primary);
   --ink-2: var(--text-secondary);
   --ink-3: var(--text-slate);
   --link: var(--accent-primary);
-  --track: #e2eaf4;
-  --row-hover: #f2f6fc;
+  --track: rgba(196, 214, 238, 0.72);
+  --row-hover: rgba(255, 255, 255, 0.62);
   --focus-ring: #3d84ff;
   --sev-critical: var(--severity-critical);
   --sev-high: var(--severity-high);
@@ -303,23 +303,23 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --panel-bg: rgba(4, 12, 28, 0.8);
+  --panel-bg: linear-gradient(145deg, rgba(7, 20, 46, 0.62) 0%, rgba(4, 13, 32, 0.54) 52%, rgba(8, 24, 56, 0.60) 100%);
   --panel-solid: #06122a;
-  --panel-border: rgba(173, 203, 245, 0.16);
-  --panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-  --panel-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7);
-  --card-bg: rgba(22, 42, 76, 0.55);
+  --panel-border: rgba(160, 205, 255, 0.28);
+  --panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 1px 0 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px rgba(140, 195, 255, 0.08);
+  --panel-shadow: 0 28px 68px -22px rgba(0, 0, 0, 0.78);
+  --card-bg: linear-gradient(145deg, rgba(20, 42, 82, 0.54) 0%, rgba(10, 24, 52, 0.44) 100%);
   --card-solid: #11233f;
-  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 10px 28px -18px rgba(0, 0, 0, 0.8);
-  --card-border: rgba(173, 203, 245, 0.14);
-  --subtle-bg: rgba(255, 255, 255, 0.045);
-  --selected-bg: rgba(84, 145, 255, 0.18);
-  --ink: #f0f6ff;
-  --ink-2: #c6d8f0;
-  --ink-3: #b3c9e6;
-  --link: #99c4ff;
-  --track: rgba(255, 255, 255, 0.12);
-  --row-hover: rgba(255, 255, 255, 0.06);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 1px 0 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 rgba(0, 0, 0, 0.28), 0 14px 34px -16px rgba(0, 0, 0, 0.82);
+  --card-border: rgba(165, 208, 255, 0.22);
+  --subtle-bg: rgba(255, 255, 255, 0.06);
+  --selected-bg: rgba(84, 145, 255, 0.22);
+  --ink: #f4f8ff;
+  --ink-2: #d2e2f7;
+  --ink-3: #bfd4f0;
+  --link: #a3cbff;
+  --track: rgba(255, 255, 255, 0.14);
+  --row-hover: rgba(255, 255, 255, 0.08);
   --sev-critical: #ffaba6;
   --sev-high: #ffd07b;
   --sev-medium: #f5dc84;
@@ -483,8 +483,8 @@ pre,
   overflow: hidden;
   contain: strict;
   background:
-    radial-gradient(120% 90% at 100% 100%, var(--bg-glow) 0%, var(--bg-sky) 16%, rgba(63, 132, 238, 0) 52%),
-    linear-gradient(142deg, var(--bg-ink) 0%, var(--bg-deep) 26%, var(--bg-navy) 46%, var(--bg-royal) 66%, var(--bg-azure) 82%, var(--bg-sky) 100%);
+    radial-gradient(90% 80% at 92% 92%, var(--bg-glow) 0%, var(--bg-sky) 22%, rgba(63, 132, 238, 0) 60%),
+    linear-gradient(138deg, var(--bg-ink) 0%, var(--bg-deep) 22%, var(--bg-navy) 44%, var(--bg-royal) 68%, var(--bg-azure) 86%, var(--bg-sky) 100%);
 }
 
 .backdrop::after {
@@ -492,7 +492,7 @@ pre,
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(1, 5, 13, 0.62) 0%, rgba(1, 5, 13, 0.18) 16%, rgba(1, 5, 13, 0) 30%);
+  background: linear-gradient(180deg, rgba(1, 5, 13, 0.56) 0%, rgba(1, 5, 13, 0.14) 16%, rgba(1, 5, 13, 0) 28%);
 }
 
 .field {
@@ -502,56 +502,68 @@ pre,
 }
 
 .field-1 {
-  /* deep navy pool, upper left */
-  width: 70vmax;
-  height: 70vmax;
-  left: -24vmax;
-  top: -30vmax;
-  background: radial-gradient(closest-side, rgba(1, 5, 13, 0.92), rgba(1, 5, 13, 0));
+  /* deep sapphire disc behind upper-left sidebar and header */
+  width: 52vmax;
+  height: 52vmax;
+  left: -10vmax;
+  top: -14vmax;
+  background: radial-gradient(closest-side, rgba(6, 28, 88, 0.88), rgba(15, 58, 165, 0.42) 55%, rgba(6, 28, 88, 0));
 }
 
 .field-2 {
-  /* saturated royal blue, centre */
-  width: 64vmax;
-  height: 64vmax;
-  left: 18vw;
-  top: 10vh;
-  background: radial-gradient(closest-side, rgba(21, 68, 196, 0.62), rgba(21, 68, 196, 0));
+  /* luminous electric blue disc right behind upper-centre workspace */
+  width: 46vmax;
+  height: 46vmax;
+  left: 22vw;
+  top: 4vh;
+  background: radial-gradient(closest-side, rgba(56, 189, 248, 0.72), rgba(37, 99, 235, 0.48) 52%, rgba(37, 99, 235, 0));
 }
 
 .field-3 {
-  /* azure, right */
-  width: 54vmax;
-  height: 54vmax;
-  right: -14vmax;
-  top: 18vh;
-  background: radial-gradient(closest-side, rgba(63, 132, 238, 0.5), rgba(63, 132, 238, 0));
+  /* bright cyan-aqua orb behind right workspace cards */
+  width: 42vmax;
+  height: 42vmax;
+  right: 4vw;
+  top: 16vh;
+  background: radial-gradient(closest-side, rgba(34, 211, 238, 0.68), rgba(59, 130, 246, 0.44) 54%, rgba(59, 130, 246, 0));
 }
 
 .field-4 {
-  /* luminous sky glow, lower right */
-  width: 62vmax;
-  height: 62vmax;
-  right: -22vmax;
-  bottom: -30vmax;
-  background: radial-gradient(closest-side, rgba(238, 246, 255, 0.85), rgba(159, 202, 248, 0.45) 45%, rgba(159, 202, 248, 0));
+  /* ice-sky glow disc behind lower-right workspace */
+  width: 50vmax;
+  height: 50vmax;
+  right: -8vmax;
+  bottom: -12vmax;
+  background: radial-gradient(closest-side, rgba(224, 242, 254, 0.92), rgba(125, 211, 252, 0.58) 48%, rgba(125, 211, 252, 0));
 }
 
 .field-5 {
-  /* indigo shadow that crosses the middle */
-  width: 46vmax;
-  height: 46vmax;
-  left: -8vmax;
-  bottom: -18vmax;
-  background: radial-gradient(closest-side, rgba(7, 34, 96, 0.7), rgba(7, 34, 96, 0));
+  /* indigo-violet orb crossing lower-left workspace */
+  width: 44vmax;
+  height: 44vmax;
+  left: 10vw;
+  bottom: -6vmax;
+  background: radial-gradient(closest-side, rgba(99, 102, 241, 0.66), rgba(29, 78, 216, 0.42) 52%, rgba(29, 78, 216, 0));
+}
+
+:root[data-theme="dark"] .backdrop .field-2 {
+  background: radial-gradient(closest-side, rgba(56, 189, 248, 0.52), rgba(37, 99, 235, 0.36) 54%, rgba(37, 99, 235, 0));
+}
+
+:root[data-theme="dark"] .backdrop .field-3 {
+  background: radial-gradient(closest-side, rgba(34, 211, 238, 0.46), rgba(59, 130, 246, 0.30) 54%, rgba(59, 130, 246, 0));
 }
 
 :root[data-theme="dark"] .backdrop .field-4 {
-  opacity: 0.55;
+  opacity: 0.48;
+}
+
+:root[data-theme="dark"] .backdrop .field-5 {
+  background: radial-gradient(closest-side, rgba(99, 102, 241, 0.52), rgba(29, 78, 216, 0.32) 52%, rgba(29, 78, 216, 0));
 }
 
 :root[data-theme="dark"] .backdrop::after {
-  background: linear-gradient(180deg, rgba(1, 5, 13, 0.66) 0%, rgba(1, 5, 13, 0.3) 22%, rgba(1, 5, 13, 0.34) 100%);
+  background: linear-gradient(180deg, rgba(1, 5, 13, 0.58) 0%, rgba(1, 5, 13, 0.18) 24%, rgba(1, 5, 13, 0.22) 100%);
 }
 
 /* -- Liquid glass ----------------------------------------------------------------
@@ -568,9 +580,12 @@ pre,
 .record-footer,
 .action-btn,
 .theme-toggle,
+.repo-switcher-card,
+.pr-context-card,
+.topbar-meta,
 .run-context-card {
-  -webkit-backdrop-filter: blur(var(--effect-background-blur)) saturate(1.5);
-  backdrop-filter: blur(var(--effect-background-blur)) saturate(1.5);
+  -webkit-backdrop-filter: blur(var(--effect-background-blur)) saturate(1.65);
+  backdrop-filter: blur(var(--effect-background-blur)) saturate(1.65);
 }
 
 /* -- Shell ----------------------------------------------------------------------- */
@@ -1244,15 +1259,17 @@ pre,
 .repo-card::before,
 .data-workspace::before,
 .action-btn::before,
+.repo-switcher-card::before,
+.pr-context-card::before,
 .run-context-card::before {
   content: "";
   position: absolute;
   top: 0;
-  left: 12%;
-  right: 12%;
+  left: 8%;
+  right: 8%;
   height: 1px;
   background: var(--glass-specular);
-  opacity: 0.7;
+  opacity: 0.9;
   pointer-events: none;
 }
 
@@ -1265,7 +1282,7 @@ pre,
 :root[data-theme="dark"] .metric-tile::before,
 :root[data-theme="dark"] .repo-card::before,
 :root[data-theme="dark"] .data-workspace::before {
-  opacity: 0.22;
+  opacity: 0.42;
 }
 
 .data-workspace,

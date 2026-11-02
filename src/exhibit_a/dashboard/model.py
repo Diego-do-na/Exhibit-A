@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import hashlib
 import re
+import statistics
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from typing import get_args
 
+from ..ci.gate import classify as classify_gate
 from ..ci.summary import build_result
 from ..graph import build_graph, changed_lines, changed_nodes, find_entries, find_paths, functions_in, sink_hits
 from ..oracle.oracle import Effect
@@ -248,6 +250,99 @@ def _headline(status: str, proven: int) -> str:
     return _HEADLINES.get(status, "Nothing could be proven")
 
 
+def _row_findings_summary(events: Sequence[Event], diff: str = "") -> dict[str, Any]:
+    """Summarize proven findings, exploits written, and touched files for a run row."""
+    suspicions: dict[str, dict[str, Any]] = {}
+    verdicts: dict[str, dict[str, Any]] = {}
+    exploit_sids: set[str] = set()
+    files: list[str] = []
+
+    def add_file(raw: str) -> None:
+        cleaned = _text(raw, 300).removeprefix("/workspace/").lstrip("/")
+        if cleaned and cleaned not in files:
+            files.append(cleaned)
+
+    if diff:
+        for path in changed_lines(diff):
+            add_file(path)
+
+    for idx, event in enumerate(events):
+        if event.type == EventType.SUSPICION_RAISED:
+            s = _dict(event.payload.get("suspicion")) or event.payload
+            sid = _text(s.get("id"), 128)
+            if not sid or sid in suspicions:
+                continue
+            loc = _dict(s.get("location"))
+            file_path = _text(loc.get("file"), 300)
+            add_file(file_path)
+            suspicions[sid] = {
+                "id": sid,
+                "class": _text(s.get("class"), 120),
+                "file": file_path,
+                "line": _int(loc.get("line")) or 0,
+                "entry_point": _text(s.get("entry_point"), 200),
+            }
+        elif event.type == EventType.EXPLOIT_WRITTEN:
+            exploit_sids.add(_sid(event) or f"__idx_{idx}")
+        elif event.type == EventType.VERDICT and _sid(event):
+            verdicts[_sid(event)] = event.payload
+
+    proven_ids = [
+        sid for sid, v in verdicts.items()
+        if _text(v.get("verdict"), 64) == VerdictValue.PROVEN.value
+    ]
+    duplicate_ids: set[str] = set()
+    for sid in proven_ids:
+        v = verdicts[sid]
+        dups = v.get("duplicates")
+        if isinstance(dups, list):
+            for d in dups[:MAX_ITEMS]:
+                did = _text(d, 200)
+                if did and did != sid:
+                    duplicate_ids.add(did)
+        dup_of = _text(v.get("duplicate_of"), 200)
+        if dup_of and dup_of in proven_ids and dup_of != sid:
+            duplicate_ids.add(sid)
+
+    highest_severity = ""
+    effects: list[str] = []
+    cwes: list[str] = []
+    fixes_verified = 0
+    fixes_bypassed = 0
+
+    for sid in proven_ids:
+        if sid in duplicate_ids:
+            continue
+        base = suspicions.get(sid) or {"id": sid, "class": "", "file": "", "line": 0, "entry_point": ""}
+        ev = _evidence(sid, base["entry_point"], base["class"], events, verdicts[sid])
+        obs_file = _text(_dict(ev.get("observed_location")).get("file"), 300)
+        add_file(obs_file or base["file"])
+        sev = _text(ev.get("severity"), 32).lower()
+        if sev in SEVERITIES:
+            highest_severity = _worse(sev, highest_severity)
+        eff = _text(_dict(ev.get("effect")).get("type"), 64)
+        if eff and eff != "unknown" and eff not in effects:
+            effects.append(eff)
+        cwe = _text(ev.get("cwe"), 80)
+        if cwe and cwe not in cwes:
+            cwes.append(cwe)
+        fix_st = _fix_status(ev)
+        if fix_st == "verified":
+            fixes_verified += 1
+        elif fix_st == "bypassed":
+            fixes_bypassed += 1
+
+    return {
+        "highest_severity": highest_severity,
+        "effects": effects[:20],
+        "cwes": cwes[:20],
+        "exploits_written": len(exploit_sids),
+        "fixes_verified": fixes_verified,
+        "fixes_bypassed": fixes_bypassed,
+        "files_touched": files[:50],
+    }
+
+
 def run_row(data: RunData) -> dict[str, Any]:
     """One row of the runs list."""
     ref = data.ref
@@ -267,12 +362,21 @@ def run_row(data: RunData) -> dict[str, Any]:
         "duration_s": _duration(data.events),
         "error": data.error,
         "risk": "",
+        "risk_reasons": {},
+        "should_run_exploits": None,
         "status": "unreadable",
         "proven": 0,
         "proven_raw": 0,
         "duplicates": 0,
         "verdicts": {v.value: 0 for v in VerdictValue},
         "suspicions_raised": 0,
+        "exploits_written": 0,
+        "fixes_verified": 0,
+        "fixes_bypassed": 0,
+        "highest_severity": "",
+        "effects": [],
+        "cwes": [],
+        "files_touched": [],
         "dropped": 0,
         "flags": {},
         "ablated": False,
@@ -300,6 +404,16 @@ def run_row(data: RunData) -> dict[str, Any]:
             return row
         if not data.events and extra.get("status") in ("skipped", "timed_out"):
             result["status"] = extra["status"]
+        risk_obj = _dict(result.get("risk"))
+        raw_reasons = _dict(risk_obj.get("reasons"))
+        if not raw_reasons and data.diff:
+            raw_reasons = classify_gate(changed_lines(data.diff).keys()).reasons
+        risk_reasons = {
+            _text(k, 300): _text(v, 300)
+            for k, v in list(raw_reasons.items())[:MAX_ITEMS]
+            if _text(k, 300) and _text(v, 300)
+        }
+        should_run = risk_obj.get("should_run_exploits")
         row.update(
             {
                 "ledger_run_id": _text(result["run_id"], 128),
@@ -312,11 +426,14 @@ def run_row(data: RunData) -> dict[str, Any]:
                 "dropped": result["dropped"],
                 "flags": clean(result["flags"]),
                 "ablated": result["ablated"],
-                "risk": _text((result.get("risk") or {}).get("risk"), 16),
+                "risk": _text(risk_obj.get("risk"), 16),
+                "risk_reasons": risk_reasons,
+                "should_run_exploits": should_run if isinstance(should_run, bool) else None,
                 "skipped_reason": _text(result.get("skipped_reason"), 300),
                 "tokens_in": result["tokens_in"],
                 "tokens_out": result["tokens_out"],
                 "cost_usd": result["cost_usd"],
+                **_row_findings_summary(data.events, data.diff),
             }
         )
     row["headline"] = _headline(row["status"], row["proven"])
@@ -328,17 +445,44 @@ def run_row(data: RunData) -> dict[str, Any]:
 
 
 def _stages(events: Sequence[Event]) -> list[dict[str, Any]]:
-    seen: dict[str, dict[str, Any]] = {name: {"name": name, "count": 0, "first_ts": "", "first_seq": None} for name in STAGES}
+    seen: dict[str, dict[str, Any]] = {
+        name: {
+            "name": name,
+            "count": 0,
+            "first_ts": "",
+            "last_ts": "",
+            "first_seq": None,
+            "duration_s": 0.0,
+        }
+        for name in STAGES
+    }
+    parsed_ts = [_parse_ts(e.ts) for e in events]
     for seq, event in enumerate(events):
         stage = stage_of(event)
         if not stage:
             continue
         slot = seen[stage]
         slot["count"] += 1
+        slot["last_ts"] = event.ts
         if slot["first_seq"] is None:
             slot["first_seq"] = seq
             slot["first_ts"] = event.ts
-    return [{**slot, "reached": slot["count"] > 0} for slot in seen.values()]
+        step_s = 0.0
+        cur_t = parsed_ts[seq]
+        prev_t = parsed_ts[seq - 1] if seq > 0 else None
+        if cur_t is not None and prev_t is not None and cur_t >= prev_t:
+            step_s = (cur_t - prev_t).total_seconds()
+        elif event.latency_ms > 0:
+            step_s = event.latency_ms / 1000.0
+        slot["duration_s"] = round(slot["duration_s"] + step_s, 3)
+    return [
+        {
+            **slot,
+            "reached": slot["count"] > 0,
+            "duration_s": slot["duration_s"] if slot["count"] > 0 else None,
+        }
+        for slot in seen.values()
+    ]
 
 
 def _frames(stack: Any, entry_point: str) -> list[dict[str, Any]]:
@@ -898,21 +1042,33 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
     )
     pull_requests = [
         {key: row.get(key) for key in ("run_id", "pr", "title", "status", "headline", "proven", "started_at",
-                                       "commit", "branch", "risk", "cost_usd", "duration_s", "synthetic")}
+                                       "commit", "branch", "risk", "risk_reasons", "should_run_exploits",
+                                       "cost_usd", "duration_s", "synthetic", "highest_severity", "effects",
+                                       "cwes", "exploits_written", "fixes_verified", "fixes_bypassed",
+                                       "files_touched", "verdicts", "suspicions_raised", "dropped")}
         for row, _ in group[:MAX_REPO_ROWS]
     ]
+    durations = [
+        float(row["duration_s"])
+        for row, _ in group
+        if row.get("status") != "unreadable" and isinstance(row.get("duration_s"), (int, float))
+    ]
+    median_duration_s = round(float(statistics.median(durations)), 3) if durations else None
     return {
         "repo": summary,
         "metrics": {
             "runs": len(group),
             "proven": sum(1 for _ in findings),
             "root_causes": len(causes),
+            "suspicions_raised": sum(int(row.get("suspicions_raised") or 0) for row, _ in group if row.get("status") != "unreadable"),
+            "exploits_written": sum(int(row.get("exploits_written") or 0) for row, _ in group if row.get("status") != "unreadable"),
             "fixes_verified": sum(1 for f in findings if f["fix_status"] == "verified"),
             "fixes_bypassed": sum(1 for f in findings if f["fix_status"] == "bypassed"),
             "discarded": discarded,
             "cost_usd": round(cost, 8),
             "tokens_in": tokens_in,
             "tokens_out": tokens_out,
+            "median_duration_s": median_duration_s,
         },
         "pull_requests": pull_requests,
         "top_findings": serious[:MAX_REPO_ROWS],

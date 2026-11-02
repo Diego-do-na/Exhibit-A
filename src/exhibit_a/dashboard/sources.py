@@ -187,6 +187,7 @@ class _Risk(BaseModel):
 
     risk: Literal["low", "medium", "high"]
     should_run_exploits: bool | None = None
+    reasons: dict[str, str] = Field(default_factory=dict)
 
 
 class _Result(BaseModel):

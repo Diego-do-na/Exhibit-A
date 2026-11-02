@@ -173,12 +173,10 @@ def test_two_level_navigation_and_siem_topbar_are_present():
     assert 'id="repo-nav"' in HTML and 'id="pr-nav"' in HTML
     assert 'id="nav-back-repo"' in HTML and 'id="pr-context-card"' in HTML
     assert 'id="run-context-card"' not in HTML  # no Current run widget at repository level
-    assert 'id="window-selector"' in HTML
-    for window_key in ("7d", "30d", "90d", "total"):
-        assert f'data-window="{window_key}"' in HTML
-    for meta_id in ("meta-window", "meta-last-update", "meta-source"):
+    assert 'id="window-selector"' not in HTML  # Home is cumulative history, never filtered by date window
+    for meta_id in ("meta-last-update", "meta-source", "meta-runs-covered"):
         assert f'id="{meta_id}"' in HTML
-    assert "function setSidebarLevel" in JS and "function filterRunsByWindow" in JS
+    assert "function setSidebarLevel" in JS and "function updateTopbarMeta" in JS
 
 
 def test_static_export_answers_the_repository_endpoints(tmp_path):
@@ -412,3 +410,30 @@ def test_graph_view_works_in_a_real_browser(tmp_path):
     assert 0 < report["prRows"] < 20  # the list follows the scope
     assert report["listRows"] >= 450 and report["canvasHidden"]
     assert report["routeClassGone"]  # leaving the graph restores the glass panel
+
+
+def test_sample_runs_span_all_four_windows_and_carry_gate_reasons_and_patches(state):
+    from datetime import datetime
+
+    assert '--font-ui: "Inter"' in CSS
+    _, _, data = api(state, "/api/runs?per_page=100")
+    runs = data["runs"]
+    assert len(runs) == 13
+    times = [datetime.fromisoformat(r["started_at"]) for r in runs]
+    latest = max(times)
+    counts = [
+        sum(1 for t in times if (latest - t).total_seconds() <= days * 86400)
+        for days in (7, 30, 90)
+    ]
+    assert counts == [3, 7, 11]  # 7d < 30d < 90d < Total (13)
+
+    for row in runs:
+        assert row["risk_reasons"] and all(": " in v for v in row["risk_reasons"].values())
+        assert "highest_severity" in row and "effects" in row and "cwes" in row
+        assert "exploits_written" in row and "fixes_verified" in row and "fixes_bypassed" in row
+        assert "files_touched" in row
+
+    _, _, detail = api(state, "/api/runs/synthetic-01-starlette-proven")
+    assert detail["proven"][0]["evidence"]["fix"]["diff"].startswith("--- a/starlette/staticfiles.py")
+    assert all(s["duration_s"] is not None and s["duration_s"] > 0 for s in detail["stages"] if s["reached"])
+

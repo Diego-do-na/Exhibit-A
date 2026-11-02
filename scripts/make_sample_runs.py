@@ -48,7 +48,9 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from exhibit_a.ci.gate import classify as classify_gate  # noqa: E402
 from exhibit_a.ci.summary import build_result  # noqa: E402
+from exhibit_a.graph import changed_lines  # noqa: E402
 from exhibit_a.ledger import Ledger  # noqa: E402
 from exhibit_a.schemas import Event  # noqa: E402
 
@@ -56,8 +58,51 @@ MODEL = "synthetic-model"
 STARLETTE_REPO = "example-org/starlette-app (synthetic)"
 ARCHIVE_REPO = "example-org/archive-service (synthetic)"
 BILLING_REPO = "example-org/billing-api (synthetic)"
-START = datetime(2026, 10, 15, 14, 0, tzinfo=timezone.utc)
+START = datetime(2026, 7, 18, 14, 0, tzinfo=timezone.utc)
 FULL_FLAGS = {"naive": False, "oracle": True, "differential": True, "defender": True}
+
+PATCH_STATIC = (
+    "--- a/starlette/staticfiles.py\n"
+    "+++ b/starlette/staticfiles.py\n"
+    "@@ -31,3 +31,3 @@\n"
+    "-            if os.path.commonprefix([full_path, directory]) != directory:\n"
+    "+            if os.path.commonpath([full_path, directory]) != directory:\n"
+    "                 continue\n"
+)
+PATCH_ARCHIVE_OK = (
+    "--- a/archive.py\n"
+    "+++ b/archive.py\n"
+    "@@ -9,3 +9,6 @@\n"
+    " def _write_member(destination, member, data):\n"
+    "-    target = os.path.join(destination, member)\n"
+    "+    root = os.path.realpath(destination)\n"
+    "+    target = os.path.realpath(os.path.join(root, member))\n"
+    "+    if os.path.commonpath([target, root]) != root:\n"
+    "+        raise ValueError('member escapes destination')\n"
+)
+PATCH_ARCHIVE_INCOMPLETE = (
+    "--- a/archive.py\n"
+    "+++ b/archive.py\n"
+    "@@ -9,2 +9,4 @@\n"
+    " def _write_member(destination, member, data):\n"
+    "+    if '..' in member:\n"
+    "+        raise ValueError('dot-dot rejected')\n"
+    "     target = os.path.join(destination, member)\n"
+)
+PATCH_PDF = (
+    "--- a/billing/reports.py\n"
+    "+++ b/billing/reports.py\n"
+    "@@ -9,3 +9,3 @@\n"
+    "-    subprocess.run(f\"wkhtmltopdf templates/{template}.html {output}\", shell=True, check=False)\n"
+    "+    subprocess.run([\"wkhtmltopdf\", f\"templates/{template}.html\", output], shell=False, check=False)\n"
+)
+PATCH_SEARCH = (
+    "--- a/billing/search.py\n"
+    "+++ b/billing/search.py\n"
+    "@@ -8,3 +8,3 @@\n"
+    "-    rows = conn.execute(f\"SELECT id, total FROM invoices WHERE customer LIKE '%{term}%'\").fetchall()\n"
+    "+    rows = conn.execute(\"SELECT id, total FROM invoices WHERE customer LIKE ?\", (f\"%{term}%\",)).fetchall()\n"
+)
 
 
 class RunWriter:
@@ -96,6 +141,7 @@ class RunWriter:
         skipped: str = "",
         tree: dict[str, str] | None = None,
         diff: str = "",
+        gate_paths: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         folder = out / self.name
         folder.mkdir(parents=True, exist_ok=True)
@@ -110,11 +156,14 @@ class RunWriter:
         ledger = Ledger(ledger_path)
         for event in self.events:
             ledger.append(event)
+        diff_paths = list(changed_lines(diff).keys()) if diff else []
+        all_paths = list(dict.fromkeys([*diff_paths, *gate_paths]))
+        classified = classify_gate(all_paths)
         result = build_result(
             self.events,
             run_id=self.run_id,
             engine_exit=engine_exit,
-            risk={"risk": risk, "should_run_exploits": risk != "low", "reasons": {}},
+            risk={"risk": risk, "should_run_exploits": risk != "low", "reasons": classified.reasons},
             skipped_reason=skipped,
         )
         (folder / "result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -159,6 +208,7 @@ def proven_chain(
     bypasses: list[tuple[str, bool]],
     fix_holds: bool = True,
     effect: str = "canary_read",
+    patch: str = PATCH_STATIC,
 ) -> None:
     sid = s["id"]
     w.emit("exploit_written", 14, role="test_writer", tokens=(5200, 900), suspicion_id=sid, test_path=f"work/{sid.lower()}/test_exploit.py")
@@ -167,7 +217,16 @@ def proven_chain(
         event = {"type": effect, "path": canary, "mode": mode, "stack": stack, "via_symlink": False, "symlink": None, "symlink_target": None}
         w.emit("oracle_event", 9, suspicion_id=sid, run=n, event=event)
     w.emit("verdict", 1, suspicion_id=sid, verdict="proven", reason=reason)
-    w.emit("fix_proposed", 19, role="fixer", tokens=(6100, 1400), suspicion_id=sid, applied=True)
+    w.emit(
+        "fix_proposed",
+        19,
+        role="fixer",
+        tokens=(6100, 1400),
+        suspicion_id=sid,
+        applied=True,
+        patch_path=f"work/{sid.lower()}/fix.patch",
+        patch=patch,
+    )
     for n in (1, 2, 3):
         w.emit("run_started", 8, suspicion_id=sid, on="fixed", run=n, of=3)
     w.emit("baseline_done", 38, suspicion_id=sid, on="fixed", ok=True)
@@ -832,7 +891,7 @@ def build(out: Path) -> list[dict[str, Any]]:
     index: list[dict[str, Any]] = []
     day = timedelta(days=1)
 
-    # 1. Starlette, vulnerable release: proven (canary_read), two discarded.
+    # 1. Starlette, vulnerable release: proven (canary_read), two discarded (>90d ago).
     meta = starlette_meta(41, "3f1c9b7e2a4d", "Serve uploads from /static")
     w = RunWriter("synthetic-01-starlette-proven", "syn01starlette", START)
     opening(w, meta)
@@ -843,22 +902,23 @@ def build(out: Path) -> list[dict[str, Any]]:
         w, S_STATIC, canary="/tmp/exhibit_a_oracle/outside/canary.txt", mode="rb", stack=STARLETTE_STACK,
         reason="canary read through StaticFiles.get_response from staged app code",
         bypasses=[("encoded dot segments", False), ("sibling prefix with trailing slash", False)],
+        patch=PATCH_STATIC,
     )
     discarded(w, S_HEADERS, "discarded_unproven", "the exploit passed: no CRLF reached the response headers", runs=1)
     discarded(w, S_RANGE, "invalid_test", "no usable exploit test: the test imported a module that does not exist")
-    index.append(w.write(out, meta, "high", tree=STAR_TREE, diff=pr_diff(STAR_TREE, STAR_DIFFS[41])))
+    index.append(w.write(out, meta, "high", tree=STAR_TREE, diff=pr_diff(STAR_TREE, STAR_DIFFS[41]), gate_paths=("pyproject.toml",)))
 
-    # 2. Starlette, fixed release: nothing could be proven.
+    # 2. Starlette, fixed release: nothing could be proven (>90d ago).
     meta = starlette_meta(44, "1797de46c0aa", "Bump starlette to 0.27.0")
-    w = RunWriter("synthetic-02-starlette-fixed", "syn02starfixed", START + 2 * day)
+    w = RunWriter("synthetic-02-starlette-fixed", "syn02starfixed", START + 10 * day)
     opening(w, meta)
     w.emit("suspicion_raised", 19, role="adversary", tokens=(9400, 1200), suspicion=S_STATIC)
     discarded(w, S_STATIC, "discarded_unproven", "no canary read observed: the exploit request got a 404", runs=1)
-    index.append(w.write(out, meta, "high", tree=STAR_TREE, diff=pr_diff(STAR_TREE, STAR_DIFFS[44])))
+    index.append(w.write(out, meta, "high", tree=STAR_TREE, diff=pr_diff(STAR_TREE, STAR_DIFFS[44]), gate_paths=("pyproject.toml", "uv.lock")))
 
     # 3. Archive extraction: proven (canary_write).
     meta = archive_meta(7, "a0c4e1d9b3f2", "Accept tar uploads for bulk import")
-    w = RunWriter("synthetic-03-archive-proven", "syn03archive", START + 3 * day)
+    w = RunWriter("synthetic-03-archive-proven", "syn03archive", START + 25 * day)
     opening(w, meta)
     w.emit("suspicion_raised", 17, role="adversary", tokens=(6900, 1100), suspicion=S_ZIP)
     w.emit("suspicion_raised", 0, role="adversary", suspicion=S_ZIP_SIZE)
@@ -866,54 +926,57 @@ def build(out: Path) -> list[dict[str, Any]]:
         w, S_ZIP, canary="/tmp/exhibit_a_oracle/outside/canary.txt", mode="wb", stack=ARCHIVE_STACK,
         reason="canary created outside the destination by App.handle_request",
         bypasses=[("absolute member name", False), ("symlink member then write", False)],
+        patch=PATCH_ARCHIVE_OK,
     )
     discarded(w, S_ZIP_SIZE, "discarded_unproven", "no oracle for resource exhaustion in this class set", runs=1)
     index.append(w.write(out, meta, "medium", tree=ARCHIVE_TREE, diff=pr_diff(ARCHIVE_TREE, ARCHIVE_DIFFS[7])))
 
     # 4. Archive extraction, incomplete fix: proven, a defender variant bypasses the fix.
     meta = archive_meta(9, "c71e0b55d8a3", "Reject '..' in archive member names")
-    w = RunWriter("synthetic-04-archive-incomplete-fix", "syn04archfix", START + 5 * day)
+    w = RunWriter("synthetic-04-archive-incomplete-fix", "syn04archfix", START + 52 * day)
     opening(w, meta)
     w.emit("suspicion_raised", 15, role="adversary", tokens=(7100, 1000), suspicion=S_ZIP)
     proven_chain(
         w, S_ZIP, canary="/tmp/exhibit_a_oracle/outside/canary.txt", mode="xb", stack=ARCHIVE_STACK,
         reason="canary created outside the destination by App.handle_request",
         bypasses=[("dot-dot member name", False), ("absolute member name", True)],
+        fix_holds=False,
+        patch=PATCH_ARCHIVE_INCOMPLETE,
     )
     index.append(w.write(out, meta, "medium", tree=ARCHIVE_TREE, diff=pr_diff(ARCHIVE_TREE, ARCHIVE_DIFFS[9])))
 
     # 5. Baseline failed: aborted, nothing could be proven.
     meta = starlette_meta(46, "9be2207d41c0", "Refactor middleware stack")
-    w = RunWriter("synthetic-05-aborted-baseline", "syn05aborted", START + 6 * day)
+    w = RunWriter("synthetic-05-aborted-baseline", "syn05aborted", START + 64 * day)
     opening(w, meta, baseline_ok=False)
     index.append(w.write(out, meta, "medium", engine_exit=1, tree=STAR_TREE, diff=pr_diff(STAR_TREE, STAR_DIFFS[46])))
 
     # 6. Risk gate: docs-only change, exploits skipped.
     meta = archive_meta(11, "5d3a9f0e7b21", "Docs: clarify upload limits")
-    w = RunWriter("synthetic-06-skipped-docs", "syn06skipped", START + 7 * day)
+    w = RunWriter("synthetic-06-skipped-docs", "syn06skipped", START + 78 * day)
     w.emit("pr_opened", 0, repo=meta["repo"], pr=meta["pr"], commit=meta["commit"], branch=meta["branch"], synthetic=True, title=meta["title"])
     index.append(w.write(out, meta, "low", skipped="documentation and tests only", tree=ARCHIVE_TREE, diff=DOCS_DIFF))
 
     # 7. Flaky and env_failure verdicts: nothing could be proven.
     meta = starlette_meta(48, "e8b14c02f6d9", "Cache static file stats")
-    w = RunWriter("synthetic-07-flaky-env", "syn07flaky", START + 9 * day)
+    w = RunWriter("synthetic-07-flaky-env", "syn07flaky", START + 84 * day)
     opening(w, meta)
     w.emit("suspicion_raised", 21, role="adversary", tokens=(10200, 1500), suspicion=S_STATIC)
     w.emit("suspicion_raised", 0, role="adversary", suspicion=S_HEADERS)
     discarded(w, S_STATIC, "flaky", "unstable across runs: run 2 saw no canary read", runs=2)
     discarded(w, S_HEADERS, "env_failure", "run 1 could not execute: sandbox image build timed out", runs=1)
-    index.append(w.write(out, meta, "high", tree=STAR_TREE, diff=pr_diff(STAR_TREE, STAR_DIFFS[48])))
+    index.append(w.write(out, meta, "high", tree=STAR_TREE, diff=pr_diff(STAR_TREE, STAR_DIFFS[48]), gate_paths=("app/middleware/cache.py",)))
 
-    # 8-10. More history for the trends chart.
-    for k, (pr, commit, title, proven) in enumerate(
+    # 8-10. More history for the trends chart (within 30d and 7d windows).
+    for k, (pr, commit, title, proven, offset_days, gate_extra) in enumerate(
         [
-            (50, "0f9d2c6b8e14", "Add /exports static mount", True),
-            (52, "7a2e5c9d1b06", "Tighten CORS settings", False),
-            (55, "b4e81f3a6c29", "Serve avatars from user dirs", True),
+            (50, "0f9d2c6b8e14", "Add /exports static mount", True, 95, ("app/permissions/exports.py",)),
+            (52, "7a2e5c9d1b06", "Tighten CORS settings", False, 100, ("app/security/cors.py",)),
+            (55, "b4e81f3a6c29", "Serve avatars from user dirs", True, 103, ("app/auth/avatars.py",)),
         ]
     ):
         meta = starlette_meta(pr, commit, title)
-        w = RunWriter(f"synthetic-{8 + k:02d}-starlette-pr{pr}", f"syn{8 + k:02d}pr{pr}", START + (11 + 2 * k) * day)
+        w = RunWriter(f"synthetic-{8 + k:02d}-starlette-pr{pr}", f"syn{8 + k:02d}pr{pr}", START + offset_days * day)
         opening(w, meta)
         w.emit("suspicion_raised", 18, role="adversary", tokens=(9100, 1300), suspicion=S_STATIC)
         w.emit("suspicion_raised", 0, role="adversary", suspicion=S_RANGE)
@@ -922,15 +985,16 @@ def build(out: Path) -> list[dict[str, Any]]:
                 w, S_STATIC, canary="/tmp/exhibit_a_oracle/outside/canary.txt", mode="rb", stack=STARLETTE_STACK,
                 reason="canary read through StaticFiles.get_response from staged app code",
                 bypasses=[("encoded dot segments", False)],
+                patch=PATCH_STATIC,
             )
         else:
             discarded(w, S_STATIC, "discarded_unproven", "the exploit passed: the request was confined", runs=1)
         discarded(w, S_RANGE, "invalid_test" if k != 1 else "discarded_unproven", "the exploit failed before reaching the app (wrong reason)", runs=1)
-        index.append(w.write(out, meta, "high", tree=STAR_TREE, diff=pr_diff(STAR_TREE, STAR_DIFFS[pr])))
+        index.append(w.write(out, meta, "high", tree=STAR_TREE, diff=pr_diff(STAR_TREE, STAR_DIFFS[pr]), gate_paths=gate_extra))
 
     # 11-13. A third repository: command injection and SQL injection (canary_exec, canary_sql).
     meta = billing_meta(12, "4c2a91f0d3e7", "Render invoices to PDF")
-    w = RunWriter("synthetic-11-billing-pdf-exec", "syn11billpdf", START + 4 * day)
+    w = RunWriter("synthetic-11-billing-pdf-exec", "syn11billpdf", START + 38 * day)
     opening(w, meta)
     w.emit("suspicion_raised", 16, role="adversary", tokens=(8200, 1400), suspicion=S_PDF)
     w.emit("suspicion_raised", 0, role="adversary", suspicion=S_DUNNING)
@@ -938,19 +1002,20 @@ def build(out: Path) -> list[dict[str, Any]]:
         w, S_PDF, canary="", mode="", stack=PDF_STACK, effect="canary_exec",
         reason="canary command executed by render_pdf, reached from the invoice_pdf route",
         bypasses=[("template with $(...)", False), ("template with backticks", False)],
+        patch=PATCH_PDF,
     )
     discarded(w, S_DUNNING, "discarded_unproven", "the exploit passed: the output path stayed under /tmp", runs=1)
-    index.append(w.write(out, meta, "high", tree=BILLING_TREE, diff=pr_diff(BILLING_TREE, BILLING_DIFFS[12])))
+    index.append(w.write(out, meta, "high", tree=BILLING_TREE, diff=pr_diff(BILLING_TREE, BILLING_DIFFS[12]), gate_paths=("Dockerfile",)))
 
     meta = billing_meta(15, "8e0b7d21c4a6", "Add dunning reminders")
-    w = RunWriter("synthetic-12-billing-dunning", "syn12billdun", START + 10 * day)
+    w = RunWriter("synthetic-12-billing-dunning", "syn12billdun", START + 90 * day)
     opening(w, meta)
     w.emit("suspicion_raised", 14, role="adversary", tokens=(7400, 1100), suspicion=S_DUNNING)
     discarded(w, S_DUNNING, "discarded_unproven", "no canary write observed: the reminder job wrote only under its spool", runs=1)
     index.append(w.write(out, meta, "medium", tree=BILLING_TREE, diff=pr_diff(BILLING_TREE, BILLING_DIFFS[15])))
 
     meta = billing_meta(17, "d97f3b0a51c8", "Invoice search by customer")
-    w = RunWriter("synthetic-13-billing-search-sql", "syn13billsql", START + 16 * day)
+    w = RunWriter("synthetic-13-billing-search-sql", "syn13billsql", START + 105 * day)
     opening(w, meta)
     w.emit("suspicion_raised", 18, role="adversary", tokens=(8800, 1500), suspicion=S_SEARCH)
     w.emit("suspicion_raised", 0, role="adversary", suspicion=S_PDF)
@@ -958,9 +1023,10 @@ def build(out: Path) -> list[dict[str, Any]]:
         w, S_SEARCH, canary="", mode="", stack=SEARCH_STACK, effect="canary_sql",
         reason="canary row read by a statement built in search_invoices, reached from the invoice_search route",
         bypasses=[("term with UNION", False), ("term with comment", False)],
+        patch=PATCH_SEARCH,
     )
     discarded(w, S_PDF, "flaky", "unstable across runs: run 2 saw no canary command", runs=2)
-    index.append(w.write(out, meta, "high", tree=BILLING_TREE, diff=pr_diff(BILLING_TREE, BILLING_DIFFS[17])))
+    index.append(w.write(out, meta, "high", tree=BILLING_TREE, diff=pr_diff(BILLING_TREE, BILLING_DIFFS[17]), gate_paths=("billing/permissions/roles.py",)))
     return index
 
 
