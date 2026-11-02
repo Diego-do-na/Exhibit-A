@@ -23,13 +23,16 @@
     const cv = document.createElement('canvas');
     cv.className = 'net-cv';
     cv.setAttribute('role', 'img');
-    cv.setAttribute('aria-label', 'Network of code files and their functions. Drag nodes, scroll to zoom.');
+    cv.setAttribute('aria-label', 'Network of code files. Scroll to zoom in and expand each file into its functions. Drag nodes, scroll to zoom.');
     host.appendChild(cv);
     const g = cv.getContext('2d');
     let W = 0, H = 0, dpr = 1;
     let nodes = [], edges = [], byId = new Map(), adj = [];
     let view = { x: 0, y: 0, k: 1 };
     let alpha = 1, raf = 0, running = false;
+    // Semantic zoom: the overview shows files only; zooming in expands each
+    // file into its functions. Proven (vulnerable) nodes always stay visible.
+    let detail = 0, detailTarget = 0;
     let hover = -1, drag = -1, pan = null, moved = false;
     let sel = new Set(), query = '', visible = null;
     let lit = [], litTarget = [];                       // per-node brightness, eased toward its target
@@ -152,6 +155,9 @@
         const d = litTarget[i] - lit[i];
         if (Math.abs(d) > 0.01) { lit[i] += d * 0.2; easing = true; } else lit[i] = litTarget[i];
       }
+      detailTarget = Math.max(0, Math.min(1, (view.k - 0.55) / 0.9));
+      const dd = detailTarget - detail;
+      if (Math.abs(dd) > 0.005) { detail += dd * 0.18; easing = true; } else detail = detailTarget;
       const hot = alpha > 0.012 || drag >= 0;
       if (hot) { tick(); tick(); alpha *= drag >= 0 ? 0.999 : 0.985; }
       draw(now);
@@ -171,10 +177,11 @@
       g.save();
       g.translate(W / 2 + view.x, H / 2 + view.y); g.scale(view.k, view.k);
       const k = view.k, pulse = REDUCE ? 0 : ((now - t0) / 1400) % 1;
-      // edges
+      // edges (file-to-function links fade with the semantic zoom level)
       for (const e of edges) {
         const p = nodes[e.a], q = nodes[e.b];
-        const a = Math.min(lit[e.a], lit[e.b]);
+        let a = Math.min(lit[e.a], lit[e.b]);
+        if (!e.vuln && e.t !== 'imp') a *= 0.12 + 0.88 * detail;
         if (a <= 0.02) continue;
         const strong = (hover >= 0 && (e.a === hover || e.b === hover)) || (hover < 0 && sel.size && (sel.has(p.id) || sel.has(q.id)));
         g.globalAlpha = e.vuln ? a : a * (strong ? 0.95 : e.t === 'own' ? 0.3 : e.t === 'use' ? 0.3 : 0.6);
@@ -189,9 +196,10 @@
         }
       }
       g.setLineDash([]);
-      // nodes
+      // nodes (functions expand out of their files as you zoom in)
       for (const n of nodes) {
-        const a = lit[n.i];
+        let a = lit[n.i];
+        if (n.kind === 'func' && !n.vuln) a *= detail;
         if (a <= 0.02) continue;
         const isSel = sel.has(n.id), isHov = n.i === hover;
         g.globalAlpha = a;
@@ -217,10 +225,11 @@
       // labels
       g.textBaseline = 'middle';
       for (const n of nodes) {
-        const a = lit[n.i];
+        let a = lit[n.i];
+        if (n.kind === 'func' && !n.vuln) a *= detail;
         if (a <= 0.05) continue;
         const near = (hover >= 0 && (n.i === hover || adj[hover].indexOf(n.i) >= 0)) || sel.has(n.id) || (query && a > 0.5);
-        const show = opts.labelAll || (n.kind === 'file' ? (opts.labelAll || (k > 0.55 && (n.r > 8 || n.deg > 9)) || k > 1.1 || near) : (k > 1.9 || near && k > 0.9));
+        const show = opts.labelAll || (n.kind === 'file' ? (opts.labelAll || (k > 0.55 && (n.r > 8 || n.deg > 9)) || k > 1.1 || near) : ((k > 1.9 && detail > 0.6) || near && k > 0.9));
         if (!show) continue;
         const fs = (n.kind === 'file' ? 11 : 9.5) / Math.max(0.55, Math.sqrt(k));
         g.font = (n.kind === 'file' ? '500 ' : '400 ') + fs + 'px "JetBrains Mono", monospace';
@@ -266,6 +275,7 @@
       let best = -1, bd = 1e9;
       for (const n of nodes) {
         if (!n.on || lit[n.i] < 0.2) continue;
+        if (n.kind === 'func' && !n.vuln && detail < 0.5) continue;
         const d = Math.hypot(n.x - x, n.y - y), rr = n.r + 4 / view.k;
         if (d <= rr && d < bd) { bd = d; best = n.i; }
       }

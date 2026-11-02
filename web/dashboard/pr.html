@@ -31,7 +31,6 @@
         <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
         <a class="nav-a" href="graph.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
         <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
-        <a class="nav-a" href="compare.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v18M16 3v18M3 8h5M3 16h5M16 8h5M16 16h5"></path></svg>Compare</a>
       </div>
       <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
       <button type="button" class="theme-t" data-theme-toggle aria-label="Toggle night mode"><svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"></path></svg><svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg><span class="t-night">Night mode</span><span class="t-day">Day mode</span></button>
@@ -101,7 +100,6 @@
               <span class="mono" data-style="font-size: 12px; color: #3d4b68">Scrub the ledger</span>
               <input type="range" min="0" max="{{live.scrub.max}}" value="{{live.scrub.val}}" onChange="{{live.scrub.onScrub}}" aria-label="Scrub the ledger timeline">
               <span class="scrub-now">{{live.scrub.label}}</span>
-              <a href="compare.html" data-style="font-size: 14px; text-decoration: none; min-height: 36px; display: inline-flex; align-items: center">Compare with another run</a>
             </div>
           </sc-if>
           <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
@@ -223,14 +221,12 @@
               <button type="button" class="btn btn-s" onClick="{{reset}}">Reset demo</button>
             </div>
             <div class="card" data-style="padding: 8px 22px 14px; overflow-x: auto">
-              <table data-style="width: 100%; border-collapse: collapse; min-width: 560px">
-                <thead><tr><th class="lbl" data-style="text-align: left; padding: 14px 0; font-size: 11px">Measure</th><th class="lbl" data-style="text-align: left; padding: 14px 0; font-size: 11px">Before the fix</th><th class="lbl" data-style="text-align: left; padding: 14px 0; font-size: 11px">After the fix</th></tr></thead>
-                <tbody>
-                  <sc-for list="{{after}}" as="a">
-                    <tr><td data-style="padding: 14px 16px 14px 0; border-top: 1px solid rgba(13,27,62,.08); font-size: 15px">{{a.m}}</td><td class="mono" data-style="padding: 14px 16px 14px 0; border-top: 1px solid rgba(13,27,62,.08); font-size: 13px; color: #a5703f">{{a.b}}</td><td class="mono" data-style="padding: 14px 0; border-top: 1px solid rgba(13,27,62,.08); font-size: 13px; color: #2c4fc4">{{a.a}}</td></tr>
-                  </sc-for>
-                </tbody>
-              </table>
+              <div data-style="min-width: 560px" role="table" aria-label="Before and after the fix">
+                <div class="lbl" role="row" data-style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding: 14px 0; font-size: 11px"><span role="columnheader">Measure</span><span role="columnheader">Before the fix</span><span role="columnheader">After the fix</span></div>
+                <sc-for list="{{after}}" as="a">
+                  <div role="row" data-style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding: 14px 0; border-top: 1px solid rgba(13,27,62,.08)"><span role="cell" data-style="font-size: 15px">{{a.m}}</span><span role="cell" class="mono" data-style="font-size: 13px; color: #a5703f">{{a.b}}</span><span role="cell" class="mono" data-style="font-size: 13px; color: #2c4fc4">{{a.a}}</span></div>
+                </sc-for>
+              </div>
             </div>
           </div>
         </sc-if>

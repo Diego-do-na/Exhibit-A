@@ -274,6 +274,11 @@ body,.xa,.card,.modal,.zm,.tag,.nav-a,.theme-t{transition:background-color .35s,
 .pal-side-lbl{font-size:12px;color:rgba(232,238,251,.6)}
 .pal-trigger{font-family:'JetBrains Mono',monospace;font-size:14px}
 :root[data-theme=dark] .pal-t{color:#e6ecfa}
+:root[data-theme=dark] .gv-label,:root[data-theme=dark] .gv-name{fill:#e6ecfa;stroke:rgba(8,16,36,.9)}
+:root[data-theme=dark] .gv-sub{fill:#9fb0d4}
+:root[data-theme=dark] .gv-kind{fill:#9fb0d4}
+:root[data-theme=dark] .gv-chip{fill:rgba(20,32,68,.94)}
+:root[data-theme=dark] .detail-chip{color:#dbe4f8;background-color:rgba(160,185,255,.08);border-color:rgba(160,185,255,.2)}
 :root[data-theme=dark] .pal-input{background-color:rgba(160,185,255,.08);color:#e6ecfa;border-color:rgba(160,185,255,.2)}
 
 /* Ledger scrubber on the PR page. */

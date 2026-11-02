@@ -83,7 +83,6 @@ STATIC_FILES = {
     "pr.html": "text/html; charset=utf-8",
     "findings.html": "text/html; charset=utf-8",
     "finding.html": "text/html; charset=utf-8",
-    "compare.html": "text/html; charset=utf-8",
     "graph.html": "text/html; charset=utf-8",
     "benchmark.html": "text/html; charset=utf-8",
     "dashboard.css": "text/css; charset=utf-8",

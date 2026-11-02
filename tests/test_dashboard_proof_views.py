@@ -10,7 +10,7 @@ import re
 
 from test_dashboard_support import WEB_DIR, local_state, make_samples, request
 
-PAGES = ("index", "prs", "pr", "findings", "finding", "compare", "graph", "benchmark")
+PAGES = ("index", "prs", "pr", "findings", "finding", "graph", "benchmark")
 
 
 def read(name: str) -> str:
@@ -20,15 +20,15 @@ def read(name: str) -> str:
 def test_new_pages_and_scripts_are_served(tmp_path):
     state = local_state(make_samples(tmp_path))
     for target, snippet in (
-        ("/compare.html", "Compare runs"),
         ("/finding.html", "Finding package"),
         ("/views/palette.js", "XAPalette"),
-        ("/views/compare.js", "/api/runs/"),
         ("/views/finding.js", "provenance"),
     ):
         status, headers, body = request(state, target)
         assert status == 200, target
         assert snippet.encode() in body, target
+    status, _, _ = request(state, "/compare.html")
+    assert status == 404
 
 
 def test_every_page_loads_the_command_palette():
@@ -53,11 +53,27 @@ def test_pr_page_scrubs_the_real_ledger_and_explains_a_clean_run():
     assert "Green is not safe" in html
 
 
-def test_compare_page_reads_two_ledgers():
-    js = read("views/compare.js")
-    assert js.count("/api/runs/") >= 2
-    html = read("compare.html")
-    assert 'data-options="{{aOpts}}"' in html and 'data-options="{{bOpts}}"' in html
+def test_no_loops_inside_table_body_select_or_svg_roots():
+    # The HTML parser drops <sc-for> inside <tbody> and <select>, which left
+    # the scorecard table empty. Loops must use div/row markup instead.
+    for page in PAGES:
+        html = read(f"{page}.html")
+        for match in re.finditer(r"<(?:tbody|table|select)\b[^>]*>(.*?)</(?:tbody|table|select)>", html, flags=re.DOTALL):
+            assert "<sc-for" not in match.group(0), page
+    assert "score" in read("views/benchmark.js")
+
+
+def test_graph_text_stays_readable_in_dark_mode():
+    css = read("dashboard.css")
+    for selector in (".gv-label", ".gv-name", ".gv-sub", ".gv-chip", ".detail-chip"):
+        assert f":root[data-theme=dark] {selector}" in css, selector
+
+
+def test_network_graph_expands_detail_with_zoom():
+    code = read("views/netgraph.js")
+    assert "detail" in code and "view.k" in code
+    assert "expand each file into its functions" in code or "expand" in code
+    assert 'id="blastnet"' in read("pr.html") or "blastnet" in read("pr.html")
 
 
 def test_finding_page_is_a_printable_package():

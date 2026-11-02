@@ -14,7 +14,6 @@
     { t: 'Findings', d: 'Every suspicion and its verdict', href: 'findings.html' },
     { t: 'Code graph', d: 'Packages, heatmap and attack paths', href: 'graph.html' },
     { t: 'Benchmark', d: 'Loop against the naive baseline', href: 'benchmark.html' },
-    { t: 'Compare runs', d: 'Two runs side by side, before and after a fix', href: 'compare.html' },
   ];
 
   function params() {
