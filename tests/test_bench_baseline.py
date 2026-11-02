@@ -326,9 +326,12 @@ def test_comparison_runs_offline_is_reproducible_and_matches_the_committed_doc(t
     # The naive model finds both vulnerabilities too, and accuses the fixed Starlette tree.
     assert (naive["reported"], naive["true_positives"], naive["false_accusations"]) == (3, 2, 1)
     assert naive["recall"] == 1.0
-    # Compact: both proven and nothing on fixed code, under today's oracle.
-    assert (compact["reported"], compact["true_positives"], compact["false_positives"]) == (2, 2, 0)
-    assert compact["recall"] == 1.0
+    # Compact, 29 paired vulnerable cases recorded live with Muse (2026-11-01): 25 of the 29
+    # proven findings match the ground truth and 4 do not; 15 suspicions were discarded and
+    # recall is 25 of 37 known vulnerabilities. Nothing was proven on fixed code.
+    assert (compact["reported"], compact["true_positives"], compact["false_positives"]) == (29, 25, 4)
+    assert compact["false_accusations"] == 0
+    assert 0.5 < compact["recall"] < 0.8
     # Standard: Exhibit A misses both real vulnerabilities, and the table says so.
     assert (standard["reported"], standard["recall"], standard["discarded"]) == (0, 0.0, 17)
     # Costs are real model calls: the standard replay spends exactly what the live run did.

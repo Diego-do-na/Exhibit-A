@@ -287,8 +287,17 @@ def test_the_node_contract_names_node_test_and_the_entry_shapes():
         assert "server's request turn" in text
         assert "express@4.18.2" in text
     text = prompts.test_contract("canary_exec", [], "javascript")
-    assert "outside/canary_ran" in text
+    assert '"canary_ran"' in text and '"outside"' in text
     assert "must not start any process" in text
+
+
+def test_the_node_contract_says_where_the_canary_and_the_application_are():
+    # The first real Meta run on a Node case guessed both (./app.js from tests/, and a
+    # canary beside the allowed directory instead of in its "outside" sibling).
+    text = prompts.test_contract("canary_read", [], "javascript")
+    assert 'path.join(path.dirname(process.env.EXHIBIT_A_ALLOWED_DIR), "outside")' in text
+    assert '"canary.txt"' in text
+    assert "process.cwd()" in text and "never a relative ./ path" in text
 
 
 def test_the_node_contract_labels_model_output_untrusted():

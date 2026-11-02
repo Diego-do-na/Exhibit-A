@@ -45,7 +45,7 @@ from exhibit_a.models.record import RecordingProvider
 from exhibit_a.schemas import EventType
 
 from .corpus import Case, load_corpus
-from .loop_pipeline import STAGED_BASELINE, _pick_source_file, _stage_case
+from .loop_pipeline import _pick_source_file, _stage_case, _staged_baseline
 
 REPO = Path(__file__).resolve().parent.parent
 CORPUS = REPO / "bench" / "corpus"
@@ -176,7 +176,7 @@ def run_case(
     roles = Roles(*(ModelRole(role, provider, meter) for role in (
         Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
     loop = VerificationLoop(
-        clone, out_dir, ledger, roles, STAGED_BASELINE,
+        clone, out_dir, ledger, roles, _staged_baseline(case),
         run_id=case.id,
         runner=SandboxRunner(
             requirements=tuple(case.requirements),
@@ -184,10 +184,12 @@ def run_case(
             access_db=case.access_db or None,
             access=dict(case.access) or None,
             redirect_meta=case.redirect_meta,
+            language=case.language,
         ),
         requirements=tuple(case.requirements),
         effect=case.effect,
         prompt_profile=profile,
+        language=case.language,
     )
     outcome = CaseOutcome(case.id)
     try:
@@ -229,11 +231,15 @@ def replay_meter(case_id: str, model: str, profile: str = "standard") -> SplitMe
     _, metadata_path = recording_paths(case_id, model, profile)
     meta = json.loads(metadata_path.read_text(encoding="utf-8"))
     total = CostMeter(meta["budget_usd"]["run_total"])
-    spent_before = 0.0
-    for earlier in CASES[: CASES.index(case_id)]:
-        path = recording_paths(earlier, model, profile)[1]
-        if path.exists():
-            spent_before += json.loads(path.read_text(encoding="utf-8"))["cost_usd"]
+    if "spent_before_usd" in meta:
+        spent_before = float(meta["spent_before_usd"])
+    else:
+        # Older recordings: assume the cases before this one in CASES order were one invocation.
+        spent_before = 0.0
+        for earlier in CASES[: CASES.index(case_id)]:
+            path = recording_paths(earlier, model, profile)[1]
+            if path.exists():
+                spent_before += json.loads(path.read_text(encoding="utf-8"))["cost_usd"]
     if spent_before:
         total.charge(spent_before)
     return SplitMeter(CostMeter(meta["budget_usd"]["case"]), total)
@@ -288,6 +294,7 @@ def record_case(
     meter = SplitMeter(CostMeter(budget_usd), total)
     started = datetime.now(timezone.utc)
     commit = _git_commit()
+    spent_before = total.total_usd
     outcome = run_case(load_case(case_id), provider, out_dir, meter, profile)
     metadata = {
         "case": case_id,
@@ -303,6 +310,9 @@ def record_case(
             "input": meta.pricing.input_per_mtok, "output": meta.pricing.output_per_mtok,
         },
         "budget_usd": {"case": budget_usd, "run_total": total.limit_usd},
+        # What the run-wide meter already held when this case started, so an offline replay
+        # restores exactly the same remaining budget however the cases were batched.
+        "spent_before_usd": round(spent_before, 6),
         **_usage(recording),
         "baseline_ok": outcome.baseline_ok,
         "aborted": outcome.aborted,

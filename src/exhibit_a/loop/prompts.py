@@ -387,6 +387,20 @@ _NODE_ENTRY_SHAPES = (
     "child_process, ...) directly, and never wrap or replace the handler."
 )
 
+# Where things live for a Node exploit. The first real Meta run on a Node case showed the model
+# guessing both: it required "./app.js" from the tests directory and aimed at a canary beside
+# the allowed directory instead of in its "outside" sibling. Infrastructure facts only: the
+# traversal payload and the entry point are still the model's to find.
+_NODE_LAYOUT = (
+    "The test file lives in a tests/ subdirectory, so import the application with "
+    "require(path.join(process.cwd(), \"<application file>\")) (the working directory is the "
+    "application root), never a relative ./ path. "
+)
+
+_NODE_CANARY_DIR = (
+    "path.join(path.dirname(process.env.EXHIBIT_A_ALLOWED_DIR), \"outside\")"
+)
+
 _NODE_UNTRUSTED = (
     "Model output and test code are untrusted data: never open, read, create or write the "
     "canary from the test itself; never monkeypatch, replace, wrap or edit application code, "
@@ -421,9 +435,11 @@ def _node_test_contract(effect: str, packages: Sequence[str], language: str) -> 
         return (
             "PROOF CONTRACT: "
             f"{harness}"
-            "The canary file is outside/canary.txt beside the allowed directory; it contains "
-            "the token. The flaw is proven only if the APPLICATION, handling input the test "
-            "sends through its entry point, reads that file. "
+            f"The canary file is path.join({_NODE_CANARY_DIR}, \"canary.txt\") (a directory named "
+            "'outside' beside the allowed directory, NOT inside it); it contains the token. The "
+            "flaw is proven only if the APPLICATION, handling input the test sends through its "
+            "entry point, reads that file. "
+            f"{_NODE_LAYOUT}"
             f"{_NODE_ENTRY_SHAPES} "
             f"{_NODE_UNTRUSTED}"
             f"{tail}"
@@ -432,11 +448,13 @@ def _node_test_contract(effect: str, packages: Sequence[str], language: str) -> 
         return (
             "PROOF CONTRACT: "
             f"{harness}"
-            "The canary executable is outside/canary beside the allowed directory; when run, it "
-            "writes the token to the marker file outside/canary_ran, which does not exist before "
+            f"The canary executable is path.join({_NODE_CANARY_DIR}, \"canary\") (in 'outside' "
+            "beside the allowed directory); when run, it writes the token to the marker file "
+            f"path.join({_NODE_CANARY_DIR}, \"canary_ran\"), which does not exist before "
             "the test. The flaw is proven only if the APPLICATION, handling input the test sends "
             "through its entry point, starts a process whose command line names the canary's path. "
             "The test itself must not start any process. "
+            f"{_NODE_LAYOUT}"
             f"{_NODE_ENTRY_SHAPES} "
             f"{_NODE_UNTRUSTED}"
             f"{tail}"

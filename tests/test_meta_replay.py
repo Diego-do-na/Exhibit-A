@@ -157,6 +157,54 @@ def test_compact_recordings_hold_no_secret_from_this_environment(case_id):
     assert scan_files([recording, recording.with_suffix(".json")], scan_values()) == []
 
 
+# -- every other compact recording (2026-11-01) --------------------------------------------------
+#
+# The batch recorded with --profile compact on 2026-11-01 covers every other Python and JS/TS
+# case. Some end proven and some do not (invalid_test or discarded_unproven are honest
+# outcomes and are kept as they came). What must hold for all of them: the metadata matches the
+# recording, nothing from this environment leaked into either file, and an offline replay
+# reproduces the recorded verdicts.
+
+_NEGATIVE_CONTROL_CASE = "starlette-cve-2023-29159-fixed"
+BATCH_COMPACT_CASES = tuple(
+    case_id for case_id in CASES
+    if case_id not in COMPACT_CASES and case_id != _NEGATIVE_CONTROL_CASE
+    and recording_paths(case_id, DEFAULT_MODEL, "compact")[0].is_file()
+)
+
+
+@pytest.mark.parametrize("case_id", BATCH_COMPACT_CASES)
+def test_batch_compact_recording_matches_its_metadata(case_id):
+    recording, meta = _compact_metadata(case_id)
+    assert (meta["provider"], meta["model"], meta["profile"]) == ("meta", DEFAULT_MODEL, "compact")
+    assert meta["hand_authored"] is False and meta["baseline_ok"] is True
+    rows = [json.loads(line) for line in recording.read_text(encoding="utf-8").splitlines() if line]
+    assert len(rows) == meta["calls"] >= 1
+    assert meta["tokens_in"] == sum(row["tokens_in"] for row in rows)
+    assert meta["tokens_out"] == sum(row["tokens_out"] for row in rows)
+    assert meta["cost_usd"] == pytest.approx(sum(row["cost_usd"] for row in rows))
+    assert meta["cost_usd"] <= meta["budget_usd"]["case"] + 1.0  # one call may overshoot
+    assert meta["spent_before_usd"] + meta["cost_usd"] <= meta["budget_usd"]["run_total"] + 1.0
+
+
+@pytest.mark.parametrize("case_id", BATCH_COMPACT_CASES)
+def test_batch_compact_recordings_hold_no_secret_from_this_environment(case_id):
+    recording, _ = recording_paths(case_id, DEFAULT_MODEL, "compact")
+    assert scan_files([recording, recording.with_suffix(".json")], scan_values()) == []
+
+
+@pytest.mark.docker
+@pytest.mark.parametrize("case_id", BATCH_COMPACT_CASES)
+def test_offline_replay_reproduces_the_batch_compact_verdicts(case_id, tmp_path, monkeypatch):
+    _, meta = _compact_metadata(case_id)
+    monkeypatch.delenv("META_API_KEY", raising=False)
+    outcome = replay_case(case_id, DEFAULT_MODEL, tmp_path / "replay", "compact")
+    assert outcome.baseline_ok == meta["baseline_ok"]
+    assert outcome.aborted == meta["aborted"]
+    assert outcome.suspicions_raised == meta["suspicions_raised"]
+    assert comparable(outcome.verdicts) == comparable(meta["verdicts"])
+
+
 # -- negative control: the fixed Starlette tree must never end proven ----------------------------
 #
 # The first compact live run of starlette-cve-2023-29159-fixed (2026-10-30) ended with S3
