@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exhibit A · Benchmark</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="dashboard.css">
+<script src="views/viz.js"></script>
+<script src="dc-lite.js"></script>
+<script src="views/benchmark.js"></script>
+</head>
+<body>
+<template data-dc>
+<div class="xa">
+  <div class="blob" aria-hidden="true" data-style="width: 760px; height: 760px; left: -200px; top: -260px; background: #2c4fc4; opacity: .38"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: -160px; top: 8%; background: #9aa3e0; opacity: .55"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 700px; height: 700px; left: 25%; top: 34%; background: #4b3fa0; opacity: .2"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: 5%; top: 58%; background: #6a8fd8; opacity: .35"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 600px; height: 600px; left: 5%; top: 80%; background: #9aa3e0; opacity: .45"></div>
+
+  <div class="frame">
+
+    <nav class="side" aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+      <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
+║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
+╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
+      <div data-style="display: flex; flex-direction: column; gap: 2px">
+        <a class="nav-a" href="index.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>Overview</a>
+        <a class="nav-a" href="prs.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="18" r="2.5"></circle><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13 3.5 10.5 6 13 8.5"></path></svg>Pull requests</a>
+        <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
+        <a class="nav-a" href="graph.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
+        <a class="nav-a nav-on" href="benchmark.html" aria-current="page"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+      </div>
+      <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+    </nav>
+
+    <div class="scroll"><main class="content">
+      <header data-style="padding: 12px 4px 0">
+        <span class="lbl">muse-wonder-1.0 · $4 in / $20 out per million tokens</span>
+        <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Benchmark</h1>
+        <p class="lead" data-style="font-size: 19px">How much the proof loop changes the outcome compared with simply asking a model, what each safeguard is worth, and how the authors who built Exhibit A performed.</p>
+      </header>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Proof loop versus a naive model</h2><p class="lead">Same corpus, same model. The naive baseline reports whatever the model believes; Exhibit A reports only what it proved. Both found the real bugs, but only the naive baseline accused a patched release.</p></div></div>
+        <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+          <sc-for list="{{ek}}" as="k">
+            <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
+              <span class="lbl">{{k.l}}</span>
+              <div data-style="display: flex; align-items: flex-end; justify-content: space-between; gap: 12px">
+                <div><div class="dsp" data-style="font-size: 54px; font-weight: 500; letter-spacing: -.04em; line-height: .9">{{k.a}}</div><div data-style="font-size: 13px; color: #3d4b68; margin-top: 8px">Exhibit A</div></div>
+                <div data-style="text-align: right"><div class="dsp" data-style="font-size: 30px; font-weight: 500; line-height: .9; color: #6f80a3">{{k.b}}</div><div data-style="font-size: 13px; color: #3d4b68; margin-top: 8px">Naive LLM</div></div>
+              </div>
+              <p data-style="margin: 0; font-size: 14px; line-height: 1.5; color: #3d4b68">{{k.d}}</p>
+            </div>
+          </sc-for>
+        </div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
+          <div class="card" data-style="flex: 3 1 520px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 18px">
+            <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+              <h3 class="ct">Systems compared</h3>
+              <div data-style="display: flex; gap: 8px; align-items: center">
+                <div class="seg" role="group" aria-label="Metric"><sc-for list="{{smOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+                <button type="button" class="ib" data-zoom data-zoom-desc="The proof loop against a naive baseline that reports whatever the model believes, on the same corpus with the same model." data-zoom-points="Both found the real bugs.|Only the naive baseline accused a patched release.|Switch the metric to compare precision, recall, number of reports and cost." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+              </div>
+            </div>
+            <div data-style="display: flex; flex-direction: column; gap: 18px">
+              <sc-for list="{{sm}}" as="s">
+                <div>
+                  <div data-style="display: flex; justify-content: space-between; align-items: baseline"><span data-style="font-size: 15px">{{s.n}}</span><span class="dsp" data-style="font-size: 22px; font-weight: 500">{{s.v}}</span></div>
+                  <div data-style="height: 28px; margin-top: 8px; background: rgba(13,27,62,.05)"><div data-style="height: 100%; width: {{s.w}}%; background: {{s.c}}"></div></div>
+                </div>
+              </sc-for>
+            </div>
+            <p data-style="margin: 0; font-size: 15px; line-height: 1.55; color: #26365a">{{smNote}}</p>
+          </div>
+          <div class="card" data-style="flex: 2 1 340px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px">
+            <h3 class="ct">What each dollar buys</h3>
+            <sc-for list="{{buy}}" as="b">
+              <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px; gap: 10px; align-items: baseline; padding: 10px 0; border-top: 1px solid rgba(13,27,62,.08)">
+                <span data-style="font-size: 14px; color: #26365a">{{b.l}}</span>
+                <span class="mono" data-style="font-size: 14px; text-align: right">{{b.a}}</span>
+                <span class="mono" data-style="font-size: 14px; text-align: right; color: #6f80a3">{{b.b}}</span>
+              </div>
+            </sc-for>
+            <div data-style="display: flex; justify-content: flex-end; gap: 28px; font-size: 12px; color: #3d4b68"><span>Exhibit A</span><span>Naive</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">What each safeguard is worth</h2><p class="lead">215 cheating tests from the red team were replayed against the oracle with one protection switched off at a time. Without the proof loop, 162 of them would have been accepted as proof. With everything on, 21 remain — each one a documented limit.</p></div></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
+          <div class="card" data-style="flex: 3 1 560px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px">
+            <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+              <h3 class="ct">Ablations</h3>
+              <div data-style="display: flex; gap: 8px; align-items: center">
+                <div class="seg" role="group" aria-label="Metric"><sc-for list="{{abOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+                <button type="button" class="ib" data-zoom data-zoom-desc="215 cheating tests written by a red team, replayed against the oracle with one protection switched off at a time." data-zoom-points="Without the proof loop, 162 of them would have been accepted as proof.|With everything on, 21 remain, each one a documented limit.|Switch between false proofs and true proofs to see what each safeguard costs and buys." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+              </div>
+            </div>
+            <div data-style="display: flex; flex-direction: column; gap: 8px">
+              <sc-for list="{{ab}}" as="a">
+                <div data-style="display: grid; grid-template-columns: 170px minmax(0, 1fr) 40px; gap: 12px; align-items: center">
+                  <span data-style="font-size: 13px; color: {{a.lc}}; font-weight: {{a.fw}}">{{a.n}}</span>
+                  <div data-style="height: 16px; background: rgba(13,27,62,.05)"><div data-style="height: 100%; width: {{a.w}}%; background: {{a.c}}"></div></div>
+                  <span class="mono" data-style="font-size: 13px; text-align: right; font-weight: {{a.fw}}">{{a.v}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div data-style="flex: 2 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+            <sc-for list="{{abIns}}" as="i">
+              <div class="card" data-style="padding: 20px 22px; display: flex; flex-direction: column; gap: 8px">
+                <span class="dsp" data-style="font-size: 38px; font-weight: 500; letter-spacing: -.03em">{{i.v}}</span>
+                <p data-style="margin: 0; font-size: 15px; line-height: 1.55; color: #26365a">{{i.d}}</p>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Model economics</h2><p class="lead">Four model roles share the work. The test writer is called most often, because every suspicion needs an exploit; the fixer and defender only run once something has been proven.</p></div></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
+          <div class="card" data-style="flex: 3 1 520px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 16px">
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Calls by role</h3><button type="button" class="ib" data-zoom data-zoom-desc="How many model calls each of the four roles makes, and what it costs." data-zoom-points="The test writer is called most often, because every suspicion needs an exploit.|The fixer and the defender only run once something has been proven." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+            <sc-for list="{{roles}}" as="r">
+              <div data-style="display: grid; grid-template-columns: 120px minmax(0, 1fr) 40px; gap: 14px; align-items: center">
+                <div><div data-style="font-size: 15px">{{r.n}}</div><div data-style="font-size: 12px; color: #3d4b68">{{r.d}}</div></div>
+                <div data-style="height: 22px; background: rgba(13,27,62,.05)"><div data-style="height: 100%; width: {{r.pct}}%; background: {{r.c}}"></div></div>
+                <span class="dsp" data-style="font-size: 18px; font-weight: 500; text-align: right">{{r.v}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div class="card" data-style="flex: 2 1 340px; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr))">
+            <sc-for list="{{econ}}" as="m"><div class="stat" data-style="padding: 22px"><span class="stat-v">{{m.v}}</span><span class="stat-l">{{m.l}}</span></div></sc-for>
+          </div>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Who built it</h2><p class="lead">Exhibit A was built mostly by coding agents working from a shared spec and task board. A pull request is not always written by one, and work with no author log is shown as unlogged. Claude carried the most pull requests; Muse added the most new capability; grok merged few but very large changes, much of it generated corpus and benchmark data.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
+          <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+            <h3 class="ct">Author performance</h3>
+            <div data-style="display: flex; gap: 8px; align-items: center">
+              <label for="am" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Metric</label>
+              <select id="am" class="sel" value="{{m}}" onChange="{{onM}}" data-options="{{mOpts}}"></select>
+              <button type="button" class="ib" data-zoom data-zoom-desc="How much each contributor merged, by pull requests, commits, lines added, test files touched or median cycle, chosen with the selector. Claude carried the most pull requests, Muse added the most new capability, and grok merged few but very large changes." data-zoom-points="Select a bar to read what that contributor did.|Contributors are mostly coding agents, but a pull request is not always written by one: authorship is shown as logged." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+            </div>
+          </div>
+          <svg viewBox="0 0 1000 320" width="100%" role="img" aria-label="Bar chart per author">
+            <text x="0" y="12" fill="#3d4b68" font-size="12" font-family="IBM Plex Sans">{{ag.yt}}</text>
+            <sc-for list="{{ag.grid}}" as="g">
+              <line x1="56" x2="996" y1="{{g.y}}" y2="{{g.y}}" stroke="rgba(13,27,62,.1)"></line>
+              <text x="48" y="{{g.ty}}" text-anchor="end" fill="#3d4b68" font-size="12" font-family="JetBrains Mono">{{g.l}}</text>
+            </sc-for>
+            <sc-for list="{{ag.bars}}" as="b">
+              <rect x="{{b.x}}" y="{{b.y}}" width="{{b.w}}" height="{{b.h}}" fill="{{b.c}}" onClick="{{b.pick}}" data-style="cursor: pointer"><title>{{b.t}}</title></rect>
+              <text x="{{b.cx}}" y="{{b.ly}}" text-anchor="middle" fill="#0d1b3e" font-size="14" font-weight="500" font-family="Space Grotesk">{{b.v}}</text>
+              <text x="{{b.cx}}" y="306" text-anchor="middle" fill="#3d4b68" font-size="13" font-family="IBM Plex Sans">{{b.n}}</text>
+            </sc-for>
+          </svg>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
+        <div class="sec-h"><span class="sec-n">05</span><div><h2 class="sec-t">Scorecard</h2><p class="lead">Select an author to read what they contributed.</p></div></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+          <div class="card" data-style="flex: 3 1 560px; min-width: 0; padding: 8px 10px; overflow-x: auto">
+            <table class="st">
+              <thead><tr><th>Author</th><th>PRs</th><th>Commits</th><th>Lines added</th><th>Test files</th><th>Median cycle</th></tr></thead>
+              <tbody>
+                <sc-for list="{{score}}" as="s">
+                  <tr data-style="background: {{s.bg}}"><td><button type="button" onClick="{{s.pick}}" data-style="all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; min-height: 28px"><span data-style="width: 10px; height: 10px; background: {{s.c}}"></span>{{s.n}}</button></td><td>{{s.prs}}</td><td>{{s.cm}}</td><td>{{s.add}}</td><td>{{s.ts}}</td><td>{{s.cyc}}</td></tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <aside class="card" data-style="flex: 2 1 340px; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+            <div data-style="display: flex; align-items: center; gap: 10px"><span data-style="width: 12px; height: 12px; background: {{pf.c}}"></span><span class="lbl">Author profile</span></div>
+            <h3 class="dsp" data-style="margin: 0; font-size: 34px; font-weight: 500; letter-spacing: -.02em">{{pf.n}}</h3>
+            <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">{{pf.d}}</p>
+            <sc-for list="{{pf.share}}" as="s">
+              <div>
+                <div data-style="display: flex; justify-content: space-between; font-size: 14px"><span data-style="color: #26365a">{{s.l}}</span><span class="mono">{{s.v}}</span></div>
+                <div data-style="height: 8px; margin-top: 6px; background: rgba(13,27,62,.07)"><div data-style="height: 100%; width: {{s.pct}}%; background: {{pf.c}}"></div></div>
+              </div>
+            </sc-for>
+          </aside>
+        </div>
+      </section>
+    </main></div>
+  </div>
+</div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":3600}}'></script>
+</body>
+</html>

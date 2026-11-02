@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exhibit A · Pull requests</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="dashboard.css">
+<script src="views/viz.js"></script>
+<script src="dc-lite.js"></script>
+<script src="views/prs.js"></script>
+</head>
+<body>
+<template data-dc>
+<div class="xa">
+  <div class="blob" aria-hidden="true" data-style="width: 760px; height: 760px; left: -200px; top: -260px; background: #2c4fc4; opacity: .38"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: -160px; top: 10%; background: #9aa3e0; opacity: .55"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 700px; height: 700px; left: 25%; top: 40%; background: #4b3fa0; opacity: .2"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: 5%; top: 66%; background: #6a8fd8; opacity: .35"></div>
+
+  <div class="frame">
+
+    <nav class="side" aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+      <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
+║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
+╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
+      <div data-style="display: flex; flex-direction: column; gap: 2px">
+        <a class="nav-a" href="index.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>Overview</a>
+        <a class="nav-a nav-on" href="prs.html" aria-current="page"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="18" r="2.5"></circle><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13 3.5 10.5 6 13 8.5"></path></svg>Pull requests</a>
+        <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
+        <a class="nav-a" href="graph.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
+        <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+      </div>
+      <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+    </nav>
+
+    <div class="scroll"><main class="content">
+      <header data-style="padding: 12px 4px 0; display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; justify-content: space-between">
+        <div>
+          <span class="lbl">{{shown}}</span>
+          <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Pull requests</h1>
+          <p class="lead" data-style="font-size: 19px">Every task branch that reached main. Each one had a declared scope, its own tests, and was merged only when those tests were green.</p>
+        </div>
+        <div data-style="display: flex; gap: 8px; flex-wrap: wrap">
+          <label for="ag" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Author</label>
+          <select id="ag" class="sel" value="{{agent}}" onChange="{{onAgent}}" data-options="{{agOpts}}"></select>
+        </div>
+      </header>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Throughput</h2><p class="lead">{{lead1}}</p></div></div>
+        <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
+          <sc-for list="{{tot}}" as="k" hint-placeholder-count="4">
+            <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
+              <span class="lbl">{{k.l}}</span>
+              <span class="dsp" data-style="font-size: 52px; font-weight: 500; letter-spacing: -.04em; line-height: .95">{{k.v}}</span>
+              <span data-style="font-size: 14px; color: #3d4b68">{{k.u}}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div class="card" data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr))">
+          <sc-for list="{{minor}}" as="m"><div class="stat"><span class="stat-v">{{m.v}}</span><span class="stat-l">{{m.l}}</span></div></sc-for>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">Timeline</h2><p class="lead">Each point is one pull request, placed at the moment it merged. Vertical position shows how big it was (lines, files or cycle time, chosen with the toggle), so the late surge of heavy changes on October 31 and November 1 stands out on its own.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+          <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+            <h3 class="ct">Merge timeline</h3>
+            <div data-style="display: flex; gap: 8px; align-items: center">
+              <div class="seg" role="group" aria-label="Vertical axis"><sc-for list="{{yOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+              <button type="button" class="ib" data-zoom data-zoom-desc="Each point is one pull request, placed at the moment it merged. Vertical position shows how big it was (lines, files or cycle time, chosen with the toggle), so the late surge of heavy changes on October 31 and November 1 stands out on its own." data-zoom-points="Select a point to read that pull request in the panel next to the table.|The tall points are corpus expansions and generated benchmark results, not hand-written code." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+            </div>
+          </div>
+          <svg viewBox="0 0 1000 300" width="100%" role="img" aria-label="Scatter of pull requests by merge date">
+            <text x="0" y="12" fill="#3d4b68" font-size="12" font-family="IBM Plex Sans">{{tl.yt}}</text>
+            <sc-for list="{{tl.days}}" as="d">
+              <rect x="{{d.x}}" y="24" width="{{d.w}}" height="236" fill="{{d.f}}"></rect>
+              <text x="{{d.tx}}" y="286" text-anchor="middle" fill="#3d4b68" font-size="13" font-family="IBM Plex Sans">{{d.l}}</text>
+            </sc-for>
+            <sc-for list="{{tl.grid}}" as="g">
+              <line x1="48" x2="996" y1="{{g.y}}" y2="{{g.y}}" stroke="rgba(13,27,62,.1)"></line>
+              <text x="40" y="{{g.ty}}" text-anchor="end" fill="#3d4b68" font-size="12" font-family="JetBrains Mono">{{g.l}}</text>
+            </sc-for>
+            <sc-for list="{{tl.dots}}" as="p">
+              <circle cx="{{p.x}}" cy="{{p.y}}" r="{{p.r}}" fill="{{p.c}}" fill-opacity="{{p.op}}" stroke="{{p.s}}" stroke-width="{{p.sw}}" onClick="{{p.pick}}" data-style="cursor: pointer"><title>{{p.t}}</title></circle>
+            </sc-for>
+            <text x="{{tl.sx}}" y="{{tl.sy}}" text-anchor="middle" fill="#0d1b3e" font-size="13" font-weight="500" font-family="JetBrains Mono">{{tl.sl}}</text>
+          </svg>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Size and speed</h2><p class="lead">Most pull requests are small and fast: they change a few hundred lines and merge within minutes of their first commit. The few very large ones are corpus expansions and generated benchmark results.</p></div></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
+          <div class="card" data-style="flex: 1 1 380px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 16px">
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Lines changed per PR</h3><button type="button" class="ib" data-zoom data-zoom-desc="How many lines each pull request changed. Most change a few hundred lines; the few very large ones are corpus expansions and generated benchmark results." data-zoom-points="Each bar counts pull requests in one size range.|A long tail to the right is normal here: generated data counts as lines changed." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+            <div data-style="display: flex; align-items: flex-end; gap: 14px; height: 200px">
+              <sc-for list="{{hist}}" as="h">
+                <div data-style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end">
+                  <span class="dsp" data-style="font-size: 18px; font-weight: 500">{{h.n}}</span>
+                  <div data-style="width: 100%; height: {{h.pct}}%; min-height: 2px; background: {{h.c}}"></div>
+                  <span class="mono" data-style="font-size: 12px; color: #3d4b68">{{h.l}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div class="card" data-style="flex: 1 1 380px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 16px">
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Time from first commit to merge</h3><button type="button" class="ib" data-zoom data-zoom-desc="How long a pull request took from its first commit to its merge. Most are small and fast." data-zoom-points="The median is 8 minutes and 90% close within 50 minutes.|Each bar counts pull requests in one time range." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+            <div data-style="display: flex; align-items: flex-end; gap: 14px; height: 200px">
+              <sc-for list="{{cyh}}" as="h">
+                <div data-style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end">
+                  <span class="dsp" data-style="font-size: 18px; font-weight: 500">{{h.n}}</span>
+                  <div data-style="width: 100%; height: {{h.pct}}%; min-height: 2px; background: {{h.c}}"></div>
+                  <span class="mono" data-style="font-size: 12px; color: #3d4b68">{{h.l}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
+        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Every pull request</h2><p class="lead">Search by ID, title, author or area. Select a row, or a point in the timeline, to see its details.</p></div></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+          <div class="card" data-style="flex: 3 1 600px; min-width: 0; overflow: hidden">
+            <div data-style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 16px 18px">
+              <div data-style="position: relative; flex: 1 1 240px">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4a5873" stroke-width="2" aria-hidden="true" data-style="position: absolute; left: 11px; top: 12px"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+                <label for="q" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</label>
+                <input id="q" class="inp" type="search" placeholder="Search" value="{{q}}" onChange="{{onQ}}">
+              </div>
+              <label for="so" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Sort</label>
+              <select id="so" class="sel" value="{{sort}}" onChange="{{onSort}}" data-options="{{sortOpts}}"></select>
+            </div>
+            <div data-style="overflow-x: auto">
+              <div data-style="min-width: 560px">
+                <div class="prow lbl" data-style="cursor: default; min-height: 38px; font-size: 11px"><span>ID</span><span>Title</span><span>Merged</span><span data-style="text-align: right">Lines</span><span data-style="text-align: right">Cycle</span></div>
+                <div data-style="max-height: 576px; overflow-y: auto">
+                  <sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
+                    <button type="button" class="{{r.cls}}" onClick="{{r.pick}}" aria-label="{{r.aria}}">
+                      <span class="mono" data-style="font-size: 13px; color: #2c4fc4">{{r.id}}</span>
+                      <span data-style="display: flex; gap: 8px; align-items: center; min-width: 0"><span data-style="flex: none; width: 8px; height: 8px; background: {{r.c}}"></span><span data-style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.t}}</span></span>
+                      <span data-style="font-size: 13px; color: #3d4b68">{{r.when}}</span>
+                      <span class="mono" data-style="font-size: 13px; text-align: right">{{r.ch}}</span>
+                      <span class="mono" data-style="font-size: 13px; text-align: right; color: #3d4b68">{{r.cyc}}</span>
+                    </button>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="card" aria-label="Selected pull request" data-style="flex: 1 1 320px; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 18px">
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><span class="mono" data-style="font-size: 14px; color: #2c4fc4">{{sel.id}}</span><span class="lbl">{{sel.size}}</span></div>
+            <h3 class="dsp" data-style="margin: 0; font-size: 26px; font-weight: 500; line-height: 1.2; letter-spacing: -.02em">{{sel.t}}</h3>
+            <div data-style="display: flex; gap: 8px; align-items: center; font-size: 14px; color: #3d4b68"><span data-style="width: 9px; height: 9px; background: {{sel.c}}"></span>{{sel.a}} · {{sel.when}}</div>
+            <div data-style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid rgba(13,27,62,.1); border-bottom: 1px solid rgba(13,27,62,.1)">
+              <div data-style="padding: 14px 0"><div class="lbl" data-style="font-size: 11px">Commits</div><div class="dsp" data-style="font-size: 28px; font-weight: 500; margin-top: 4px">{{sel.cm}}</div></div>
+              <div data-style="padding: 14px 0"><div class="lbl" data-style="font-size: 11px">Files</div><div class="dsp" data-style="font-size: 28px; font-weight: 500; margin-top: 4px">{{sel.f}}</div></div>
+              <div data-style="padding: 14px 0"><div class="lbl" data-style="font-size: 11px">Cycle</div><div class="dsp" data-style="font-size: 28px; font-weight: 500; margin-top: 4px">{{sel.cyc}}</div></div>
+            </div>
+            <div>
+              <div class="mono" data-style="display: flex; justify-content: space-between; font-size: 13px; color: #3d4b68"><span>+{{sel.add}}</span><span>−{{sel.del}}</span></div>
+              <div data-style="display: flex; height: 8px; margin-top: 8px; background: rgba(13,27,62,.07)"><div data-style="width: {{sel.addPct}}%; background: #2c4fc4"></div><div data-style="width: {{sel.delPct}}%; background: #b7834f"></div></div>
+            </div>
+            <p data-style="margin: 0; font-size: 15px; line-height: 1.55; color: #26365a">{{sel.story}}</p>
+            <a href="pr.html" data-style="display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 46px; border-radius: 4px; background: #0f2557; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 500; box-shadow: inset 0 1px 0 rgba(255,255,255,.2)">Open security analysis<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
+          </aside>
+        </div>
+      </section>
+    </main></div>
+  </div>
+</div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2700}}'></script>
+</body>
+</html>

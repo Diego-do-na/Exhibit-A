@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exhibit A · Code graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="dashboard.css">
+<script src="views/viz.js"></script>
+<script src="dc-lite.js"></script>
+<script src="views/graph.js"></script>
+</head>
+<body>
+<template data-dc>
+<div class="xa">
+  <div class="blob" aria-hidden="true" data-style="width: 760px; height: 760px; left: -200px; top: -260px; background: #2c4fc4; opacity: .38"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: -160px; top: 12%; background: #9aa3e0; opacity: .55"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 700px; height: 700px; left: 25%; top: 45%; background: #4b3fa0; opacity: .2"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: 5%; top: 72%; background: #6a8fd8; opacity: .35"></div>
+
+  <div class="frame">
+
+    <nav class="side" aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+      <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
+║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
+╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
+      <div data-style="display: flex; flex-direction: column; gap: 2px">
+        <a class="nav-a" href="index.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>Overview</a>
+        <a class="nav-a" href="prs.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="18" r="2.5"></circle><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13 3.5 10.5 6 13 8.5"></path></svg>Pull requests</a>
+        <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
+        <a class="nav-a nav-on" href="graph.html" aria-current="page"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
+        <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+      </div>
+      <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+    </nav>
+
+    <div class="scroll"><main class="content">
+      <header data-style="padding: 12px 4px 0">
+        <span class="lbl">src/exhibit_a · ast only</span>
+        <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Code graph</h1>
+        <p class="lead" data-style="font-size: 19px">How the engine is put together: which packages exist, how much code each holds, and which ones the rest of the system depends on.</p>
+      </header>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Architecture</h2><p class="lead">The code splits into three layers. The proof core runs exploits and judges them, the analysis layer decides where to look, and the surfaces present the results to people and to CI.</p></div></div>
+        <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
+          <sc-for list="{{tot}}" as="k" hint-placeholder-count="4">
+            <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
+              <span class="lbl">{{k.l}}</span>
+              <span class="dsp" data-style="font-size: 52px; font-weight: 500; letter-spacing: -.04em; line-height: .95">{{k.v}}</span>
+              <span data-style="font-size: 14px; color: #3d4b68">{{k.u}}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 18px">
+          <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Lines of code by layer</h3><button type="button" class="ib" data-zoom data-zoom-desc="How the 29.9k lines of Python split across the three layers of the engine." data-zoom-points="Proof core: oracle, sandbox, loop, models, ledger and schemas, 12,603 lines.|Surfaces: CLI, dashboard, reports, live view and the GitHub Action gate, 9,030 lines.|Analysis: call graph, advisories, findings, triage, audit, attestation and scan, 8,260 lines." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+          <div data-style="display: flex; height: 48px; gap: 3px">
+            <sc-for list="{{layers}}" as="l"><div data-style="width: {{l.pct}}%; background: {{l.c}}; color: {{l.fg}}; display: flex; align-items: center; padding: 0 16px; font-family: 'JetBrains Mono', monospace; font-size: 14px">{{l.pctL}}</div></sc-for>
+          </div>
+          <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px">
+            <sc-for list="{{layers}}" as="l">
+              <div data-style="display: flex; flex-direction: column; gap: 8px">
+                <div data-style="display: flex; align-items: center; gap: 10px"><span data-style="width: 12px; height: 12px; background: {{l.c}}"></span><span class="dsp" data-style="font-size: 20px; font-weight: 500">{{l.name}}</span><span class="mono" data-style="font-size: 13px; color: #3d4b68; margin-left: auto">{{l.loc}}</span></div>
+                <p data-style="margin: 0; font-size: 15px; line-height: 1.55; color: #26365a">{{l.d}}</p>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">The graph</h2><p class="lead">Every package and every import between them. Select a package to trace what it depends on and what depends on it.</p></div></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
+          <div class="card {{gfull}}" data-style="flex: 3 1 620px; min-width: 0; display: flex; flex-direction: column; overflow: hidden">
+            <div data-style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid rgba(13,27,62,.08)">
+              <div data-style="position: relative; flex: 1 1 200px; max-width: 280px">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4a5873" stroke-width="2" aria-hidden="true" data-style="position: absolute; left: 11px; top: 12px"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+                <label for="gq" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Find node</label>
+                <input id="gq" class="inp" type="search" placeholder="Find node" value="{{q}}" onChange="{{onQ}}">
+              </div>
+              <div class="seg" role="group" aria-label="Level"><sc-for list="{{lvOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+              <div class="seg" role="group" aria-label="Layer"><sc-for list="{{lyOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+              <div data-style="display: flex; gap: 6px; margin-left: auto">
+                <button type="button" class="ib" aria-label="Zoom in" onClick="{{zin}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+                <button type="button" class="ib" aria-label="Zoom out" onClick="{{zout}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+                <button type="button" class="ib" aria-label="Fit to view" onClick="{{zfit}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></button>
+                <button type="button" class="ib" aria-label="{{fullL}}" aria-pressed="{{full}}" onClick="{{toggleFull}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+              </div>
+            </div>
+            <div id="gcanvas" class="gv" data-keep role="group" aria-label="Code graph canvas" data-style="flex: 1 1 auto; min-height: 660px; background-color: rgba(255,255,255,.35); background-image: radial-gradient(rgba(13,27,62,.18) 1px, transparent 1.2px); background-size: 22px 22px"></div>
+            <div data-style="display: flex; gap: 18px; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid rgba(13,27,62,.08); font-size: 13px; color: #3d4b68">
+              <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; border-radius: 50%; background: #0f2557"></span>Proof core</span>
+              <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; border-radius: 50%; background: #6a8fd8"></span>Analysis</span>
+              <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; border-radius: 50%; background: #b7834f"></span>Surfaces</span>
+              <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 18px; height: 2px; background: #2c4fc4"></span>Depends on</span>
+              <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 18px; height: 2px; background: #a5703f"></span>Used by</span>
+              <span data-style="margin-left: auto">Dot size is lines of code. Scroll to zoom, drag to move, select a node to trace it.</span>
+            </div>
+          </div>
+          <aside class="card" aria-label="Packages" data-style="flex: 1 1 300px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 12px">
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Packages</h3><span class="lbl">lines</span></div>
+            <div data-style="display: flex; flex-direction: column">
+              <sc-for list="{{pk}}" as="p">
+                <button type="button" class="{{p.cls}}" onClick="{{p.pick}}">
+                  <span data-style="width: 10px; height: 10px; border-radius: 50%; background: {{p.c}}; opacity: {{p.op}}"></span>
+                  <span data-style="display: flex; flex-direction: column; gap: 5px; min-width: 0"><span class="mono" data-style="font-size: 13px; opacity: {{p.op}}">{{p.n}}</span><span data-style="height: 3px; background: rgba(13,27,62,.07)"><span data-style="display: block; height: 100%; width: {{p.w}}%; background: {{p.c}}; opacity: {{p.op}}"></span></span></span>
+                  <span class="mono" data-style="font-size: 12px; text-align: right; color: #3d4b68">{{p.v}}</span>
+                </button>
+              </sc-for>
+            </div>
+          
+            <sc-if value="{{det.on}}">
+              <div data-style="border-top: 1px solid rgba(13,27,62,.1); padding-top: 16px; display: flex; flex-direction: column; gap: 12px">
+                <div data-style="display: flex; align-items: center; gap: 10px"><span data-style="width: 12px; height: 12px; border-radius: 50%; background: {{det.c}}"></span><span class="mono" data-style="font-size: 15px; overflow-wrap: anywhere">{{det.n}}</span></div>
+                <div data-style="font-size: 13px; color: #3d4b68">{{det.meta}}</div>
+                <sc-if value="{{det.hasDeps}}"><div data-style="display: flex; flex-direction: column; gap: 8px"><span class="lbl" data-style="color: #2c4fc4">Depends on · {{det.nDeps}}</span><div data-style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{det.deps}}" as="d"><button type="button" class="detail-chip" onClick="{{d.pick}}">{{d.n}}</button></sc-for></div></div></sc-if>
+                <sc-if value="{{det.hasUsers}}"><div data-style="display: flex; flex-direction: column; gap: 8px"><span class="lbl" data-style="color: #a5703f">Used by · {{det.nUsers}}</span><div data-style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{det.users}}" as="d"><button type="button" class="detail-chip" onClick="{{d.pick}}">{{d.n}}</button></sc-for></div></div></sc-if>
+              </div>
+            </sc-if>
+</aside>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Hotspots</h2><p class="lead">The schemas are the backbone: the graph schema alone is imported by 16 other modules. The oracle is both the largest module and one of the most depended on, which is why it carries the heaviest test coverage.</p></div></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
+          <sc-for list="{{hot}}" as="h">
+            <div class="card" data-style="flex: 1 1 300px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 6px">
+              <h3 class="ct">{{h.t}}</h3>
+              <p data-style="margin: 0 0 8px; font-size: 14px; color: #3d4b68; line-height: 1.5">{{h.d}}</p>
+              <sc-for list="{{h.rows}}" as="m">
+                <div class="trow"><span class="mono" data-style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{m.m}}</span><span data-style="height: 6px; background: rgba(13,27,62,.07)"><span data-style="display: block; height: 100%; width: {{m.pct}}%; background: {{h.c}}"></span></span><span class="mono" data-style="font-size: 13px; text-align: right">{{m.v}}</span></div>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+    </main></div>
+  </div>
+</div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2500}}'></script>
+</body>
+</html>

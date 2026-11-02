@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exhibit A · Pull request analysis</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="dashboard.css">
+<script src="views/viz.js"></script>
+<script src="dc-lite.js"></script>
+<script src="views/pr.js"></script>
+</head>
+<body>
+<template data-dc>
+<div class="xa">
+  <div class="blob" aria-hidden="true" data-style="width: 760px; height: 760px; left: -200px; top: -260px; background: #2c4fc4; opacity: .38"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: -160px; top: 10%; background: #9aa3e0; opacity: .55"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 700px; height: 700px; left: 25%; top: 45%; background: #4b3fa0; opacity: .2"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 520px; height: 520px; right: 10%; bottom: -200px; background: #d9b98f; opacity: .35"></div>
+
+  <div class="frame">
+
+    <nav class="side" aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+      <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
+║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
+╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
+      <div data-style="display: flex; flex-direction: column; gap: 2px">
+        <a class="nav-a" href="index.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>Overview</a>
+        <a class="nav-a nav-on" href="prs.html" aria-current="page"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="18" r="2.5"></circle><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13 3.5 10.5 6 13 8.5"></path></svg>Pull requests</a>
+        <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
+        <a class="nav-a" href="graph.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
+        <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+      </div>
+      <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+    </nav>
+
+    <div class="scroll"><main class="content">
+
+      <header data-style="padding: 12px 4px 0; display: flex; flex-direction: column; gap: 14px">
+        <div data-style="display: flex; align-items: center; gap: 10px; font-size: 14px"><a href="prs.html" data-style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>Pull requests</a><span data-style="color: #7a86a1">/</span><span class="mono" data-style="font-size: 13px; color: #3d4b68">nested-pamphlets</span></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; justify-content: space-between">
+          <div data-style="min-width: 0">
+            <h1 class="dsp" data-style="margin: 0; font-size: 54px; font-weight: 500; line-height: 1.05; letter-spacing: -.035em">Allow nested folders in pamphlet names</h1>
+            <div class="mono" data-style="margin-top: 12px; font-size: 13px; color: #3d4b68">examples/action-demo · nested-pamphlets → main · patch 01-path-traversal</div>
+          </div>
+          <div class="state {{st.cls}}" role="status" data-style="background: {{st.bg}}; color: {{st.fg}}; border-color: {{st.bd}}"><span class="state-i"><sc-if value="{{st.isOpen}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.4"></circle><circle cx="6" cy="18" r="2.4"></circle><circle cx="18" cy="18" r="2.4"></circle><path d="M6 8.4v7.2M18 15.6V10a3 3 0 0 0-3-3h-3m0 0 2.2-2.2M12 7l2.2 2.2"></path></svg></sc-if><sc-if value="{{st.isDone}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12.5 2.7 2.7L16 9.5"></path></svg></sc-if><sc-if value="{{st.isBusy}}"><svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg></sc-if></span><span><span class="state-l">{{st.l}}</span><span class="state-s">{{st.s}}</span></span></div>
+        </div>
+        <p class="lead" data-style="margin-top: 4px">The change lets readers open pamphlets stored in sub-folders. To do it, it removes the check that kept every requested name inside the shelf directory. Exhibit A tested what that removal makes possible, live, in an isolated sandbox.</p>
+      </header>
+
+      <section data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+          <span class="lbl">Risk level</span>
+          <span class="dsp" data-style="font-size: 44px; font-weight: 500; letter-spacing: -.03em; line-height: 1; color: {{risk.c}}">{{risk.l}}</span>
+          <div data-style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px"><sc-for list="{{risk.bars}}" as="b"><div data-style="height: 6px; background: {{b.c}}"></div></sc-for></div>
+          <span data-style="font-size: 14px; color: #3d4b68; line-height: 1.45">{{risk.d}}</span>
+        </div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+          <span class="lbl">Verdict</span>
+          <span class="dsp" data-style="font-size: 44px; font-weight: 500; letter-spacing: -.03em; line-height: 1">{{verdict.l}}</span>
+          <span data-style="font-size: 14px; color: #3d4b68; line-height: 1.45">{{verdict.d}}</span>
+        </div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+          <span class="lbl">Change</span>
+          <span class="dsp" data-style="font-size: 44px; font-weight: 500; letter-spacing: -.03em; line-height: 1">1 file</span>
+          <span class="mono" data-style="font-size: 14px"><span data-style="color: #2c4fc4">+2</span>  <span data-style="color: #a5703f">−6</span>  · pamphlets.py</span>
+        </div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+          <span class="lbl">Merge</span>
+          <span class="dsp" data-style="font-size: 44px; font-weight: 500; letter-spacing: -.03em; line-height: 1">{{merge.l}}</span>
+          <span data-style="font-size: 14px; color: #3d4b68; line-height: 1.45">{{merge.d}}</span>
+        </div>
+      </section>
+
+      <section class="card" data-style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
+        <div data-style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center"><span class="lbl" data-style="min-width: 150px">MITRE ATT&amp;CK</span><sc-for list="{{attack}}" as="t"><button type="button" class="tag" onClick="{{t.open}}" aria-label="{{t.aria}}"><span class="tag-id">{{t.id}}</span><span class="tag-n">{{t.name}}</span></button></sc-for></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center"><span class="lbl" data-style="min-width: 150px">Weakness</span><sc-for list="{{weak}}" as="t"><button type="button" class="tag" onClick="{{t.open}}" aria-label="{{t.aria}}"><span class="tag-id">{{t.id}}</span><span class="tag-n">{{t.name}}</span></button></sc-for></div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Live analysis</h2><p class="lead">Each stage below runs for real against the pull request head. Exhibit A does not take the model's word for it: the change is only reported as exploitable once the oracle sees the exploit read a file it should never reach, through the public entry point, in every repeated run.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 18px">
+          <div data-style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between">
+            <div data-style="display: flex; align-items: center; gap: 14px">
+              <span class="{{live.dotCls}}" data-style="width: 10px; height: 10px; border-radius: 50%; background: {{live.dot}}"></span>
+              <span class="dsp" data-style="font-size: 18px; font-weight: 500">{{live.title}}</span>
+              <span class="mono" data-style="font-size: 13px; color: #3d4b68">{{live.clock}}</span>
+            </div>
+            <div data-style="display: flex; gap: 8px; align-items: center">
+              <button type="button" class="ib" aria-label="{{live.playL}}" onClick="{{live.toggle}}"><sc-if value="{{live.playing}}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14"></rect><rect x="14" y="5" width="4" height="14"></rect></svg></sc-if><sc-if value="{{live.paused}}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5v14l12-7z"></path></svg></sc-if></button>
+              <button type="button" class="ib" aria-label="Replay" onClick="{{live.replay}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path></svg></button>
+              <div class="seg" role="group" aria-label="Speed"><sc-for list="{{live.speeds}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+            </div>
+          </div>
+          <div data-style="height: 4px; background: rgba(13,27,62,.08)"><div data-style="height: 100%; width: {{live.pct}}%; background: #2c4fc4; transition: width .4s"></div></div>
+          <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
+            <ol data-style="flex: 1 1 280px; min-width: 0; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+              <sc-for list="{{live.stages}}" as="s">
+                <li data-style="display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 44px; border-top: 1px solid rgba(13,27,62,.07); opacity: {{s.op}}">
+                  <span class="{{s.cls}}" data-style="width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: {{s.bg}}; color: #ffffff; border: 1.5px solid {{s.bd}}"><sc-if value="{{s.done}}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></sc-if></span>
+                  <span data-style="font-size: 15px; font-weight: {{s.fw}}">{{s.n}}</span>
+                  <span class="mono" data-style="font-size: 11px; color: #4a5873">{{s.k}}</span>
+                </li>
+              </sc-for>
+            </ol>
+            <div data-style="flex: 2 1 420px; min-width: 0; border-radius: 4px; background: linear-gradient(160deg, rgba(10,24,64,.95), rgba(22,48,122,.9)); padding: 18px 20px; min-height: 520px; display: flex; flex-direction: column; gap: 2px; box-shadow: inset 0 1px 0 rgba(255,255,255,.12)">
+              <div class="mono" data-style="font-size: 11px; color: rgba(232,238,251,.6); padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 8px">ledger.jsonl · live</div>
+              <sc-for list="{{live.log}}" as="l">
+                <div class="mono" data-style="display: grid; grid-template-columns: 58px 96px minmax(0, 1fr); gap: 10px; font-size: 12.5px; line-height: 1.6; padding: 5px 0; color: #e6ecfa">
+                  <span data-style="color: rgba(232,238,251,.55)">{{l.t}}</span>
+                  <span data-style="color: {{l.rc}}">{{l.r}}</span>
+                  <span data-style="color: {{l.mc}}">{{l.m}}</span>
+                </div>
+              </sc-for>
+              <sc-if value="{{live.running}}" hint-placeholder-val="{{ true }}"><div class="mono" data-style="font-size: 12.5px; color: #9aa3e0; padding: 5px 0">{{live.next}} <span class="caret">▍</span></div></sc-if>
+            </div>
+          </div>
+          <div data-style="display: grid; grid-template-columns: 6px minmax(0, 1fr); gap: 18px; padding: 20px 22px; border-radius: 4px; background: {{dec.bg}}; border: 1px solid {{dec.bd}}">
+            <span data-style="background: {{dec.c}}; border-radius: 3px"></span>
+            <div>
+              <div class="lbl" data-style="color: {{dec.c}}">Decision</div>
+              <div class="dsp" data-style="font-size: 26px; font-weight: 500; letter-spacing: -.02em; margin-top: 6px">{{dec.t}}</div>
+              <p data-style="margin: 8px 0 0; font-size: 16px; line-height: 1.6; color: #26365a">{{dec.d}}</p>
+            </div>
+          </div>
+        </div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 4px">
+          <h3 class="ct" data-style="margin-bottom: 8px">Proof standard</h3>
+          <sc-for list="{{proof}}" as="p">
+            <div data-style="display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid rgba(13,27,62,.07)">
+              <span data-style="width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: {{p.bg}}; color: #ffffff; border: 1.5px solid {{p.bd}}"><sc-if value="{{p.ok}}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></sc-if></span>
+              <div><div data-style="font-size: 15px; font-weight: 500">{{p.n}}</div><div data-style="font-size: 14px; color: #3d4b68; margin-top: 2px">{{p.d}}</div></div>
+              <span class="mono" data-style="font-size: 12px; color: {{p.sc}}">{{p.s}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">What the pull request changes</h2><p class="lead">Six lines of protection become one. The new line joins whatever name the request carries onto the shelf directory and hands it straight to the file reader, so a name like ../outside/canary.txt walks out of the shelf.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
+          <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap"><span class="mono" data-style="font-size: 14px">examples/action-demo/pamphlets.py</span><span class="mono" data-style="font-size: 13px"><span data-style="color: #2c4fc4">+2</span>  <span data-style="color: #a5703f">−6</span></span></div>
+          <div class="code">
+            <sc-for list="{{prDiff}}" as="r">
+              <div class="cl" data-style="background: {{r.bg}}">
+                <span class="gut">{{r.o}}</span><span class="gut">{{r.n}}</span><span data-style="color: {{r.sc}}; text-align: center">{{r.s}}</span><span data-style="color: {{r.tc}}">{{r.t}}</span>
+                <sc-if value="{{r.vuln}}" hint-placeholder-val="{{ false }}"><span data-style="font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; font-weight: 500; padding: 2px 10px; border-radius: 3px; background: #a5703f; color: #ffffff">vulnerable · CWE-22</span></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Blast radius</h2><p class="lead">The path the attack follows inside the repository, from the public entry point to the file read. Anything else that calls the same resolver inherits the problem.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 18px">
+          <div data-style="display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; color: #3d4b68">
+            <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#a5703f" stroke-width="2.4" stroke-dasharray="8 6"></path></svg>Path the exploit follows</span>
+            <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#7a86a1" stroke-width="1.4" stroke-opacity=".6"></path></svg>Other calls, not affected</span>
+            <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#7a86a1" stroke-width="1.4" stroke-dasharray="5 5"></path></svg>Would inherit the problem</span>
+            <span>Scroll to zoom, drag to move. Hover a node for what it does.</span>
+          </div>
+          <div id="blast" class="gv" data-keep role="group" aria-label="Dependency graph of the affected path" data-style="min-height: 460px; border-radius: 4px; border: 1px solid rgba(13,27,62,.08); background-color: rgba(255,255,255,.35); background-image: radial-gradient(rgba(13,27,62,.18) 1px, transparent 1.2px); background-size: 22px 22px"></div>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">{{fx.title}}</h2><p class="lead">{{fx.lead}}</p></div></div>
+
+        <sc-if value="{{fx.pending}}" hint-placeholder-val="{{ true }}">
+          <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+            <div class="card" data-style="flex: 3 1 560px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px">
+              <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap"><span class="mono" data-style="font-size: 14px">fix.patch · pamphlets.py</span><span class="mono" data-style="font-size: 13px"><span data-style="color: #2c4fc4">+6</span>  <span data-style="color: #a5703f">−2</span></span></div>
+              <div class="code">
+                <sc-for list="{{fixDiff}}" as="r">
+                  <div class="cl" data-style="background: {{r.bg}}"><span class="gut">{{r.o}}</span><span class="gut">{{r.n}}</span><span data-style="color: {{r.sc}}; text-align: center">{{r.s}}</span><span data-style="color: {{r.tc}}">{{r.t}}</span><span></span></div>
+                </sc-for>
+              </div>
+            </div>
+            <div class="card" data-style="flex: 2 1 340px; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+              <h3 class="ct">Already verified in the sandbox</h3>
+              <sc-for list="{{expect}}" as="e">
+                <div data-style="display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 12px; align-items: start">
+                  <span data-style="width: 20px; height: 20px; border-radius: 50%; background: #2c4fc4; color: #ffffff; display: flex; align-items: center; justify-content: center; margin-top: 2px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></span>
+                  <span data-style="font-size: 15px; line-height: 1.5; color: #26365a">{{e}}</span>
+                </div>
+              </sc-for>
+              <button type="button" class="btn btn-p" onClick="{{askApprove}}" data-style="margin-top: 6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Approve and commit fix</button>
+              <span data-style="font-size: 13px; color: #3d4b68; text-align: center">exhibit-a[bot] pushes one commit to nested-pamphlets</span>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{fx.committing}}" hint-placeholder-val="{{ false }}">
+          <div class="card" data-style="padding: 24px; display: flex; flex-direction: column; gap: 4px">
+            <sc-for list="{{commitSteps}}" as="c">
+              <div data-style="display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 14px; align-items: center; min-height: 52px; border-top: 1px solid rgba(13,27,62,.07); opacity: {{c.op}}">
+                <span class="{{c.cls}}" data-style="width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: {{c.bg}}; color: #ffffff; border: 1.5px solid {{c.bd}}"><sc-if value="{{c.done}}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></sc-if></span>
+                <span data-style="font-size: 16px">{{c.l}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{fx.approved}}" hint-placeholder-val="{{ false }}">
+          <div data-style="display: flex; flex-direction: column; gap: 20px">
+            <div class="card" data-style="padding: 22px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center">
+              <span data-style="width: 44px; height: 44px; border-radius: 50%; background: #2c4fc4; color: #ffffff; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></span>
+              <div data-style="flex: 1 1 300px; min-width: 0"><div class="mono" data-style="font-size: 15px">fix: confine pamphlet names to the shelf directory</div><div data-style="font-size: 14px; color: #3d4b68; margin-top: 4px">exhibit-a[bot] · nested-pamphlets · 1 file · +6 −2 · approved from this dashboard</div></div>
+              <button type="button" class="btn btn-s" onClick="{{reset}}">Reset demo</button>
+            </div>
+            <div class="card" data-style="padding: 8px 22px 14px; overflow-x: auto">
+              <table data-style="width: 100%; border-collapse: collapse; min-width: 560px">
+                <thead><tr><th class="lbl" data-style="text-align: left; padding: 14px 0; font-size: 11px">Measure</th><th class="lbl" data-style="text-align: left; padding: 14px 0; font-size: 11px">Before the fix</th><th class="lbl" data-style="text-align: left; padding: 14px 0; font-size: 11px">After the fix</th></tr></thead>
+                <tbody>
+                  <sc-for list="{{after}}" as="a">
+                    <tr><td data-style="padding: 14px 16px 14px 0; border-top: 1px solid rgba(13,27,62,.08); font-size: 15px">{{a.m}}</td><td class="mono" data-style="padding: 14px 16px 14px 0; border-top: 1px solid rgba(13,27,62,.08); font-size: 13px; color: #a5703f">{{a.b}}</td><td class="mono" data-style="padding: 14px 0; border-top: 1px solid rgba(13,27,62,.08); font-size: 13px; color: #2c4fc4">{{a.a}}</td></tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </sc-if>
+      </section>
+    </main></div>
+  </div>
+
+  <sc-if value="{{confirm}}" hint-placeholder-val="{{ false }}">
+    <div class="ovl" role="dialog" aria-modal="true" aria-label="Confirm fix commit">
+      <div class="modal" data-style="max-width: 560px; padding: 28px; display: flex; flex-direction: column; gap: 18px">
+        <span class="lbl">Confirm</span>
+        <h2 class="dsp" data-style="margin: 0; font-size: 28px; font-weight: 500; letter-spacing: -.02em">Commit the verified fix?</h2>
+        <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">exhibit-a[bot] will push one commit to <span class="mono" data-style="font-size: 14px">nested-pamphlets</span> that restores the containment check in <span class="mono" data-style="font-size: 14px">_resolve</span>. The proof loop then re-runs on the new head before the pull request can merge.</p>
+        <div class="mono" data-style="font-size: 13px; padding: 12px 14px; border-radius: 4px; background: rgba(10,24,64,.05)">fix: confine pamphlet names to the shelf directory</div>
+        <div data-style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap"><button type="button" class="btn btn-s" onClick="{{cancel}}">Cancel</button><button type="button" class="btn btn-p" onClick="{{doCommit}}">Confirm and commit</button></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{tag.open}}" hint-placeholder-val="{{ false }}">
+    <div class="ovl" role="dialog" aria-modal="true" aria-label="{{tag.name}}" onClick="{{tag.close}}">
+      <div class="modal" onClick="{{stop}}">
+        <div data-style="display: flex; align-items: center; gap: 12px; padding: 18px 24px; border-bottom: 1px solid rgba(13,27,62,.1)">
+          <span class="mono" data-style="font-size: 13px; padding: 4px 10px; border-radius: 3px; border: 1px solid rgba(13,27,62,.18); color: #2c4fc4">{{tag.id}}</span>
+          <span class="lbl">{{tag.cat}}</span>
+          <button type="button" class="ib" aria-label="Close" onClick="{{tag.close}}" data-style="margin-left: auto"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        </div>
+        <div data-style="padding: 24px; display: flex; flex-direction: column; gap: 18px">
+          <h2 class="dsp" data-style="margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -.02em">{{tag.name}}</h2>
+          <sc-for list="{{tag.desc}}" as="d"><p data-style="margin: 0; font-size: 16px; line-height: 1.65; color: #26365a">{{d}}</p></sc-for>
+          <span data-style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(44,79,196,.4); background: rgba(44,79,196,.08); color: #16307a; font-size: 14px"><span data-style="width: 7px; height: 7px; border-radius: 50%; background: #2c4fc4"></span>Observed in this pull request</span>
+          <div><div class="lbl" data-style="margin-bottom: 8px">In this change</div><p data-style="margin: 0; font-size: 16px; line-height: 1.65; color: #26365a">{{tag.here}}</p></div>
+          <div>
+            <div class="lbl" data-style="margin-bottom: 10px">{{tag.mitL}}</div>
+            <div data-style="display: flex; flex-direction: column; gap: 8px">
+              <sc-for list="{{tag.mit}}" as="m"><div data-style="display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding: 12px 14px; border-radius: 4px; background: rgba(255,255,255,.7); border: 1px solid rgba(13,27,62,.08)"><span class="mono" data-style="font-size: 13px; color: #2c4fc4">{{m.id}}</span><span data-style="font-size: 15px; line-height: 1.5">{{m.t}}</span></div></sc-for>
+            </div>
+          </div>
+          <sc-if value="{{tag.hasWorld}}" hint-placeholder-val="{{ false }}">
+            <div>
+              <div class="lbl" data-style="margin-bottom: 10px">Seen in the real world</div>
+              <div data-style="display: flex; flex-direction: column; gap: 8px">
+                <sc-for list="{{tag.world}}" as="w"><div data-style="padding: 14px 16px; border-radius: 4px; background: rgba(15,37,87,.05); border: 1px solid rgba(13,27,62,.08)"><div class="mono" data-style="font-size: 14px; font-weight: 500">{{w.id}}</div><div data-style="font-size: 15px; color: #26365a; margin-top: 4px; line-height: 1.5">{{w.t}}</div></div></sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"startStatus":{"editor":"enum","options":["pending","approved"],"default":"pending"},"$preview":{"width":1440,"height":1000}}'></script>
+</body>
+</html>
