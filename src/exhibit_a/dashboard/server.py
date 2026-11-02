@@ -17,8 +17,9 @@ Security posture (threat model in docs/design/dashboard.md):
 
 Endpoints (GET):
 
-- ``/``, ``/app.js``, ``/style.css``, ``/fonts/<name>.woff2``: the UI in
-  ``web/dashboard/`` (fonts are self-hosted; the CSP allows ``font-src 'self'`` only).
+- ``/``, ``/<page>.html``, ``/dashboard.css``, ``/dc-lite.js``, ``/views/<page>.js`` and
+  ``/fonts/<name>.woff2``: the UI in ``web/dashboard/`` (fonts are self-hosted; the CSP allows
+  ``font-src 'self'`` only).
 - ``/auth?token=``: one-time bootstrap; redirects to ``/``.
 - ``/api/info``: source label and caps.
 - ``/api/runs?page=&per_page=``: runs list rows, newest first.
@@ -38,6 +39,7 @@ Endpoints (GET):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import hmac
 import json
 import re
@@ -77,9 +79,19 @@ COOKIE_NAME = "exhibit_a_dashboard"
 #: Static files the server may send, mapped to their content types.
 STATIC_FILES = {
     "index.html": "text/html; charset=utf-8",
-    "app.js": "text/javascript; charset=utf-8",
-    "style.css": "text/css; charset=utf-8",
+    "prs.html": "text/html; charset=utf-8",
+    "pr.html": "text/html; charset=utf-8",
+    "findings.html": "text/html; charset=utf-8",
+    "finding.html": "text/html; charset=utf-8",
+    "compare.html": "text/html; charset=utf-8",
+    "graph.html": "text/html; charset=utf-8",
+    "benchmark.html": "text/html; charset=utf-8",
+    "dashboard.css": "text/css; charset=utf-8",
+    "dc-lite.js": "text/javascript; charset=utf-8",
 }
+
+#: Per-page view logic under ``views/``: lowercase names only, nothing else.
+VIEW_RE = re.compile(r"^views/[a-z][a-z0-9-]{0,40}\.js\Z")
 
 #: Self-hosted fonts under ``fonts/``: lowercase woff2 names only, nothing else.
 FONT_RE = re.compile(r"^fonts/[a-z0-9][a-z0-9-]{0,80}\.woff2\Z")
@@ -90,6 +102,8 @@ def static_type(name: str) -> str | None:
     """Content type of a servable static file name, or None when it is not servable."""
     if name in STATIC_FILES:
         return STATIC_FILES[name]
+    if VIEW_RE.match(name):
+        return "text/javascript; charset=utf-8"
     if FONT_RE.match(name):
         return FONT_TYPE
     return None
@@ -215,16 +229,20 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
 
         # -- responses --------------------------------------------------------
 
-        def _headers(self, status: int, content_type: str, length: int | None) -> None:
+        def _headers(
+            self, status: int, content_type: str, length: int | None, extra: dict[str, str] | None = None
+        ) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             if length is not None:
                 self.send_header("Content-Length", str(length))
+            overridden = {k.lower() for k in (extra or {})}
             for key, value in SECURITY_HEADERS.items():
-                self.send_header(key, value)
+                if key.lower() not in overridden:
+                    self.send_header(key, value)
 
         def _send(self, status: int, body: bytes, content_type: str, extra: dict[str, str] | None = None) -> None:
-            self._headers(status, content_type, len(body))
+            self._headers(status, content_type, len(body), extra)
             for key, value in (extra or {}).items():
                 self.send_header(key, value)
             self.end_headers()
@@ -320,7 +338,18 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
             if content_type is None or target != root / name or not target.is_file():
                 self._error(404, "not found")
                 return
-            self._send(200, target.read_bytes(), content_type)
+            body = target.read_bytes()
+            etag = '"' + hashlib.sha256(body).hexdigest()[:20] + '"'
+            # Static assets are public, fixed files: revalidate with an ETag (cheap 304) instead of
+            # re-downloading CSS/JS/fonts on every page switch. Fonts never change, so they may be reused.
+            cache = "private, max-age=86400" if name.startswith("fonts/") else "no-cache"
+            extra = {"Cache-Control": cache, "ETag": etag}
+            if self.headers.get("If-None-Match") == etag:
+                self._headers(304, content_type, None, extra)
+                self.send_header("ETag", etag)
+                self.end_headers()
+                return
+            self._send(200, body, content_type, extra)
 
         def _api(self, route: str) -> None:
             if self._cross_site():

@@ -39,8 +39,10 @@ def test_export_is_self_contained_and_uses_relative_references(tmp_path: Path):
     names = {path.relative_to(output).as_posix() for path in _files(output)}
     assert {
         "index.html",
-        "app.js",
-        "style.css",
+        "pr.html",
+        "dc-lite.js",
+        "dashboard.css",
+        "views/index.js",
         "static.js",
         "data/info.json",
         "data/runs.json",
@@ -61,8 +63,8 @@ def test_export_is_self_contained_and_uses_relative_references(tmp_path: Path):
     assert b"file://" not in generated
     html = (output / "index.html").read_text(encoding="utf-8")
     references = re.findall(r"""(?:src|href)="([^"]+)""", html)
-    assert "style.css" in references and "static.js" in references
-    assert all(value.startswith("#/") or value in {"style.css", "static.js"} for value in references)
+    assert {"dashboard.css", "dc-lite.js", "views/index.js", "prs.html"} <= set(references)
+    assert all(re.fullmatch(r"[a-z]+\.html|dashboard\.css|dc-lite\.js|views/[a-z]+\.js", value) for value in references)
     assert not re.search(r"""(?:src|href)=["'](?:/|[A-Za-z]:[\\/])""", html)
     assert json.loads((output / "data/run.json").read_text(encoding="utf-8"))["ledger"].startswith("runs/")
 

@@ -24,6 +24,73 @@
   }
   window.DCLogic = DCLogic;
 
+
+  // ---- Night mode -----------------------------------------------------------------------------
+  // Templates carry their light-theme colors inline (fills, strokes, data-style). In dark mode every
+  // color goes through DCTheme.map, which inverts lightness and keeps hue, so one palette serves both.
+  const DCTheme = (() => {
+    let mode = 'light';
+    try {
+      const saved = localStorage.getItem('xa-theme');
+      if (saved === 'dark' || saved === 'light') mode = saved;
+      else if (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) mode = 'dark';
+    } catch (e) { /* storage can be blocked; stay on the default */ }
+    const cache = new Map();
+    const COLOR = /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b|rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*[\d.]+\s*)?\)/g;
+    function toRgb(c) {
+      if (c[0] === '#') {
+        const h = c.length === 4 ? c.slice(1).split('').map((x) => x + x).join('') : c.slice(1);
+        return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 1];
+      }
+      const p = c.slice(c.indexOf('(') + 1, -1).split(',').map(parseFloat);
+      return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1];
+    }
+    function hsl(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+      if (!d) return [0, 0, l];
+      const s = d / (1 - Math.abs(2 * l - 1));
+      const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return [(h * 60 + 360) % 360, s, l];
+    }
+    function rgb(h, s, l) {
+      const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+      const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+      return [r + m, g + m, b + m].map((v) => Math.round(v * 255));
+    }
+    function one(c) {
+      let out = cache.get(c);
+      if (out) return out;
+      const [r, g, b, a] = toRgb(c);
+      let [h, s, l] = hsl(r, g, b);
+      const l2 = 0.1 + 0.8 * (1 - l);
+      if (l > 0.85) s *= 0.6;
+      const [R, G, B] = rgb(h, Math.min(1, s), l2);
+      out = a < 1 ? 'rgba(' + R + ',' + G + ',' + B + ',' + a + ')' : 'rgb(' + R + ',' + G + ',' + B + ')';
+      cache.set(c, out);
+      return out;
+    }
+    const api = {
+      get mode() { return mode; },
+      map(v) { return mode === 'dark' && typeof v === 'string' ? v.replace(COLOR, one) : v; },
+      apply() { document.documentElement.setAttribute('data-theme', mode); },
+      set(m) {
+        mode = m === 'dark' ? 'dark' : 'light';
+        try { localStorage.setItem('xa-theme', mode); } catch (e) { /* ignore */ }
+        api.apply();
+        (window.__dcRenders || []).forEach((fn) => fn());
+        window.dispatchEvent(new CustomEvent('dctheme', { detail: mode }));
+      },
+      toggle() { api.set(mode === 'dark' ? 'light' : 'dark'); },
+    };
+    api.apply();
+    document.addEventListener('click', (ev) => {
+      if (ev.target.closest && ev.target.closest('[data-theme-toggle]')) api.toggle();
+    });
+    return api;
+  })();
+  window.DCTheme = DCTheme;
+
   const WHOLE = /^\s*\{\{\s*([^}]+?)\s*\}\}\s*$/;
   const PART = /\{\{\s*([^}]+?)\s*\}\}/g;
 
@@ -79,6 +146,7 @@
         continue;
       }
       const el = document.createElementNS(node.namespaceURI, node.localName);
+      const nomap = !!(node.closest && node.closest("[data-nomap]"));
       for (const a of Array.from(node.attributes)) {
         if (a.name.startsWith('hint-')) continue;
         const m = WHOLE.exec(a.value);
@@ -96,8 +164,8 @@
         }
         // Templates write inline styles as data-style so the strict CSP (style-src 'self') never
         // sees a style attribute; they are applied through the CSSOM, which the CSP allows.
-        if (a.name === 'style' || a.name === 'data-style') el.style.cssText = value;
-        else el.setAttribute(a.name, value);
+        if (a.name === 'style' || a.name === 'data-style') el.style.cssText = nomap ? value : DCTheme.map(value);
+        else el.setAttribute(a.name, COLOR_ATTR.test(a.name) && !nomap ? DCTheme.map(value) : value);
       }
       // <sc-for> cannot live inside <select> (the HTML parser drops it), so a select takes its
       // options from data-options="{{list}}": a list of { k: value, l: label }.
@@ -117,6 +185,8 @@
       out.appendChild(el);
     }
   }
+
+  const COLOR_ATTR = /^(fill|stroke|stop-color|flood-color|color)$/;
 
   function syncValue(el) {
     if ((el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && el.hasAttribute('value')) {
@@ -188,6 +258,7 @@
       morphChildren(root, frag);
       if (typeof comp.componentDidRender === 'function') comp.componentDidRender(root);
     };
+    (window.__dcRenders = window.__dcRenders || []).push(render);
     comp.__schedule = () => { if (!queued) { queued = true; queueMicrotask(render); } };
     render();
     root.querySelectorAll('select,input,textarea').forEach(syncValue);

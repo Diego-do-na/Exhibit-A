@@ -8,6 +8,7 @@
 <script src="views/viz.js"></script>
 <script src="dc-lite.js"></script>
 <script src="views/findings.js"></script>
+<script src="views/palette.js"></script>
 </head>
 <body>
 <template data-dc>
@@ -20,7 +21,7 @@
 
   <div class="frame">
 
-    <nav class="side" aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+    <nav class="side" data-nomap aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
       <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
 ║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
 ╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
@@ -30,8 +31,10 @@
         <a class="nav-a nav-on" href="findings.html" aria-current="page"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
         <a class="nav-a" href="graph.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
         <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+        <a class="nav-a" href="compare.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v18M16 3v18M3 8h5M3 16h5M16 8h5M16 16h5"></path></svg>Compare</a>
       </div>
       <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+      <button type="button" class="theme-t" data-theme-toggle aria-label="Toggle night mode"><svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"></path></svg><svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg><span class="t-night">Night mode</span><span class="t-day">Day mode</span></button>
     </nav>
 
     <div class="scroll"><main class="content">

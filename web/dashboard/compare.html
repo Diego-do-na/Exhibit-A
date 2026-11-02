@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exhibit A · Compare runs</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="dashboard.css">
+<script src="dc-lite.js"></script>
+<script src="views/compare.js"></script>
+<script src="views/palette.js"></script>
+</head>
+<body>
+<template data-dc>
+<div class="xa">
+  <div class="blob" aria-hidden="true" data-style="width: 760px; height: 760px; left: -200px; top: -260px; background: #2c4fc4; opacity: .38"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: -160px; top: 8%; background: #9aa3e0; opacity: .55"></div>
+
+  <div class="frame">
+
+    <nav class="side" data-nomap aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+      <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
+║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
+╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
+      <div data-style="display: flex; flex-direction: column; gap: 2px">
+        <a class="nav-a" href="index.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>Overview</a>
+        <a class="nav-a" href="prs.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="18" r="2.5"></circle><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13 3.5 10.5 6 13 8.5"></path></svg>Pull requests</a>
+        <a class="nav-a nav-on" href="compare.html" aria-current="page"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v18M16 3v18M3 8h5M3 16h5M16 8h5M16 16h5"></path></svg>Compare</a>
+        <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
+        <a class="nav-a" href="graph.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
+        <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+      </div>
+      <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+      <button type="button" class="theme-t" data-theme-toggle aria-label="Toggle night mode"><svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"></path></svg><svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg><span class="t-night">Night mode</span><span class="t-day">Day mode</span></button>
+    </nav>
+
+    <div class="scroll"><main class="content">
+      <header data-style="padding: 12px 4px 0">
+        <span class="lbl">Before and after a fix</span>
+        <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Compare runs</h1>
+        <p class="lead" data-style="font-size: 19px">Two ledgers side by side. Put the vulnerable run on the left and the fixed run on the right to see the red-to-green moment as measured numbers.</p>
+      </header>
+
+      <section data-style="display: flex; flex-wrap: wrap; gap: 20px">
+        <div class="card" data-style="flex: 1 1 300px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 10px">
+          <label class="lbl" for="cmp-a">Run A · before</label>
+          <select id="cmp-a" class="sel" value="{{a}}" onChange="{{onA}}" data-options="{{aOpts}}"></select>
+        </div>
+        <div class="card" data-style="flex: 1 1 300px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 10px">
+          <label class="lbl" for="cmp-b">Run B · after</label>
+          <select id="cmp-b" class="sel" value="{{b}}" onChange="{{onB}}" data-options="{{bOpts}}"></select>
+        </div>
+      </section>
+
+      <sc-if value="{{err}}" hint-placeholder-val="{{ false }}">
+        <div class="card" data-style="padding: 18px 22px; font-size: 15px; color: #a5703f">{{err}}</div>
+      </sc-if>
+
+      <section class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Reading</span>
+        <div class="dsp" data-style="font-size: 30px; font-weight: 500; letter-spacing: -.02em">{{verdict.t}}</div>
+        <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">{{verdict.d}}</p>
+      </section>
+
+      <section class="card" data-style="padding: 8px 22px 14px; overflow-x: auto">
+        <table data-style="width: 100%; border-collapse: collapse; min-width: 560px">
+          <thead><tr><th class="lbl" data-style="text-align: left; padding: 14px 0; font-size: 11px">Measure</th><th class="lbl" data-style="text-align: left; padding: 14px 0; font-size: 11px">A · before</th><th class="lbl" data-style="text-align: left; padding: 14px 0; font-size: 11px">B · after</th></tr></thead>
+          <tbody>
+            <sc-for list="{{rows}}" as="r">
+              <tr><td data-style="padding: 14px 16px 14px 0; border-top: 1px solid rgba(13,27,62,.08); font-size: 15px">{{r.label}}</td><td class="mono" data-style="padding: 14px 16px 14px 0; border-top: 1px solid rgba(13,27,62,.08); font-size: 13px; color: {{r.ac}}">{{r.a}}</td><td class="mono" data-style="padding: 14px 0; border-top: 1px solid rgba(13,27,62,.08); font-size: 13px; color: {{r.bc}}">{{r.b}}</td></tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </section>
+
+      <section data-style="display: flex; flex-wrap: wrap; gap: 20px; padding-bottom: 20px">
+        <sc-if value="{{A.on}}" hint-placeholder-val="{{ false }}">
+          <div class="card" data-style="flex: 1 1 300px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 10px">
+            <span class="lbl">A · {{A.status}} · {{A.proven}} proven</span>
+            <h3 class="mono" data-style="margin: 0; font-size: 16px; word-break: break-word">{{A.title}}</h3>
+            <sc-for list="{{A.findings}}" as="f"><div data-style="font-size: 14px; color: #26365a"><span class="mono" data-style="font-size: 12px">{{f.id}}</span> · {{f.cls}} · {{f.cwe}}</div></sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{B.on}}" hint-placeholder-val="{{ false }}">
+          <div class="card" data-style="flex: 1 1 300px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 10px">
+            <span class="lbl">B · {{B.status}} · {{B.proven}} proven</span>
+            <h3 class="mono" data-style="margin: 0; font-size: 16px; word-break: break-word">{{B.title}}</h3>
+            <sc-for list="{{B.findings}}" as="f"><div data-style="font-size: 14px; color: #26365a"><span class="mono" data-style="font-size: 12px">{{f.id}}</span> · {{f.cls}} · {{f.cwe}}</div></sc-for>
+          </div>
+        </sc-if>
+      </section>
+    </main></div>
+  </div>
+</div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1200}}'></script>
+</body>
+</html>

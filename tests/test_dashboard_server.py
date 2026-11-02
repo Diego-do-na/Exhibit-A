@@ -37,7 +37,7 @@ def state(tmp_path):
      f"localhost.evil.example:{PORT}", f"127.0.0.1:{PORT}.evil.example", f"0.0.0.0:{PORT}"],
 )
 def test_wrong_host_is_refused_everywhere(state, host):
-    for target in ("/", "/app.js", f"/auth?token={state.token}", "/api/runs"):
+    for target in ("/", "/dc-lite.js", f"/auth?token={state.token}", "/api/runs"):
         status, headers, _ = request(state, target, host=host, headers=cookie_for(state))
         assert status == 421, (host, target)
         assert headers["content-security-policy"] == [CSP]
@@ -111,14 +111,15 @@ def test_tokens_never_reach_the_log(state, capsys):
 
 
 def test_every_response_carries_the_security_headers_and_no_cors(state):
-    targets = ["/", "/app.js", "/style.css", "/nope", "/api/runs", "/api/runs/does-not-exist", "/auth?token=x"]
+    targets = ["/", "/dc-lite.js", "/dashboard.css", "/views/pr.js", "/nope", "/api/runs", "/api/runs/does-not-exist", "/auth?token=x"]
     for target in targets:
         status, headers, _ = request(state, target, headers={**cookie_for(state), "Origin": f"http://{HOST}"})
         assert headers["content-security-policy"] == [CSP], target
         assert headers["x-content-type-options"] == ["nosniff"]
         assert headers["referrer-policy"] == ["no-referrer"]
         assert headers["x-frame-options"] == ["DENY"]
-        assert headers["cache-control"] == ["no-store"]
+        static = target in ("/", "/dc-lite.js", "/dashboard.css", "/views/pr.js")
+        assert headers["cache-control"] == (["no-cache"] if static else ["no-store"]), target
         assert not any(name.startswith("access-control-") for name in headers), target
     assert "default-src 'self'" in CSP and "frame-ancestors 'none'" in CSP and "unsafe" not in CSP
 
@@ -132,9 +133,12 @@ def test_only_get_is_allowed(state, method):
 
 def test_static_files_are_whitelisted(state):
     assert request(state, "/")[0] == 200
-    status, headers, _ = request(state, "/app.js")
+    status, headers, _ = request(state, "/dc-lite.js")
     assert status == 200 and headers["content-type"][0].startswith("text/javascript")
-    for target in ("/../sources.py", "/%2e%2e/README.md", "/sample-ledger.jsonl", "/web/dashboard/app.js", "/index.html/"):
+    for page in ("/prs.html", "/pr.html", "/findings.html", "/graph.html", "/benchmark.html", "/views/index.js"):
+        assert request(state, page)[0] == 200, page
+    for target in ("/../sources.py", "/%2e%2e/README.md", "/sample-ledger.jsonl", "/web/dashboard/dc-lite.js",
+                   "/index.html/", "/views/../dc-lite.js", "/views/Index.js", "/README.md"):
         assert request(state, target)[0] == 404, target
 
 
@@ -257,3 +261,12 @@ def test_create_server_binds_loopback_only():
         assert srv.socket.family == socket.AF_INET
     finally:
         srv.server_close()
+
+
+def test_static_assets_revalidate_with_etag(state):
+    status, headers, _ = request(state, "/dashboard.css", headers=cookie_for(state))
+    assert status == 200 and headers["cache-control"] == ["no-cache"]
+    etag = headers["etag"][0]
+    status, headers, body = request(state, "/dashboard.css", headers={**cookie_for(state), "If-None-Match": etag})
+    assert status == 304 and not body and headers["etag"] == [etag]
+    assert headers["content-security-policy"] == [CSP]

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exhibit A · Finding package</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="dashboard.css">
+<script src="dc-lite.js"></script>
+<script src="views/finding.js"></script>
+<script src="views/palette.js"></script>
+</head>
+<body>
+<template data-dc>
+<div class="xa">
+  <div class="blob" aria-hidden="true" data-style="width: 760px; height: 760px; left: -200px; top: -260px; background: #2c4fc4; opacity: .38"></div>
+
+  <div class="frame">
+
+    <nav class="side no-print" data-nomap aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+      <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
+║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
+╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
+      <div data-style="display: flex; flex-direction: column; gap: 2px">
+        <a class="nav-a" href="index.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="5"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>Overview</a>
+        <a class="nav-a" href="prs.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="18" r="2.5"></circle><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13 3.5 10.5 6 13 8.5"></path></svg>Pull requests</a>
+        <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
+        <a class="nav-a" href="graph.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
+        <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+      </div>
+      <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+      <button type="button" class="theme-t" data-theme-toggle aria-label="Toggle night mode"><svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"></path></svg><svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg><span class="t-night">Night mode</span><span class="t-day">Day mode</span></button>
+    </nav>
+
+    <div class="scroll"><main class="content">
+      <sc-if value="{{err}}" hint-placeholder-val="{{ false }}">
+        <div class="card" data-style="padding: 22px; font-size: 16px">{{err}}</div>
+      </sc-if>
+      <sc-if value="{{ready}}" hint-placeholder-val="{{ false }}">
+        <header data-style="padding: 12px 4px 0">
+          <div data-style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+            <span class="lbl">Finding package · {{runId}} · exported {{printedAt}}</span>
+            <button type="button" class="btn btn-s no-print" onClick="{{doPrint}}" data-style="margin-left: auto; min-height: 40px">Print this package</button>
+          </div>
+          <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 48px; font-weight: 500; line-height: 1.05; letter-spacing: -.03em">{{item.id}} · {{item.cls}}</h1>
+          <p class="lead" data-style="font-size: 18px">{{item.reason}}</p>
+          <p data-style="font-size: 15px; color: #3d4b68">Run: {{runTitle}}. A suspicion becomes a finding only when the exploit fails on the vulnerable code for the reason the oracle observed, then passes after a verified fix.</p>
+        </header>
+
+        <section class="find-sheet" data-style="padding: 22px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 18px">
+          <div><span class="lbl">Verdict</span><div class="dsp" data-style="font-size: 30px; font-weight: 500">{{item.verdict}}</div></div>
+          <div><span class="lbl">Weakness</span><div class="dsp" data-style="font-size: 30px; font-weight: 500">{{item.cwe}}</div></div>
+          <div><span class="lbl">Severity</span><div class="dsp" data-style="font-size: 30px; font-weight: 500">{{item.severity}}</div></div>
+          <div><span class="lbl">Effect observed</span><div data-style="font-size: 16px; margin-top: 8px">{{item.effect}}</div></div>
+          <div><span class="lbl">Observed at</span><div class="mono" data-style="font-size: 14px; margin-top: 8px">{{item.where}}</div><div data-style="font-size: 14px; color: #3d4b68">{{item.whereFn}}</div></div>
+          <div><span class="lbl">Entry point</span><div class="mono" data-style="font-size: 14px; margin-top: 8px">{{item.entry}}</div></div>
+        </section>
+
+        <section class="find-sheet" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
+          <h2 class="ct">Attack path, as observed by the oracle</h2>
+          <sc-if value="{{item.hasFrames}}" hint-placeholder-val="{{ false }}">
+            <ol data-style="margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px">
+              <sc-for list="{{item.frames}}" as="f"><li data-style="font-size: 15px"><span class="mono" data-style="font-size: 13px">{{f.t}}</span> <span data-style="font-size: 13px; color: #3d4b68">· {{f.adm}}</span></li></sc-for>
+            </ol>
+          </sc-if>
+          <div class="mono" data-style="font-size: 13px">{{item.whereSrc}}</div>
+        </section>
+
+        <section class="find-sheet" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
+          <h2 class="ct">Exploit test</h2>
+          <div class="mono" data-style="font-size: 14px">{{item.exploit}}</div>
+          <div data-style="font-size: 15px; color: #26365a">Fails on vulnerable code: {{item.vulnRuns}} · passes on fixed code: {{item.fixedRuns}} · fix verified: {{item.fixVerified}}</div>
+        </section>
+
+        <section class="find-sheet" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
+          <h2 class="ct">Fix {{item.fixPath}}</h2>
+          <pre class="find-code">{{item.fixDiff}}</pre>
+        </section>
+
+        <section class="find-sheet" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px">
+          <h2 class="ct">Defender bypasses: {{item.bypassWon}} of {{item.bypassTried}} got through</h2>
+          <sc-for list="{{item.variants}}" as="v"><div data-style="font-size: 15px"><span class="mono" data-style="font-size: 13px">{{v.n}}</span> · {{v.s}}</div></sc-for>
+        </section>
+      </sc-if>
+    </main></div>
+  </div>
+</div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1000,"height":1400}}'></script>
+</body>
+</html>

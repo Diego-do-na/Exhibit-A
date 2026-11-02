@@ -356,12 +356,69 @@
 
     const tb = (label, path, fn) => { const b = H('button', { type: 'button', class: 'ib', 'aria-label': label }); b.appendChild(icon(path)); b.addEventListener('click', fn); return b; };
     const closeBtn = tb('Close', ICON.close, close);
+    // ---- What the chart says: rows read from the chart itself (marks with a <title>, plus the label / value
+    // rows of its legend and bars), so the numbers always match what is drawn.
+    const num = (t) => { const m = /-?\d[\d,]*(?:\.\d+)?\s*(k|%|min|h|s|PRs?|lines)?/i.exec(t.replace(/\$/g, '')); return m ? parseFloat(m[0].replace(/,/g, '')) * (/k$/i.test(m[1] || '') ? 1000 : 1) : NaN; };
+    const rows = [];
+    clone.querySelectorAll('svg title').forEach((t) => {
+      const mark = t.parentElement, txt = t.textContent.trim();
+      if (!txt) return;
+      const parts = txt.split(/\s+[\u00b7:\u2014-]\s+|:\s+/);
+      const row = { label: parts[0], value: parts.slice(1).join(' \u00b7 ') || '', n: num(parts.slice(1).join(' ') || txt), mark };
+      mark.classList.add('zm-m'); row.mark = mark; rows.push(row);
+    });
+    if (!rows.length) {
+      const seen = new Set(), cand = [];
+      clone.querySelectorAll('div, li, tr, span').forEach((el) => {
+        if (el.closest('svg') || el.closest('button') || el.closest('.seg')) return;
+        const kids = Array.from(el.children).filter((c) => c.textContent.trim());
+        if (kids.length < 2 || kids.length > 6) return;
+        const label = kids[0].textContent.trim(), rest = kids.slice(1).map((c) => c.textContent.trim()).filter(Boolean);
+        if (!label || /^[\d.,$%\s]+$/.test(label) || label.length > 48 || !rest.some((x) => /\d/.test(x)) || rest.some((x) => x.length > 40)) return;
+        cand.push({ el, label, rest });
+      });
+      cand.forEach((c) => {
+        if (cand.some((o) => o !== c && c.el.contains(o.el)) || seen.has(c.label)) return;   // keep the innermost rows only
+        seen.add(c.label);
+        rows.push({ label: c.label, value: c.rest.join(' \u00b7 '), n: num(c.rest.find((x) => /\d/.test(x))), mark: null });
+      });
+    }
+    // Rows that repeat a label (one per segment of a stacked bar) roll up into one entry per label.
+    const groups = new Map();
+    rows.forEach((r) => { if (isFinite(r.n)) groups.set(r.label, (groups.get(r.label) || 0) + (/^\D*\d/.test(r.value) || !r.value ? r.n : (parseFloat((/(-?\d[\d,]*(?:\.\d+)?)\s*$/.exec(r.value) || [0, NaN])[1].toString().replace(/,/g, '')))) || 0); });
+    const rolled = groups.size > 1 && groups.size < rows.length;
+    const nums = (rolled ? Array.from(groups, ([label, n]) => ({ label, n, value: n.toLocaleString('en-US') })) : rows.filter((r) => isFinite(r.n))).sort((a, b) => b.n - a.n);
+    const stat = (v, l) => H('div', { class: 'zm-stat' }, H('span', { class: 'dsp zm-sv', text: String(v) }), H('span', { class: 'zm-sl', text: l }));
+    const stats = H('div', { class: 'zm-stats' }, stat(rows.length, rows.length === 1 ? 'value shown' : 'values shown'),
+      nums.length ? stat(nums[0].value || nums[0].n, 'largest: ' + nums[0].label.slice(0, 22)) : null,
+      nums.length > 1 ? stat(nums[nums.length - 1].value || nums[nums.length - 1].n, 'smallest: ' + nums[nums.length - 1].label.slice(0, 22)) : null);
+    const stand = nums.length > 1 ? H('ul', { class: 'zm-points' },
+      H('li', { text: nums[0].label + ' leads with ' + (nums[0].value || nums[0].n) + '.' }),
+      nums.length > 2 ? H('li', { text: nums[1].label + ' follows with ' + (nums[1].value || nums[1].n) + ', then ' + nums[2].label + '.' }) : null,
+      H('li', { text: nums[nums.length - 1].label + ' is the smallest at ' + (nums[nums.length - 1].value || nums[nums.length - 1].n) + '.' })) : null;
+    const tbody = H('div', { class: 'zm-rows', role: 'list' });
+    const rowEls = rows.map((r) => {
+      const el = H('div', { class: 'zm-row', role: 'listitem', tabindex: r.mark ? '0' : '-1' }, H('span', { class: 'zm-rl', text: r.label }), H('span', { class: 'zm-rv mono', text: r.value }));
+      const on = () => { clone.classList.add('zm-has-hot'); if (r.mark) r.mark.classList.add('zm-hot'); el.classList.add('zm-row-hot'); };
+      const off = () => { clone.classList.remove('zm-has-hot'); if (r.mark) r.mark.classList.remove('zm-hot'); el.classList.remove('zm-row-hot'); };
+      el.addEventListener('pointerenter', on); el.addEventListener('pointerleave', off); el.addEventListener('focus', on); el.addEventListener('blur', off);
+      if (r.mark) { r.el = el; r.mark.addEventListener('pointerenter', () => { on(); el.scrollIntoView({ block: 'nearest' }); }); r.mark.addEventListener('pointerleave', off); }
+      tbody.appendChild(el);
+      return el;
+    });
+    const filt = H('input', { class: 'inp zm-f', type: 'search', placeholder: 'Filter ' + rows.length + ' values', 'aria-label': 'Filter values' });
+    filt.addEventListener('input', () => { const q = filt.value.trim().toLowerCase(); rows.forEach((r, i) => { rowEls[i].style.display = !q || (r.label + ' ' + r.value).toLowerCase().indexOf(q) >= 0 ? '' : 'none'; }); });
     const side = H('aside', { class: 'zm-side' },
       H('span', { class: 'lbl', text: 'About this chart' }),
       H('p', { class: 'zm-desc', text: desc || 'This chart is shown larger so the values and labels are easy to read.' }),
+      rows.length ? stats : null,
       points.length ? H('span', { class: 'lbl', text: 'How to read it' }) : null,
       points.length ? H('ul', { class: 'zm-points' }, ...points.map((p) => H('li', { text: p }))) : null,
-      H('p', { class: 'zm-hint', text: 'Scroll to zoom, drag to move, double-click to reset. Esc closes.' }));
+      stand ? H('span', { class: 'lbl', text: 'What stands out' }) : null, stand,
+      rows.length > 1 ? H('span', { class: 'lbl', text: 'The numbers' }) : null,
+      rows.length > 8 ? filt : null,
+      rows.length > 1 ? tbody : null,
+      H('p', { class: 'zm-hint', text: 'Hover a row to find it in the chart, hover the chart to find its row. Scroll to zoom, drag to move, Esc closes.' }));
     const dialog = H('div', { class: 'zm', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
       H('div', { class: 'zm-h' }, H('h2', { class: 'dsp zm-t', text: title }),
         H('div', { class: 'zm-tools' }, tb('Zoom out', ICON.minus, () => mid(1 / 1.4)), readout, tb('Zoom in', ICON.plus, () => mid(1.4)), tb('Reset zoom', ICON.fit, () => go(base.tx, base.ty, base.k, 260)), closeBtn)),

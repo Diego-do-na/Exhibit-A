@@ -25,8 +25,8 @@ window.Component = class Component extends DCLogic {
     const days = DAYS.map(([label, m, lines], i) => {
       const x = 44 + band * i + (band - bw) / 2;
       const segs = []; let acc = 0;
-      if (isP) { AG.forEach(([n, c]) => { const v = m[n] || 0; if (!v) return; segs.push({ x, y: ys(acc + v), w: bw, h: Math.max(0, ys(acc) - ys(acc + v) - 1), c, t: n + ': ' + v }); acc += v; }); }
-      else { acc = lines; segs.push({ x, y: ys(lines), w: bw, h: B - ys(lines), c: '#2c4fc4', t: lines.toLocaleString('en-US') + ' lines' }); }
+      if (isP) { AG.forEach(([n, c]) => { const v = m[n] || 0; if (!v) return; segs.push({ x, y: ys(acc + v), w: bw, h: Math.max(0, ys(acc) - ys(acc + v) - 1), c, t: label + ' \u00b7 ' + n + ': ' + v }); acc += v; }); }
+      else { acc = lines; segs.push({ x, y: ys(lines), w: bw, h: B - ys(lines), c: '#2c4fc4', t: label + ' \u00b7 ' + lines.toLocaleString('en-US') }); }
       return { label, segs, cx: x + bw / 2, ty: ys(acc) - 9, v: isP ? String(acc) : (acc / 1000).toFixed(1) + 'k' };
     });
     const ticks = isP ? [0, 10, 20, 30, 40] : [0, 20000, 40000, 60000];

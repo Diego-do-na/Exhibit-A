@@ -1,0 +1,76 @@
+"""Proof-view surfaces: palette, ledger scrubber, compare, printable finding, heatmap.
+
+Static source checks plus serving checks through the real handler. Frontend
+logic is plain script under a strict CSP, so assertions read the sources.
+"""
+
+from __future__ import annotations
+
+import re
+
+from test_dashboard_support import WEB_DIR, local_state, make_samples, request
+
+PAGES = ("index", "prs", "pr", "findings", "finding", "compare", "graph", "benchmark")
+
+
+def read(name: str) -> str:
+    return (WEB_DIR / name).read_text(encoding="utf-8")
+
+
+def test_new_pages_and_scripts_are_served(tmp_path):
+    state = local_state(make_samples(tmp_path))
+    for target, snippet in (
+        ("/compare.html", "Compare runs"),
+        ("/finding.html", "Finding package"),
+        ("/views/palette.js", "XAPalette"),
+        ("/views/compare.js", "/api/runs/"),
+        ("/views/finding.js", "provenance"),
+    ):
+        status, headers, body = request(state, target)
+        assert status == 200, target
+        assert snippet.encode() in body, target
+
+
+def test_every_page_loads_the_command_palette():
+    for page in PAGES:
+        html = read(f"{page}.html")
+        assert 'src="views/palette.js"' in html, page
+        assert html.index('src="views/palette.js"') > html.index("dc-lite.js"), page
+    code = re.sub(r"/\*.*?\*/", "", read("views/palette.js"), flags=re.DOTALL)
+    for banned in (".innerHTML", ".outerHTML", "insertAdjacentHTML", "eval(", "new Function"):
+        assert banned not in code
+    assert "metaKey" in code and "Escape" in code
+    assert "/api/runs" in code and "codegraph" in code
+
+
+def test_pr_page_scrubs_the_real_ledger_and_explains_a_clean_run():
+    js = read("views/pr.js")
+    assert "/api/runs/" in js and "/events?limit=" in js
+    assert "onScrub" in js and 'type="range"' in read("pr.html")
+    assert "safe" in js and "discarded" in js
+    html = read("pr.html")
+    assert "why-safe" in html and "Why nothing could be proven" in html
+    assert "Green is not safe" in html
+
+
+def test_compare_page_reads_two_ledgers():
+    js = read("views/compare.js")
+    assert js.count("/api/runs/") >= 2
+    html = read("compare.html")
+    assert 'data-options="{{aOpts}}"' in html and 'data-options="{{bOpts}}"' in html
+
+
+def test_finding_page_is_a_printable_package():
+    js = read("views/finding.js")
+    assert "proven" in js and "provenance" in js or "frames" in js
+    html = read("finding.html")
+    assert "window.print" in js and "Print this package" in html
+    css = read("dashboard.css")
+    assert "@media print" in css
+
+
+def test_graph_page_has_a_heatmap_and_proven_attack_paths():
+    js = read("views/graph.js")
+    assert "codegraph" in js and "proven_paths" in js and "heat" in js
+    html = read("graph.html")
+    assert "Heatmap and attack paths" in html and 'class="heat"' in html

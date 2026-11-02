@@ -6,8 +6,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="dashboard.css">
 <script src="views/viz.js"></script>
+<script src="views/netgraph.js"></script>
 <script src="dc-lite.js"></script>
 <script src="views/pr.js"></script>
+<script src="views/palette.js"></script>
 </head>
 <body>
 <template data-dc>
@@ -19,7 +21,7 @@
 
   <div class="frame">
 
-    <nav class="side" aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+    <nav class="side" data-nomap aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
       <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
 ║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
 ╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
@@ -29,8 +31,10 @@
         <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
         <a class="nav-a" href="graph.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
         <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+        <a class="nav-a" href="compare.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v18M16 3v18M3 8h5M3 16h5M16 8h5M16 16h5"></path></svg>Compare</a>
       </div>
       <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+      <button type="button" class="theme-t" data-theme-toggle aria-label="Toggle night mode"><svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"></path></svg><svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg><span class="t-night">Night mode</span><span class="t-day">Day mode</span></button>
     </nav>
 
     <div class="scroll"><main class="content">
@@ -92,6 +96,14 @@
             </div>
           </div>
           <div data-style="height: 4px; background: rgba(13,27,62,.08)"><div data-style="height: 100%; width: {{live.pct}}%; background: #2c4fc4; transition: width .4s"></div></div>
+          <sc-if value="{{live.scrub}}" hint-placeholder-val="{{ false }}">
+            <div class="scrub">
+              <span class="mono" data-style="font-size: 12px; color: #3d4b68">Scrub the ledger</span>
+              <input type="range" min="0" max="{{live.scrub.max}}" value="{{live.scrub.val}}" onChange="{{live.scrub.onScrub}}" aria-label="Scrub the ledger timeline">
+              <span class="scrub-now">{{live.scrub.label}}</span>
+              <a href="compare.html" data-style="font-size: 14px; text-decoration: none; min-height: 36px; display: inline-flex; align-items: center">Compare with another run</a>
+            </div>
+          </sc-if>
           <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
             <ol data-style="flex: 1 1 280px; min-width: 0; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
               <sc-for list="{{live.stages}}" as="s">
@@ -102,8 +114,8 @@
                 </li>
               </sc-for>
             </ol>
-            <div data-style="flex: 2 1 420px; min-width: 0; border-radius: 4px; background: linear-gradient(160deg, rgba(10,24,64,.95), rgba(22,48,122,.9)); padding: 18px 20px; min-height: 520px; display: flex; flex-direction: column; gap: 2px; box-shadow: inset 0 1px 0 rgba(255,255,255,.12)">
-              <div class="mono" data-style="font-size: 11px; color: rgba(232,238,251,.6); padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 8px">ledger.jsonl · live</div>
+            <div data-nomap data-style="flex: 2 1 420px; min-width: 0; border-radius: 4px; background: linear-gradient(160deg, rgba(10,24,64,.95), rgba(22,48,122,.9)); padding: 18px 20px; min-height: 520px; display: flex; flex-direction: column; gap: 2px; box-shadow: inset 0 1px 0 rgba(255,255,255,.12)">
+              <div class="mono" data-style="font-size: 11px; color: rgba(232,238,251,.6); padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 8px">{{live.src}}</div>
               <sc-for list="{{live.log}}" as="l">
                 <div class="mono" data-style="display: grid; grid-template-columns: 58px 96px minmax(0, 1fr); gap: 10px; font-size: 12.5px; line-height: 1.6; padding: 5px 0; color: #e6ecfa">
                   <span data-style="color: rgba(232,238,251,.55)">{{l.t}}</span>
@@ -157,9 +169,11 @@
             <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#a5703f" stroke-width="2.4" stroke-dasharray="8 6"></path></svg>Path the exploit follows</span>
             <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#7a86a1" stroke-width="1.4" stroke-opacity=".6"></path></svg>Other calls, not affected</span>
             <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#7a86a1" stroke-width="1.4" stroke-dasharray="5 5"></path></svg>Would inherit the problem</span>
-            <span>Scroll to zoom, drag to move. Hover a node for what it does.</span>
+            <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#ff6b6b" stroke-width="2.6"></path></svg>Connection the exploit reaches</span>
+            <div class="seg" role="group" aria-label="Blast radius view" data-style="margin-left: auto"><sc-for list="{{bvOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
           </div>
-          <div id="blast" class="gv" data-keep role="group" aria-label="Dependency graph of the affected path" data-style="min-height: 460px; border-radius: 4px; border: 1px solid rgba(13,27,62,.08); background-color: rgba(255,255,255,.35); background-image: radial-gradient(rgba(13,27,62,.18) 1px, transparent 1.2px); background-size: 22px 22px"></div>
+          <div id="blastnet" class="net" data-keep role="group" aria-label="Network of the code the exploit reaches" data-style="display: {{bNet}}; min-height: 480px"></div>
+          <div id="blast" class="gv" data-keep role="group" aria-label="Dependency graph of the affected path" data-style="display: {{bPath}}; min-height: 460px; border-radius: 4px; border: 1px solid rgba(13,27,62,.08); background-color: rgba(255,255,255,.35); background-image: radial-gradient(rgba(13,27,62,.18) 1px, transparent 1.2px); background-size: 22px 22px"></div>
         </div>
       </section>
 
@@ -221,6 +235,25 @@
           </div>
         </sc-if>
       </section>
+
+      <sc-if value="{{safe.show}}" hint-placeholder-val="{{ false }}">
+        <section id="why-safe" data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
+          <div class="sec-h"><span class="sec-n">05</span><div><h2 class="sec-t">Why nothing could be proven</h2><p class="lead">Green is not safe: it means {{safe.headline}}. Every suspicion below was tested in the isolated sandbox and refused for a recorded reason.</p></div></div>
+          <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px">
+            <div class="card" data-style="padding: 20px 22px"><span class="lbl">Suspicions raised</span><div class="dsp" data-style="font-size: 44px; font-weight: 500">{{safe.suspicions}}</div></div>
+            <div class="card" data-style="padding: 20px 22px"><span class="lbl">Exploit tests written</span><div class="dsp" data-style="font-size: 44px; font-weight: 500">{{safe.exploits}}</div></div>
+            <div class="card" data-style="padding: 20px 22px"><span class="lbl">Dropped for lack of proof</span><div class="dsp" data-style="font-size: 44px; font-weight: 500">{{safe.dropped}}</div></div>
+          </div>
+          <div class="card" data-style="padding: 8px 22px 14px">
+            <sc-for list="{{safe.items}}" as="w">
+              <div data-style="display: grid; grid-template-columns: minmax(120px, 180px) minmax(0, 1fr); gap: 14px; padding: 14px 0; border-top: 1px solid rgba(13,27,62,.08)">
+                <div><div class="mono" data-style="font-size: 13px">{{w.id}}</div><div data-style="font-size: 13px; color: #3d4b68; margin-top: 4px">{{w.cls}} · {{w.verdict}}</div><div class="mono" data-style="font-size: 12px; color: #7a86a1; margin-top: 4px">{{w.where}}</div></div>
+                <div data-style="font-size: 15px; line-height: 1.55; color: #26365a">{{w.reason}}</div>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </sc-if>
     </main></div>
   </div>
 

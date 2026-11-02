@@ -1,5 +1,9 @@
 # Local dashboard (A-15)
 
+> The UI described below was replaced by the final dashboard design. The server, API and
+> security model still apply; the pages, their files and how to edit them are documented in
+> [web/dashboard/README.md](../../web/dashboard/README.md).
+
 A read-only page on `127.0.0.1` that shows what Exhibit A proved over time. It
 is a viewer of recorded runs, not a separate product: every number on it comes
 from a run's ledger (the single source of truth, SPEC.md section 9), and the

@@ -68,3 +68,13 @@ def test_viz_is_served_with_the_view_scripts(tmp_path):
     status, headers, body = request(state, "/views/viz.js")
     assert status == 200 and headers["content-type"][0].startswith("text/javascript")
     assert b"DCViz" in body
+
+
+def test_night_mode_toggle_on_every_page_and_network_is_csp_safe():
+    for page in PAGES:
+        assert "data-theme-toggle" in read(f"{page}.html"), page
+    assert 'src="views/netgraph.js"' in read("graph.html") and 'src="views/netgraph.js"' in read("pr.html")
+    for name in ("views/netgraph.js", "views/viz.js"):
+        code = re.sub(r"/\*.*?\*/", "", read(name), flags=re.DOTALL)
+        assert "innerHTML" not in code and "eval(" not in code, name
+    assert (WEB_DIR / "views/graphdata.js").is_file()

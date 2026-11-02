@@ -6,8 +6,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="dashboard.css">
 <script src="views/viz.js"></script>
+<script src="views/graphdata.js"></script>
+<script src="views/netgraph.js"></script>
 <script src="dc-lite.js"></script>
 <script src="views/graph.js"></script>
+<script src="views/palette.js"></script>
 </head>
 <body>
 <template data-dc>
@@ -19,7 +22,7 @@
 
   <div class="frame">
 
-    <nav class="side" aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+    <nav class="side" data-nomap aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
       <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
 ║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
 ╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
@@ -29,8 +32,10 @@
         <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
         <a class="nav-a nav-on" href="graph.html" aria-current="page"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
         <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+        <a class="nav-a" href="compare.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v18M16 3v18M3 8h5M3 16h5M16 8h5M16 16h5"></path></svg>Compare</a>
       </div>
       <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+      <button type="button" class="theme-t" data-theme-toggle aria-label="Toggle night mode"><svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"></path></svg><svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg><span class="t-night">Night mode</span><span class="t-day">Day mode</span></button>
     </nav>
 
     <div class="scroll"><main class="content">
@@ -78,6 +83,7 @@
                 <input id="gq" class="inp" type="search" placeholder="Find node" value="{{q}}" onChange="{{onQ}}">
               </div>
               <div class="seg" role="group" aria-label="Level"><sc-for list="{{lvOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+              <div class="seg" role="group" aria-label="Functions" data-style="display: {{fnDisp}}"><sc-for list="{{fnOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
               <div class="seg" role="group" aria-label="Layer"><sc-for list="{{lyOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
               <div data-style="display: flex; gap: 6px; margin-left: auto">
                 <button type="button" class="ib" aria-label="Zoom in" onClick="{{zin}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
@@ -86,7 +92,8 @@
                 <button type="button" class="ib" aria-label="{{fullL}}" aria-pressed="{{full}}" onClick="{{toggleFull}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
               </div>
             </div>
-            <div id="gcanvas" class="gv" data-keep role="group" aria-label="Code graph canvas" data-style="flex: 1 1 auto; min-height: 660px; background-color: rgba(255,255,255,.35); background-image: radial-gradient(rgba(13,27,62,.18) 1px, transparent 1.2px); background-size: 22px 22px"></div>
+            <div id="ncanvas" class="net" data-keep role="group" aria-label="Code network" data-style="display: {{nDisp}}; flex: 1 1 auto; min-height: 660px"></div>
+            <div id="gcanvas" class="gv" data-keep role="group" aria-label="Code graph canvas" data-style="display: {{gDisp}}; flex: 1 1 auto; min-height: 660px; background-color: rgba(255,255,255,.35); background-image: radial-gradient(rgba(13,27,62,.18) 1px, transparent 1.2px); background-size: 22px 22px"></div>
             <div data-style="display: flex; gap: 18px; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid rgba(13,27,62,.08); font-size: 13px; color: #3d4b68">
               <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; border-radius: 50%; background: #0f2557"></span>Proof core</span>
               <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; border-radius: 50%; background: #6a8fd8"></span>Analysis</span>
@@ -120,7 +127,7 @@
         </div>
       </section>
 
-      <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Hotspots</h2><p class="lead">The schemas are the backbone: the graph schema alone is imported by 16 other modules. The oracle is both the largest module and one of the most depended on, which is why it carries the heaviest test coverage.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <sc-for list="{{hot}}" as="h">
@@ -133,6 +140,33 @@
             </div>
           </sc-for>
         </div>
+      </section>
+      <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
+        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Heatmap and attack paths</h2><p class="lead">{{heatNote}} Select a tile to focus its file in the graph above; select a proven path to highlight every step the oracle observed.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
+          <div class="heat" role="group" aria-label="Repository heatmap">
+            <sc-for list="{{heat}}" as="t">
+              <button type="button" class="heat-tile" onClick="{{t.pick}}" aria-label="{{t.n}}, {{t.v}}" data-style="width: {{t.w}}%; background: {{t.c}}">
+                <span class="heat-n">{{t.n}}</span><span class="heat-v">{{t.v}}</span>
+              </button>
+            </sc-for>
+          </div>
+          <div class="heat-legend">
+            <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #7a86a1"></span>no proven finding</span>
+            <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #6a8fd8"></span>low</span>
+            <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #b7834f"></span>medium</span>
+            <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #a5703f"></span>high</span>
+            <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #8f2f2f"></span>critical</span>
+          </div>
+        </div>
+        <sc-if value="{{hasPaths}}" hint-placeholder-val="{{ false }}">
+          <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+            <h3 class="ct">Proven attack paths · {{runId}}</h3>
+            <div data-style="display: flex; flex-wrap: wrap; gap: 8px">
+              <sc-for list="{{paths}}" as="p"><button type="button" class="{{p.cls}}" onClick="{{p.pick}}">{{p.label}} · {{p.effect}}</button></sc-for>
+            </div>
+          </div>
+        </sc-if>
       </section>
     </main></div>
   </div>

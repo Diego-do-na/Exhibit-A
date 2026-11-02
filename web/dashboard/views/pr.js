@@ -2,11 +2,51 @@
 window.Component = class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { step: 0, acc: 0, el: 0, stamps: [], playing: true, speed: 1, status: null, confirm: false, cstep: 0, tag: null };
+    this.state = { step: 0, acc: 0, el: 0, stamps: [], playing: true, speed: 1, status: null, confirm: false, cstep: 0, tag: null, bv: 'path', pos: null, evts: null, runId: '', safe: { show: false } };
     this.timers = [];
+  }
+  runParam() {
+    try { return new URLSearchParams(window.location.search).get('run') || ''; } catch (e) { return ''; }
+  }
+  async loadRun() {
+    const id = this.runParam();
+    if (!id) return;
+    this.setState({ runId: id });
+    try {
+      const res = await fetch('/api/runs/' + encodeURIComponent(id) + '/events?limit=500', { headers: { Accept: 'application/json' } });
+      if (res.ok) {
+        const body = await res.json();
+        const evts = (body && body.events) || [];
+        if (Array.isArray(evts) && evts.length) this.setState({ evts, pos: evts.length, step: evts.length, playing: false });
+      }
+    } catch (e) { /* demo timeline stays */ }
+    try {
+      const res = await fetch('/api/runs/' + encodeURIComponent(id), { headers: { Accept: 'application/json' } });
+      if (res.ok) {
+        const detail = await res.json();
+        const run = (detail && detail.run) || {};
+        const discarded = (detail && detail.discarded) || [];
+        this.setState({
+          provenCount: run.proven || 0,
+          safe: {
+            show: (run.proven || 0) === 0 && !run.error,
+            headline: run.headline || 'Nothing could be proven',
+            suspicions: run.suspicions_raised || 0,
+            exploits: run.exploits_written || 0,
+            dropped: run.dropped || 0,
+            items: discarded.slice(0, 60).map((d) => ({
+              id: d.id || '?', cls: d.class || 'unknown class', verdict: d.verdict || 'discarded',
+              reason: d.reason || 'no reason recorded',
+              where: (d.file || '') + (d.line ? ':' + d.line : ''),
+            })),
+          },
+        });
+      }
+    } catch (e) { /* no safe panel */ }
   }
   componentDidMount() {
     this.iv = setInterval(() => this.tick(), 250);
+    this.loadRun();
     const host = document.getElementById('blast');
     if (host && window.DCViz) {
       const A = '#a5703f', B = '#2c4fc4', G = '#4a5873';
@@ -29,19 +69,55 @@ window.Component = class Component extends DCLogic {
       this.blast = window.DCViz.graph(host, { tools: true });
       this.blast.set({ key: 'blast', layout: 'fixed', nodes, edges, curve: false });
     }
+    const nh = document.getElementById('blastnet');
+    if (nh && window.DCNet) {
+      const RED = '#ff6b6b', BLUE = '#7ea6ff', VIO = '#b4a4ff', BRZ = '#e2b98a';
+      const fn = (id, label, extra) => Object.assign({ id, label, kind: 'func', r: 9, color: BLUE, title: label }, extra);
+      const hit = (id, label, title) => fn(id, label, { color: RED, vuln: true, r: 11, title });
+      const nodes = [
+        { id: 'f:pam', label: 'pamphlets.py', kind: 'file', r: 22, color: VIO, title: 'pamphlets.py · the file this pull request changed' },
+        { id: 'f:test', label: 'test_pamphlets.py', kind: 'file', r: 13, color: VIO, title: 'test_pamphlets.py · baseline 5 / 5' },
+        hit('gp', 'GET /pamphlet', 'GET /pamphlet · public entry: the caller picks the name'),
+        hit('hr', 'handle_request', 'App.handle_request · passes the name straight to _resolve'),
+        hit('rs', '_resolve', 'App._resolve · changed by this pull request: no containment check'),
+        hit('rt', 'read_text', 'read_text · reads whatever path it is given'),
+        hit('op', 'open()', 'open() · the oracle saw a file outside the shelf opened here'),
+        hit('ef', 'file outside the shelf', 'Effect · the canary file was read in 3 of 3 runs'),
+        fn('gi', 'GET /index', { title: 'GET /index · not affected: lists names only' }),
+        fn('ls', 'os.listdir', { color: BRZ, title: 'os.listdir · not affected: reads the listing only' }),
+        fn('gh', 'any other caller', { color: '#6b7aa8', title: 'Not written yet: would inherit the missing check' })
+      ];
+      const v = (a, b) => ({ a, b, t: 'imp', vuln: true });
+      const edges = [v('gp', 'hr'), v('hr', 'rs'), v('rs', 'rt'), v('rt', 'op'), v('op', 'ef'),
+        ...['hr', 'rs', 'rt', 'op'].map((b) => ({ a: 'f:pam', b, t: 'own' })),
+        { a: 'f:test', b: 'f:pam', t: 'imp' }, { a: 'gi', b: 'f:pam', t: 'own' }, { a: 'hr', b: 'ls', t: 'imp' }, { a: 'gh', b: 'rs', t: 'use' }];
+      this.bnet = window.DCNet.create(nh, { labelAll: true, autoFit: true, onHover: (n, x, y) => {
+        if (!this.btip) { this.btip = document.createElement('div'); this.btip.className = 'net-tip'; nh.appendChild(this.btip); }
+        if (!n) { this.btip.classList.remove('net-tip-on'); return; }
+        this.btip.textContent = n.title; this.btip.style.left = Math.round(x + 14) + 'px'; this.btip.style.top = Math.round(y + 14) + 'px'; this.btip.classList.add('net-tip-on');
+      } });
+      this.bnet.set({ nodes, edges });
+    }
+  }
+  componentDidRender() {
+    if (this.bvSeen !== this.state.bv) { this.bvSeen = this.state.bv; if (this.state.bv === 'net' && this.bnet) setTimeout(() => this.bnet.fit(), 80); }
   }
   componentWillUnmount() { clearInterval(this.iv); this.timers.forEach((t) => clearTimeout(t)); }
   tick() {
-    const s = this.state, N = 11;
+    const s = this.state, N = s.evts ? s.evts.length : 11;
     if (!s.playing || s.step >= N) return;
     const acc = s.acc + 250 * s.speed, el = s.el + 0.25 * s.speed;
-    if (acc >= 1500) { const step = s.step + 1; this.setState({ step, acc: 0, el, stamps: s.stamps.concat([el]), playing: step < N }); }
+    if (acc >= 1500) {
+      const step = s.step + 1;
+      this.setState({ step, acc: 0, el, stamps: s.stamps.concat([el]), playing: step < N, pos: s.evts ? step : s.pos });
+    }
     else this.setState({ acc, el });
   }
   renderVals() {
     const s = this.state;
     const status = s.status ?? (this.props.startStatus ?? 'pending');
-    const S = [
+    const evtRows = s.evts ? s.evts.map((e) => [(e.stage || e.type || 'event').toUpperCase(), e.summary || e.type, e.role || 'engine', e.summary || e.type, (e.ts || '').slice(11, 19)]) : null;
+    const S = evtRows || [
       ['PR', 'Pull request opened', 'github', '1 file changed · pamphlets.py · +2 −6'],
       ['GATE', 'Risk triage', 'ci.gate', 'pamphlets.py matches "application code" → risk HIGH, exploits will run'],
       ['SCAN', 'Reachability', 'graph', 'App.handle_request → App._resolve → read_text → open() · 3 hops'],
@@ -54,24 +130,30 @@ window.Component = class Component extends DCLogic {
       ['VER', 'Fix verified', 'defender', 'exploit passes on fixed code · baseline 5 / 5 · 3 / 3 bypasses blocked'],
       ['PKG', 'Proof packaged', 'attest', 'exploit test, fix.patch, verdict and evidence signed into a bundle']
     ];
-    const N = S.length, done = status === 'pending' ? s.step : N;
+    const N = S.length, rawDone = status === 'pending' ? s.step : N;
+    const done = s.pos != null && evtRows ? Math.max(0, Math.min(N, s.pos)) : Math.min(rawDone, N);
     const RC = { github: '#c3cbd8', 'ci.gate': '#d9b98f', graph: '#9aa3e0', sandbox: '#8fb4ff', adversary: '#e8b07a', test_writer: '#8fb4ff', oracle: '#ffffff', fixer: '#a7c0ff', defender: '#a7c0ff', attest: '#c3cbd8' };
     const fmtT = (x) => '+' + String(Math.floor(x / 60)).padStart(2, '0') + ':' + (x % 60).toFixed(1).padStart(4, '0');
     const live = {
       playing: s.playing && done < N, paused: !(s.playing && done < N), playL: s.playing ? 'Pause' : 'Play', running: done < N,
       toggle: () => this.setState({ playing: !s.playing }),
-      replay: () => this.setState({ step: 0, acc: 0, el: 0, stamps: [], playing: true, status: 'pending', cstep: 0 }),
+      replay: () => this.setState({ step: 0, acc: 0, el: 0, stamps: [], playing: true, status: 'pending', cstep: 0, pos: evtRows ? 0 : null }),
       speeds: [1, 2, 4].map((v) => ({ l: v + '×', cls: 'sb' + (s.speed === v ? ' sb-on' : ''), pick: () => this.setState({ speed: v }) })),
       pct: (done / N * 100).toFixed(1), clock: fmtT(status === 'pending' ? s.el : 16.5),
-      title: done >= N ? 'Analysis complete' : 'Analyzing · ' + S[done][1].toLowerCase(),
+      title: done >= N ? 'Analysis complete' : 'Analyzing · ' + String(S[done][1]).toLowerCase().slice(0, 90),
       dot: done >= N ? '#2c4fc4' : '#a5703f', dotCls: done >= N ? '' : 'pulse',
       next: done < N ? S[done][2] + ' …' : '',
-      stages: S.map((x, i) => ({ k: x[0], n: x[1], done: i < done, cls: i === done ? 'pulse' : '',
+      src: evtRows ? 'ledger.jsonl · event ' + done + ' of ' + N : 'ledger.jsonl · live demo (open with ?run= for the real ledger)',
+      stages: S.map((x, i) => ({ k: x[0], n: String(x[1]).slice(0, 80), done: i < done, cls: i === done ? 'pulse' : '',
         bg: i < done ? (i === 7 ? '#a5703f' : '#2c4fc4') : 'transparent', bd: i < done ? (i === 7 ? '#a5703f' : '#2c4fc4') : i === done ? '#2c4fc4' : 'rgba(13,27,62,.25)',
         op: i <= done ? 1 : 0.45, fw: i === done ? 600 : 400 })),
-      log: S.slice(0, done).map((x, i) => ({ t: fmtT(s.stamps[i] ?? (i + 1) * 1.5), r: x[2], rc: RC[x[2]], m: x[3], mc: i === 7 ? '#f0c08f' : '#e6ecfa' }))
+      log: S.slice(0, done).map((x, i) => ({ t: x[4] || fmtT(s.stamps[i] ?? (i + 1) * 1.5), r: x[2], rc: RC[x[2]] || '#e6ecfa', m: x[3], mc: i === 7 ? '#f0c08f' : '#e6ecfa' })),
+      scrub: evtRows ? {
+        max: N, val: done, label: 'event ' + done + ' of ' + N,
+        onScrub: (e) => this.setState({ pos: parseInt(e.target.value, 10), step: parseInt(e.target.value, 10), playing: false }),
+      } : null,
     };
-    const proven = done >= 8;
+    const proven = s.evts ? (s.provenCount || 0) > 0 : done >= 8;
     const dec = status === 'approved'
       ? { t: 'Fixed · nothing could be proven on the new head', d: 'The bot commit restored the containment check. On the new head the exploit gets a 404, the project tests still pass and every bypass variant is blocked. Nothing could be proven against it, which is not the same as safe.', c: '#2c4fc4', bg: 'rgba(44,79,196,.07)', bd: 'rgba(44,79,196,.25)' }
       : proven
@@ -181,7 +263,10 @@ window.Component = class Component extends DCLogic {
       { m: 'Merge gate', b: 'blocked', a: 'open' }
     ];
 
-    return { st: stt, risk, verdict, merge, attack, weak, tag, stop: (e) => e.stopPropagation(), live, dec, proof, prDiff, fixDiff, expect, path,
+    const bv = s.bv;
+    return { bPath: bv === 'path' ? 'block' : 'none', bNet: bv === 'net' ? 'block' : 'none',
+      bvOpts: [['path', 'Path'], ['net', 'Graph']].map(([k, l]) => ({ l, cls: 'sb' + (bv === k ? ' sb-on' : ''), pick: () => this.setState({ bv: k }) })),
+      st: stt, risk, verdict, merge, attack, weak, tag, stop: (e) => e.stopPropagation(), live, dec, proof, prDiff, fixDiff, expect, path, safe: s.safe,
       fx, commitSteps, after, confirm: s.confirm, askApprove: () => this.setState({ confirm: true }), cancel: () => this.setState({ confirm: false }), doCommit,
       reset: () => this.setState({ status: 'pending', cstep: 0 }) };
   }

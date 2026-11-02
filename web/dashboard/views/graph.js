@@ -14,9 +14,69 @@ const MODS = GRAPH.mod, ME = GRAPH.me, PE = GRAPH.pe;
 window.Component = class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { lv: 'pkg', ly: 'all', sel: 'oracle', mod: null, q: '', full: false };
+    this.state = { lv: 'net', ly: 'all', sel: 'oracle', mod: null, q: '', full: false, fn: true, runId: '', heat: [], heatNote: '', paths: [], pathSel: -1 };
+  }
+  runParams() {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      return { run: q.get('run') || '', focus: q.get('focus') || '' };
+    } catch (e) { return { run: '', focus: '' }; }
+  }
+  async loadRun() {
+    const { run, focus } = this.runParams();
+    if (focus) this.setState({ mod: focus });
+    if (!run) return;
+    this.setState({ runId: run });
+    let graph = null;
+    try {
+      const res = await fetch('/api/runs/' + encodeURIComponent(run) + '/codegraph', { headers: { Accept: 'application/json' } });
+      if (res.ok) graph = await res.json();
+    } catch (e) { /* static snapshot stays */ }
+    if (!graph || !graph.available) {
+      this.setState({ heatNote: 'No code tree for this run: tiles below show package size only.' });
+      return;
+    }
+    const SEVC = { low: '#6a8fd8', medium: '#b7834f', high: '#a5703f', critical: '#8f2f2f' };
+    const rank = (s) => ({ '': 0, low: 1, medium: 2, high: 3, critical: 4 }[s] || 0);
+    const byFile = {};
+    for (const n of graph.nodes || []) {
+      if (n.kind === 'file') byFile[n.id] = byFile[n.id] || { id: n.id, name: n.name || n.id, funcs: 0, proven: 0, sev: '' };
+    }
+    for (const n of graph.nodes || []) {
+      if (!/function|method/.test(n.kind || '') || !n.file) continue;
+      const fid = 'file:' + n.file;
+      const cell = byFile[fid] || (byFile[fid] = { id: fid, name: n.file, funcs: 0, proven: 0, sev: '' });
+      cell.funcs += 1;
+      for (const f of n.findings || []) {
+        if (f.verdict !== 'proven') continue;
+        cell.proven += 1;
+        if (rank(f.severity) > rank(cell.sev)) cell.sev = f.severity;
+      }
+    }
+    const files = Object.values(byFile);
+    const total = Math.max(1, files.reduce((t, f) => t + Math.max(1, f.funcs), 0));
+    const heat = files
+      .sort((a, b) => b.proven - a.proven || b.funcs - a.funcs)
+      .slice(0, 60)
+      .map((f) => ({
+        n: f.name, v: f.funcs + ' fn · ' + f.proven + ' proven',
+        w: Math.max(3, (Math.max(1, f.funcs) / total) * 100).toFixed(1),
+        c: f.proven ? (SEVC[f.sev] || '#a5703f') : '#7a86a1',
+        pick: () => this.setState({ mod: f.id, pathSel: -1 }),
+      }));
+    const paths = (graph.proven_paths || []).slice(0, 12).map((p, i) => ({
+      i, label: (p.entry || '?') + ' → ' + (p.sink || '?'),
+      effect: p.effect || '', nodes: p.nodes || [],
+      cls: 'sb' + (this.state.pathSel === i ? ' sb-on' : ''),
+      pick: () => this.setState({ pathSel: i, mod: null }),
+    }));
+    this.setState({
+      heat, paths,
+      heatNote: heat.length ? 'Tiles sized by functions, colored by proven findings (run ' + run + ').' : 'No files in this run.',
+    });
   }
   componentDidMount() {
+    this.loadRun();
     const host = document.getElementById('gcanvas');
     if (!host || !window.DCViz) return;
     this.viz = window.DCViz.graph(host, {
@@ -28,10 +88,69 @@ window.Component = class Component extends DCLogic {
       }
     });
   }
+  mountNet() {
+    const host = document.getElementById('ncanvas');
+    if (!host || !window.DCNet || this.net) return;
+    const tip = document.createElement('div');
+    tip.className = 'net-tip';
+    host.appendChild(tip);
+    this.tip = tip;
+    this.net = window.DCNet.create(host, {
+      onSelect: (id) => {
+        if (!id) { this.setState({ mod: null }); return; }
+        const n = this.net.node(id);
+        const file = n && n.kind === 'func' ? n.parent : id;
+        this.setState({ mod: file, sel: this.pkgOf(file), fnSel: n && n.kind === 'func' ? id : null });
+      },
+      onHover: (n, x, y) => {
+        if (!n) { tip.classList.remove('net-tip-on'); return; }
+        tip.textContent = n.title;
+        tip.style.left = Math.round(x + 14) + 'px'; tip.style.top = Math.round(y + 14) + 'px';
+        tip.classList.add('net-tip-on');
+      }
+    });
+    this.netKey = null;
+  }
+  netData(withFn) {
+    const FN = (window.DCGraphData || {}).fn || {}, USES = (window.DCGraphData || {}).uses || [];
+    const nodes = [], edges = [];
+    MODS.forEach(([n, loc, p]) => {
+      const l = LAYER[p] || 'core';
+      nodes.push({ id: n, label: n.split('.').pop(), kind: 'file', layer: l, pkg: p, loc, r: 4.5 + Math.sqrt(loc / 2293) * 11, title: n + ' · ' + loc.toLocaleString('en-US') + ' lines' });
+    });
+    ME.forEach(([i, j]) => edges.push({ a: MODS[i][0], b: MODS[j][0], t: 'imp' }));
+    if (withFn) {
+      const have = new Set();
+      MODS.forEach(([n, , p]) => {
+        const l = LAYER[p] || 'core';
+        (FN[n] || []).forEach(([fname, kind, lines]) => {
+          const id = n + '::' + fname;
+          have.add(id);
+          nodes.push({ id, label: fname, kind: 'func', cls: kind === 'c', parent: n, layer: l, pkg: p, loc: lines, r: 2.2 + Math.min(3.2, Math.sqrt(lines) * 0.28), title: (kind === 'c' ? 'class ' : 'def ') + fname + ' · ' + n + ' · ' + lines + ' lines' });
+          edges.push({ a: n, b: id, t: 'own' });
+        });
+      });
+      USES.forEach(([from, mod, fname]) => { const id = mod + '::' + fname; if (have.has(id) && from !== mod) edges.push({ a: from, b: id, t: 'use' }); });
+    }
+    return { nodes, edges };
+  }
+  cur() { return this.state.lv === 'net' && this.net ? this.net : (this.viz || { zoomBy() {}, fit() {} }); }
   pkgOf(id) { const m = MODS.find((x) => x[0] === id); return m ? m[2] : null; }
   // Keeps the canvas in step with the page state after every render.
   componentDidRender() {
-    const v = this.viz, st = this.state;
+    const st = this.state, nv = this.net;
+    if (st.lv === 'net') this.mountNet();
+    if (this.net && st.lv === 'net') {
+      const k = 'net' + st.fn;
+      if (this.netKey !== k) { this.netKey = k; this.net.set(this.netData(st.fn)); }
+      this.net.filter(st.ly === 'all' ? null : (d) => d.layer === st.ly);
+      this.net.find(st.q);
+      const attack = st.pathSel >= 0 && st.paths[st.pathSel] ? st.paths[st.pathSel].nodes : null;
+      this.net.focus(attack && attack.length ? attack : st.fnSel ? [st.fnSel] : st.mod ? [st.mod] : null);
+      if (this.fullSeen !== st.full) { this.fullSeen = st.full; setTimeout(() => this.net.fit(), 60); }
+      return;
+    }
+    const v = this.viz;
     if (!v) return;
     if (this.key !== st.lv) { this.key = st.lv; v.set(this.graphData(st.lv)); }
     v.filter(st.ly === 'all' ? null : (d) => d.layer === st.ly);
@@ -91,13 +210,21 @@ window.Component = class Component extends DCLogic {
       }
       det.hasDeps = deps.length > 0; det.hasUsers = users.length > 0; det.nDeps = deps.length; det.nUsers = users.length;
     }
+    const heat = st.heat.length ? st.heat : P.map(([n, loc]) => ({
+      n, v: loc.toLocaleString('en-US') + ' lines', w: Math.max(4, (loc / 5971) * 100).toFixed(1), c: '#4a5873',
+      pick: () => this.setState({ sel: n, mod: null }),
+    }));
+    const heatNote = st.heatNote || 'Package size by lines of code. Open with ?run=<id> to color tiles by proven findings.';
     return {
       det, q: st.q, onQ: (e) => this.setState({ q: e.target.value }),
-      zin: () => this.viz && this.viz.zoomBy(1.35), zout: () => this.viz && this.viz.zoomBy(1 / 1.35), zfit: () => this.viz && this.viz.fit(),
+      heat, heatNote, paths: st.paths, hasPaths: st.paths.length > 0, runId: st.runId,
+      zin: () => this.cur().zoomBy(1.35), zout: () => this.cur().zoomBy(1 / 1.35), zfit: () => this.cur().fit(),
+      nDisp: st.lv === 'net' ? 'block' : 'none', gDisp: st.lv === 'net' ? 'none' : 'block', fnDisp: st.lv === 'net' ? 'inline-flex' : 'none',
+      fnOpts: [[true, 'Functions on'], [false, 'Files only']].map(([k, l]) => ({ l, cls: 'sb' + (st.fn === k ? ' sb-on' : ''), pick: () => this.setState({ fn: k }) })),
       gfull: st.full ? 'gfull' : '', full: String(st.full), fullL: st.full ? 'Close expanded view' : 'Expand', toggleFull: () => this.setState({ full: !st.full }),
       tot: [{ l: 'Packages', v: '19', u: 'top-level folders' }, { l: 'Modules', v: '120', u: 'Python files' }, { l: 'Imports', v: '317', u: 'internal dependencies' }, { l: 'Lines', v: '29.9k', u: '1,052 functions · 173 classes' }],
       layers, hot, pk,
-      lvOpts: [['pkg', 'Packages'], ['mod', 'Modules']].map(([k, l]) => ({ l, cls: 'sb' + (st.lv === k ? ' sb-on' : ''), pick: () => this.setState({ lv: k, mod: null }) })),
+      lvOpts: [['net', 'Network'], ['pkg', 'Packages'], ['mod', 'Modules']].map(([k, l]) => ({ l, cls: 'sb' + (st.lv === k ? ' sb-on' : ''), pick: () => this.setState({ lv: k, mod: null }) })),
       lyOpts: opt([['all', 'All'], ['core', 'Core'], ['analysis', 'Analysis'], ['surface', 'Surfaces']], 'ly')
     };
   }
