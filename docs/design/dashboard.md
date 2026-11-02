@@ -80,58 +80,122 @@ runs/
   trends view loads the 50 most recent runs, so the first view of a large
   repository makes one `gh` round trip per run.
 
-## Views
+## Information architecture (two levels)
 
-- **Runs**: status, headline, repo, PR/commit, risk gate, proven count,
-  duration (first to last ledger event), cost (sum of `cost_usd`), paginated,
-  newest first. Phone widths turn rows into cards.
-- **Run detail**: the verdict timeline BASELINE → SUSPECT → EXPLOIT → RUN →
-  VERDICT → FIX → VERIFY → PACKAGE with event counts per stage; for each proven
-  finding the evidence: red (the exploit failed on the vulnerable code in N of N
-  runs, with the oracle events), the effect type (`canary_read` or
-  `canary_write`, derived from the open mode, plus path and mode), green (the
-  exploit passed on the fixed code, the baseline still passed, the fix was
-  verified), the defender bypass variants (an incomplete fix is called out), and
-  the oracle's provenance chain (call stack with the entry point and admitted
-  app frames marked); then the discarded suspicions with their verdict and
-  reason; then the raw ledger events, paginated.
-- **Trends**: per-run stacked bars of `proven`, `discarded_unproven` and
-  `invalid_test` over time (hover or focus for the exact counts, plus `flaky`
-  and `env_failure`), with a table view below.
-- **Replay**: streams a finished ledger step by step over Server-Sent Events,
-  paced by `exhibit_a.live.replay.Replayer` (imported, not modified), with
-  play/pause, single step, restart and speed. Nothing is re-executed.
+The dashboard organizes navigation into two explicit levels:
 
-Dark and light follow `prefers-color-scheme`. No build step, no CDN, no web
-fonts: the page works offline.
+1. **Repository level** (default `#/`):
+   - **Sidebar switcher**: Repository selector on top of the sidebar (`GET /api/repos`).
+   - **Sidebar menu**:
+     - `Home` (`#/` or `#/repo/<repo_id>`)
+     - `Pull requests` (`#/runs` or `#/repo/<repo_id>/runs`)
+     - `Findings` (`#/findings` or `#/repo/<repo_id>/findings` — whole repository)
+     - `Code graph` (`#/dependencies` or `#/repo/<repo_id>/graph` — whole repository)
+     - `Benchmark` (`#/benchmark` and `#/trends`)
+   - No "Current run" widget is shown at the repository level.
+2. **Pull request level** (activated when opening a run/PR at `#/run/<run_id>`):
+   - **Sidebar back link**: Back arrow returning to the repository (`#/repo/<repo_id>` or `#/`).
+   - **Sidebar menu**:
+     - `Summary` (`#/run/<run_id>`)
+     - `Process` (`#/run/<run_id>/process` and `#/replay/<run_id>`)
+     - `Findings` (`#/run/<run_id>/findings` and `#/run/<run_id>/finding/<finding_id>`)
+     - `Code graph` (`#/run/<run_id>/graph`)
+   - **Breadcrumb**: Always renders `repo / PR / section` (or `repo / section` at repository level).
 
-### Mapping events to stages
+**Top bar**:
+- **Window selector**: Segmented selector (`7 days`, `30 days`, `90 days`, `Total`) filtering repository runs by `started_at` relative to the latest recorded run timestamp.
+- **Metadata columns**: Small-caps labels with monospace values for `WINDOW`, `LAST UPDATE`, and `SOURCE` (`local replay` / `info.source`), plus a `Synthetic sample data` badge whenever any loaded run has `synthetic == true`.
 
-| Stage | Events |
-|---|---|
-| BASELINE | `baseline_done` without `suspicion_id` / `on` |
-| SUSPECT | `suspicion_raised` |
-| EXPLOIT | `exploit_written` |
-| RUN | `run_started`, `oracle_event` on the vulnerable code |
-| VERDICT | `verdict` |
-| FIX | `fix_proposed` |
-| VERIFY | `run_started`/`oracle_event` with `on: fixed` (or `after_fix`), `baseline_done` on the fixed code, `bypass_attempt`, `bypass_result` |
-| PACKAGE | `packaged` |
+## Data contracts (grounding rule)
 
-Status and counts come from `exhibit_a.ci.summary.build_result`, so the
-dashboard and the PR comment cannot disagree. The latest verdict per
-suspicion wins, as there.
+Every number, label, sentence, and chart in the UI comes from a named field of real data from the four allowed sources:
+1. Run ledger events (`pr_opened`, `scan_done`, `baseline_done`, `suspicion_raised`, `exploit_written`, `run_started`, `oracle_event`, `verdict`, `fix_proposed`, `bypass_attempt`, `bypass_result`, `packaged` with their payloads, timestamps, role, model, tokens, and cost).
+2. Run summary and CI gate classification built by the server (`verdicts`, `proven`, highest proven `severity`, `cwe`, `effect`, `risk` and path `reasons` from `src/exhibit_a/ci/gate.py`, `cost_usd`, `duration_s`, `commit`, `branch`, `pr`, `title`, `synthetic`).
+3. Code graph endpoints (`/api/runs/<id>/codegraph` and `/api/runs/<id>/graph`).
+4. Benchmark results in `bench/results/*.json` (`bench/results/2026-11-01.json`), corpus manifests (`bench/corpus/*/case.json`), corpus recordings (`bench/corpus/*/recordings/*.json`), and `docs/bench/bench.md`.
+
+**Missing value rule**: When a field is missing, null, or empty, the UI displays the exact text `"not available"`, never `0` and never a placeholder number.
+
+### Repository level widgets
+
+| Widget | Endpoint | Exact field(s) | Formula (if any) | Missing state |
+|---|---|---|---|---|
+| Repository switcher | `GET /api/repos` | `repos[].id`, `repos[].name`, `repos[].runs`, `repos[].proven`, `repos[].synthetic` | None (sorted by `last_run.started_at` descending) | `"not available"` |
+| Top bar: Window | `GET /api/repos/<id>` / `GET /api/runs` | `pull_requests[].started_at` / `runs[].started_at` | Keep runs where `max_ts - started_at <= window_days * 86400s` (`Total` keeps all) | `"not available"` |
+| Top bar: Last update | `GET /api/repos/<id>` / `GET /api/runs` | `runs[].started_at` | `max(started_at)` formatted as `YYYY-MM-DD HH:MM UTC` | `"not available"` |
+| Top bar: Source | `GET /api/info` | `source` | Direct string | `"not available"` |
+| KPI: Proven findings | `GET /api/repos/<id>` | `metrics.proven`, `metrics.root_causes`, `pull_requests[].proven` | `sum(r.proven)` across runs in selected window | `"not available"` |
+| KPI: Fixes verified | `GET /api/repos/<id>` | `metrics.fixes_verified`, `pull_requests[].fixes_verified` | Count of proven findings where `passes_on_fixed.fix_verified == true` and `bypass.succeeded == 0` | `"not available"` |
+| KPI: Fixes defeated by bypass | `GET /api/repos/<id>` | `metrics.fixes_bypassed`, `pull_requests[].fixes_bypassed` | Count of proven findings where `bypass.succeeded > 0` | `"not available"` |
+| KPI: Discarded suspicions | `GET /api/repos/<id>` | `metrics.discarded`, `pull_requests[].dropped` | `sum(r.dropped)` across runs in selected window | `"not available"` |
+| KPI: Total cost | `GET /api/repos/<id>` | `metrics.cost_usd`, `metrics.tokens_in`, `metrics.tokens_out`, `pull_requests[].cost_usd` | `sum(r.cost_usd)` formatted in USD; subtext `sum(tokens_in + tokens_out)` | `"not available"` |
+| KPI: Median run duration | `GET /api/repos/<id>` | `pull_requests[].duration_s` | Median of non-null `duration_s` values in window | `"not available"` |
+| Chart: Proven findings over time (stacked by effect) | `GET /api/repos/<id>` | `pull_requests[].started_at`, `pull_requests[].pr`, `pull_requests[].effects_breakdown` | Per run count of proven findings grouped by `evidence.effect.type` | `"not available"` |
+| Chart: Verification funnel | `GET /api/repos/<id>` | `funnel.{suspicions_raised, exploits_written, proven, fix_verified, bypass_resistant}` | Direct counts summed across runs in window | `"not available"` |
+| Chart: Verdict outcome donut | `GET /api/repos/<id>` | `verdict_totals.{proven, discarded_unproven, invalid_test, flaky, env_failure}` | `total = sum(counts)`, `share_pct = round(count * 100 / total, 1)` | `"not available"` |
+| Chart: Hot files heatmap (`file x run`) | `GET /api/repos/<id>` | `hot_files.files[]`, `hot_files.runs[]`, `hot_files.cells[][]` | Count of findings (`proven` and `discarded`) per `(file, run_id)` | `"not available"` |
+| Chart: Cost & tokens per run by role | `GET /api/repos/<id>` | `role_costs[]` (`run_id`, `pr`, `by_role.{adversary, test_writer, fixer, defender}.{cost_usd, tokens_in, tokens_out, events}`) | Stacked per role across runs in window | `"not available"` |
+| Chart: Time per stage | `GET /api/repos/<id>` | `stage_durations[]` (`stage`, `seconds`, `events`) | Sum of stage durations derived from ledger event timestamps and `latency_ms` | `"not available"` |
+| Chart: Severity & CWE distribution | `GET /api/repos/<id>` | `cwe_distribution[]` (`cwe`, `name`, `severity`, `effect`, `count`) | Count of proven findings per `(cwe, severity)` | `"not available"` |
+| Pull requests filter panel + sortable table | `GET /api/repos/<id>` / `GET /api/runs` | `run_id`, `pr`, `title`, `branch`, `commit`, `status`, `highest_severity`, `effects[]`, `cwes[]`, `risk`, `duration_s`, `cost_usd`, `proven`, `dropped` | Left row border coloured by `highest_severity` (neutral when `proven == 0`); client sort & filter on exact fields | `"not available"` per missing cell |
+| Repository Findings table | `GET /api/repos/<id>` | `top_findings[]`, `all_findings[]` (`run_id`, `finding_id`, `class`, `severity`, `cwe`, `effect`, `file`, `line`, `fix_status`, `pr`, `started_at`, `occurrences`) | Sorted by severity rank then fix status then recency | `"not available"` |
+| Repository Code graph | `GET /api/runs/<latest_run_id>/codegraph` | `available`, `nodes[]`, `edges[]`, `reach_paths[]`, `proven_paths[]`, `stats` | Force-directed layout (`ForceGraph`) over AST nodes and edges | `reason` or `"not available"` |
+
+### Pull request level widgets (`#/run/<run_id>`)
+
+| Widget | Endpoint | Exact field(s) | Formula (if any) | Missing state |
+|---|---|---|---|---|
+| Indicator 1: Proven severity gauge | `GET /api/runs/<id>` | `run.highest_severity`, `run.proven`, `proven[]` | Highest severity among `proven` findings (`low`, `medium`, `high`, `critical`). When `proven == 0`, neutral `"Nothing proven"` state with copy `"nothing could be proven; this is not evidence of safety"` (never green, never `"safe"`). | `"Nothing proven"` / `"not available"` |
+| Proven severity: "How this level was built" | `GET /api/runs/<id>` | `proven[].id`, `proven[].evidence.effect.type`, `proven[].evidence.cwe`, `proven[].evidence.severity`, `proven[].evidence.passes_on_fixed.fix_verified`, `proven[].evidence.bypass.succeeded` | One row per proven finding; footer `"Highest of N proven findings = <SEVERITY>"` | `"No proven findings in this run"` |
+| Indicator 2: Change risk (CI gate) | `GET /api/runs/<id>` | `gate.level` (`run.risk`), `gate.should_run_exploits`, `gate.reasons[]` (`path`, `risk`, `rule`) | `exhibit_a.ci.gate.classify(changed_paths)` on `pr.diff` paths (or `result.json` `risk`) | `"not available"` |
+| Change risk: "How this level was built" | `GET /api/runs/<id>` | `gate.reasons[].path`, `gate.reasons[].risk`, `gate.reasons[].rule` | Exact path-to-rule mapping from `src/exhibit_a/ci/gate.py` (`CI workflow or action definition`, `dependency manifest or lock file`, `container definition`, `file in a sensitive directory`, `documentation`, `test code`, `application code`) | `"not available"` |
+| PR Details key-value panel | `GET /api/runs/<id>` | `run.{repo, pr, branch, commit, started_at, duration_s, cost_usd, status, synthetic}` | Direct fields; sandbox label fixed to `"isolated and resource-limited"` | `"not available"` |
+| Proven findings list & detail | `GET /api/runs/<id>` | `proven[].{id, class, file, line, entry_point, hypothesis, reason, evidence}` | 5-part proof standard checklist from `evidence.{fails_on_vulnerable, effect, provenance, passes_on_fixed, bypass, fix}` + empty `data-slot="knowledge-sheet"` | `"not available"` |
+| Discarded suspicions list | `GET /api/runs/<id>` | `discarded[].{id, class, file, line, entry_point, verdict, reason}` | Grouped or listed with the ledger's own `verdict` and `reason` text | `"not available"` |
+| Process: 8-stage timeline | `GET /api/runs/<id>` | `stages[].{name, reached, count, duration_s, first_ts, description}` | One-sentence plain-English explanation from `SPEC.md` section 3 + event count + elapsed `duration_s` from ledger timestamps | `"not available"` |
+| Process: Per-suspicion swimlanes | `GET /api/runs/<id>` | `swimlanes[]` (`id`, `class`, `file`, `line`, `stages_reached[]`, `stopped_at`, `verdict`, `reason`) | Derived from ledger events bearing `suspicion_id` | `"not available"` |
+| Process: Model roles breakdown | `GET /api/runs/<id>` | `costs.by_role.{adversary, test_writer, fixer, defender}.{events, tokens_in, tokens_out, cost_usd}` | Summed per role from ledger events | `"not available"` |
+| Process: Animated replay & event stream | `GET /api/runs/<id>/events`, `GET /api/runs/<id>/replay` | `events[].{seq, ts, type, stage, role, model, cost_usd, latency_ms, summary, payload}` | Populated by default at full run completion (`N / N events`); user-paced replay (`Play`, `Step`, `Reset`, speed `1x..8x`) highlights stages and oracle observations | `"not available"` |
+| PR Code graph + "What this PR changes" panel | `GET /api/runs/<id>/codegraph` | `nodes[]`, `edges[]`, `reach_paths[]`, `proven_paths[]`, `changed_source`, `stats` | Filters nodes with `changed == true` (`file`, `function`, `method`), lists their callers and callees from `edges[]`, and highlights proven paths | `"not available"` |
+
+### Benchmark widgets (`#/benchmark`)
+
+| Widget | Endpoint | Exact field(s) | Formula (if any) | Missing state |
+|---|---|---|---|---|
+| System precision & recall bars + table | `GET /api/benchmark` | `systems[]` (`system`, `reported`, `true_positives`, `false_positives`, `false_accusations`, `precision`, `recall`, `discarded`, `calls`, `cost_usd`, `live_usd`, `model_wall_s`) | Aggregated from `bench/results/2026-11-01.json` `per_target` rows where `measured == true` (matching `docs/bench/bench.md` headline rows) | `"not available"` |
+| Class-label mismatch note | `GET /api/benchmark` | `label_mismatches[]` (`case`, `ground_truth_class`, `proven_effect`, `verdict`, `reason`) | Identifies the 4 vulnerable cases in `bench/results/2026-11-01.json` where `reported > 0`, `false_positives > 0`, `false_accusations == 0`, and `recordings/meta-muse-wonder-1.0-compact.json` has `verdict == "proven"` | `"not available"` |
+| Case × vulnerability-class outcome matrix | `GET /api/benchmark` | `matrix.cases[]`, `matrix.classes[]`, `matrix.cells[]` (`case`, `vuln_class`, `effect`, `cwe`, `outcome`, `reported`, `tp`, `fp`, `discarded`, `cost_usd`, `calls`) | Joined from `bench/results/2026-11-01.json` and `bench/corpus/*/case.json` + `recordings/meta-muse-wonder-1.0-compact.json` | `"not available"` |
+| Cost per case against model calls | `GET /api/benchmark` | `per_case[]` (`target`, `calls`, `cost_usd`, `reported`, `discarded`, `model_wall_s`) | Direct fields from `bench/results/2026-11-01.json` for `Exhibit A, compact profile` | `"not available"` |
+| Discard reasons breakdown | `GET /api/benchmark` | `discard_reasons[]` (`verdict`, `reason_code`, `count`, `cases[]`) | Counted across non-proven verdicts in `bench/corpus/*/recordings/meta-muse-wonder-1.0-compact.json` | `"not available"` |
+| Vulnerability class coverage & "Not covered yet" | `GET /api/benchmark` | `coverage.covered[]`, `coverage.not_covered_yet[]`, `coverage.unclaimed_by_design[]` | Derived from `CWE_TABLE` and `bench/corpus/*/case.json` (as in `bench/coverage_matrix.py`) | `"not available"` |
+
+### Expand-to-modal contract (every chart)
+
+Every chart card includes an expand button opening a modal dialog containing:
+1. Enlarged interactive chart with **zoom and pan** (mouse wheel, `+` / `-` / `Reset` buttons, double-click, keyboard `+`, `-`, `0`, arrow keys).
+2. **`HOW TO READ THIS`**: Fixed template describing the axes, units, and colour/pattern encoding of that chart type.
+3. **`WHAT STANDS OUT`**: Fixed deterministic templates filled strictly from the numbers shown in the chart:
+   - `"Total across shown items: <total> (<unit>)."`
+   - `"Largest item: <max_label> with <max_value> of <total> (<share>%)."`
+   - `"Smallest non-zero item: <min_label> with <min_value> of <total> (<min_share>%)."`
+   - `"Zero-value items: <zero_count> of <item_count>."`
+4. **`THE NUMBERS`**: Exact tabular view of every series/slice shown in the chart (`Label`, `Count / Value`, `Share %`), where every cell equals the corresponding number in the API response.
 
 ## API (all GET, all under the session cookie)
 
 | Endpoint | Returns |
 |---|---|
 | `/api/info` | source label |
+| `/api/repos` | repository summaries (`id`, `name`, `runs`, `proven`, `last_run`, `trend`, `severity_mix`), most recently active first |
+| `/api/repos/<id>` | repository detail: `repo`, `metrics`, `pull_requests`, `top_findings`, `all_findings`, `funnel`, `verdict_totals`, `hot_files`, `role_costs`, `stage_durations`, `cwe_distribution` |
 | `/api/runs?page=&per_page=` | rows, newest first; `per_page` capped at 100 |
-| `/api/runs/<id>` | detail view-model |
+| `/api/runs/<id>` | detail view-model (`run`, `gate`, `stages`, `swimlanes`, `proven`, `discarded`, `costs`, `trace`, `graph`) |
 | `/api/runs/<id>/events?from=&limit=` | bounded event views; `limit` capped at 500 |
 | `/api/runs/<id>/replay?speed=&from=` | SSE: `step` frames in ledger order, then `done`; speed capped at 64× |
+| `/api/runs/<id>/graph` | AST entry-to-sink path subgraph for the run |
+| `/api/runs/<id>/codegraph` | full repository AST graph (`file`, `function`, `method`, `sink`) with PR diff changes and proven paths |
 | `/api/trends?limit=` | verdict counts of the most recent runs (capped at 200), oldest first |
+| `/api/benchmark` | real benchmark evaluation from `bench/results/*.json`, corpus recordings, and coverage matrix |
 
 ## Threat model
 

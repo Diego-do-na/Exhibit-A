@@ -29,17 +29,38 @@ const headerBreadcrumb = document.getElementById("header-breadcrumb");
 const actionBtn = document.getElementById("action-btn");
 const actionBtnText = document.getElementById("action-btn-text");
 const actionBtnIcon = document.getElementById("icon-action");
-const runSelect = document.getElementById("run-select");
-const runCurrentId = document.getElementById("run-current-id");
-const runCurrentSub = document.getElementById("run-current-sub");
+const repoSwitcherCard = document.getElementById("repo-switcher-card");
+const repoSelect = document.getElementById("repo-select");
+const repoCurrentName = document.getElementById("repo-current-name");
+const repoCurrentSub = document.getElementById("repo-current-sub");
+const repoNav = document.getElementById("repo-nav");
+const prNav = document.getElementById("pr-nav");
+const navBackRepo = document.getElementById("nav-back-repo");
+const navBackLabel = document.getElementById("nav-back-label");
+const prContextKicker = document.getElementById("pr-context-kicker");
+const prContextTitle = document.getElementById("pr-context-title");
+const prContextSub = document.getElementById("pr-context-sub");
+const windowSelector = document.getElementById("window-selector");
+const metaWindow = document.getElementById("meta-window");
+const metaLastUpdate = document.getElementById("meta-last-update");
+const metaSource = document.getElementById("meta-source");
 const themeToggle = document.getElementById("theme-toggle");
 const recordFooterRight = document.getElementById("record-footer-right");
 const envBranch = document.getElementById("env-branch");
 
+const WINDOW_LABELS = { "7d": "7 days", "30d": "30 days", "90d": "90 days", total: "Total" };
+const WINDOW_DAYS = { "7d": 7, "30d": 30, "90d": 90, total: null };
+
 const state = {
   runs: [],
   runsById: new Map(),
+  repos: [],
+  reposById: new Map(),
+  currentRepoId: null,
   currentRunId: null,
+  navLevel: "repo", // "repo" | "pr"
+  windowKey: "total", // "7d" | "30d" | "90d" | "total"
+  uiFont: "inter", // candidate tested in Milestone 1: "inter" | "geist" | "manrope"
   sourceLabel: "",
   teardown: [], // callbacks run before the next route renders (streams, animation loops)
   // Aborted when the next navigation starts, so a slow, stale render never paints over
@@ -502,7 +523,7 @@ function renderError(error) {
   show(h("div", { class: "notice error" }, h("strong", { text: "Could not load: " }), String(error.message || error)));
 }
 
-// -- Shell & navigation --------------------------------------------------------
+// -- Shell & navigation (two levels: Repository level & PR level) --------------
 
 function setActiveNav(navKey) {
   document.querySelectorAll(".nav-item").forEach((el) => {
@@ -520,14 +541,106 @@ function runHref(id, tail = "") {
   return `#/run/${encodeURIComponent(id)}${tail}`;
 }
 
+function filterRunsByWindow(rows, windowKey = state.windowKey) {
+  const days = WINDOW_DAYS[windowKey];
+  if (!days || !rows || !rows.length) return rows || [];
+  let maxMs = 0;
+  for (const r of rows) {
+    const t = Date.parse(String((r && r.started_at) || ""));
+    if (!isNaN(t) && t > maxMs) maxMs = t;
+  }
+  if (!maxMs) return rows;
+  const cutoff = maxMs - days * 86400000;
+  return rows.filter((r) => {
+    const t = Date.parse(String((r && r.started_at) || ""));
+    return !isNaN(t) && t >= cutoff;
+  });
+}
+
+function updateTopbarMeta(rowsForScope = state.runs) {
+  const scoped = rowsForScope && rowsForScope.length ? rowsForScope : state.runs;
+  const filtered = filterRunsByWindow(scoped, state.windowKey);
+  if (metaWindow) {
+    const label = WINDOW_LABELS[state.windowKey] || "Total";
+    metaWindow.textContent = scoped.length ? `${label} (${filtered.length}/${scoped.length})` : label;
+  }
+  if (metaLastUpdate) {
+    let newest = "";
+    let maxMs = 0;
+    for (const r of scoped) {
+      const ts = String((r && r.started_at) || "");
+      const ms = Date.parse(ts);
+      if (!isNaN(ms) && ms > maxMs) {
+        maxMs = ms;
+        newest = ts;
+      } else if (!newest && ts) {
+        newest = ts;
+      }
+    }
+    metaLastUpdate.textContent = newest ? fmtDate(newest, true) : NA;
+  }
+  if (metaSource) {
+    metaSource.textContent = state.sourceLabel || NA;
+  }
+  if (windowSelector) {
+    windowSelector.querySelectorAll(".window-btn").forEach((btn) => {
+      const active = btn.dataset.window === state.windowKey;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", String(active));
+    });
+  }
+}
+
+function setSidebarLevel(level, rowOrRepoId = null) {
+  state.navLevel = level === "pr" ? "pr" : "repo";
+  if (repoSwitcherCard) repoSwitcherCard.hidden = state.navLevel === "pr";
+  if (repoNav) repoNav.hidden = state.navLevel === "pr";
+  if (prNav) prNav.hidden = state.navLevel !== "pr";
+  if (windowSelector) windowSelector.hidden = state.navLevel === "pr";
+
+  if (state.navLevel === "pr" && rowOrRepoId && typeof rowOrRepoId === "object") {
+    const row = rowOrRepoId;
+    const rid = repoIdOf(row) || state.currentRepoId;
+    if (rid) state.currentRepoId = rid;
+    if (navBackRepo) {
+      navBackRepo.setAttribute("href", safeHref(rid ? `#/repo/${encodeURIComponent(rid)}` : "#/"));
+    }
+    if (navBackLabel) {
+      navBackLabel.textContent = row.repo ? `Back to ${repoShort(row.repo)}` : "Back to repository";
+    }
+    if (prContextKicker) {
+      prContextKicker.textContent = prLabel(row) ? `${prLabel(row)} · ${repoShort(row.repo)}` : repoShort(row.repo);
+    }
+    if (prContextTitle) {
+      const title = row.title || row.headline || row.run_id || NA;
+      prContextTitle.textContent = title;
+      prContextTitle.title = title;
+    }
+    if (prContextSub) {
+      prContextSub.textContent = prCommit(row);
+    }
+  } else {
+    const rid = typeof rowOrRepoId === "string" && rowOrRepoId ? rowOrRepoId : state.currentRepoId;
+    if (rid) state.currentRepoId = rid;
+    updateRepoSwitcherCard(state.currentRepoId);
+  }
+  updateShellNavLinks();
+}
+
 function updateShellNavLinks() {
   const id = state.currentRunId;
+  const rid = state.currentRepoId;
+  const repoHomeHref = rid ? `#/repo/${encodeURIComponent(rid)}` : "#/";
   const links = {
+    "nav-home": repoHomeHref,
+    "nav-runs": "#/runs",
+    "nav-findings": "#/findings",
+    "nav-dependencies": "#/dependencies",
+    "nav-benchmark": "#/benchmark",
     "nav-overview": id ? runHref(id) : "#/runs",
     "nav-liverun": id ? `#/replay/${encodeURIComponent(id)}` : "#/replay",
-    "nav-findings": id ? runHref(id, "/findings") : "#/runs",
-    "nav-dependencies": id ? runHref(id, "/graph") : "#/dependencies",
-    "nav-benchmark": "#/trends",
+    "nav-pr-findings": id ? runHref(id, "/findings") : "#/findings",
+    "nav-pr-graph": id ? runHref(id, "/graph") : "#/dependencies",
   };
   for (const [elId, href] of Object.entries(links)) {
     const el = document.getElementById(elId);
@@ -558,6 +671,7 @@ function setShellHeader(crumbs, title, actionText = null, actionHandler = null, 
     actionBtn.onclick = null;
     actionBtn.hidden = true;
   }
+  updateTopbarMeta();
 }
 
 function repoIdOf(row) {
@@ -565,64 +679,80 @@ function repoIdOf(row) {
 }
 
 function repoCrumb(row) {
-  const id = repoIdOf(row);
-  const text = repoShort(row && row.repo);
+  const id = repoIdOf(row) || state.currentRepoId || "";
+  const text = (row && row.repo) ? repoShort(row.repo) : (state.reposById.get(id) ? repoShort(state.reposById.get(id).name) : "All repositories");
   return id ? { text, href: `#/repo/${encodeURIComponent(id)}` } : { text, href: "#/" };
 }
 
 function runCrumb(row) {
-  const label = [prLabel(row), row.ledger_run_id || row.run_id].filter(Boolean).join(" · ");
-  return { text: label || row.run_id, href: runHref(row.run_id) };
+  const label = prLabel(row) || row.ledger_run_id || row.run_id || NA;
+  return { text: label, href: runHref(row.run_id) };
 }
 
 function setFooter(text) {
   if (recordFooterRight) recordFooterRight.textContent = text;
 }
 
-function updateRunContextCard(runId) {
-  state.currentRunId = runId;
+function updateRepoSwitcherCard(repoId) {
+  if (repoId) state.currentRepoId = repoId;
+  const repo = state.currentRepoId ? state.reposById.get(state.currentRepoId) : state.repos[0];
+  if (repo && !state.currentRepoId) state.currentRepoId = repo.id;
+  if (repoSelect && state.currentRepoId && [...repoSelect.options].some((o) => o.value === state.currentRepoId)) {
+    repoSelect.value = state.currentRepoId;
+  }
+  if (repoCurrentName) {
+    repoCurrentName.textContent = repo ? repoShort(repo.name) : (state.runs.length ? repoShort(state.runs[0].repo) : "All repositories");
+  }
+  if (repoCurrentSub) {
+    if (repo) {
+      repoCurrentSub.textContent = `${plural(repo.runs || 0, "run")} · ${plural(repo.proven || 0, "proven finding")}`;
+    } else if (state.runs.length) {
+      repoCurrentSub.textContent = `${plural(state.runs.length, "run")} loaded`;
+    } else {
+      repoCurrentSub.textContent = NA;
+    }
+  }
   updateShellNavLinks();
-  if (runSelect && runId && [...runSelect.options].some((o) => o.value === runId)) runSelect.value = runId;
-  const row = runId ? state.runsById.get(runId) : null;
-  if (!runId) {
-    runCurrentId.textContent = "No run selected";
-    runCurrentSub.textContent = "Proof before accusation";
-    return;
-  }
-  const shown = (row && row.ledger_run_id) || runId;
-  runCurrentId.textContent = shown;
-  runCurrentId.title = runId;
-  if (row) {
-    const sub = [repoShort(row.repo), prLabel(row)].filter(Boolean).join(" · ");
-    runCurrentSub.textContent = row.synthetic ? `${sub} · illustrative` : sub;
-    runCurrentSub.title = row.repo || "";
-    if (envBranch) envBranch.textContent = row.branch || NA;
-  } else {
-    runCurrentSub.textContent = "Run not in the first page of the list";
-  }
 }
 
-function populateRunSelect() {
-  if (!runSelect) return;
-  const groups = new Map();
-  for (const row of state.runs) {
-    const key = repoShort(row.repo);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(row);
+function populateRepoSelect(repos) {
+  state.repos = repos || [];
+  state.reposById = new Map(state.repos.map((r) => [r.id, r]));
+  if (!state.currentRepoId && state.repos.length) {
+    state.currentRepoId = state.repos[0].id;
   }
-  const children = [];
-  for (const [repo, rows] of groups) {
-    children.push(h("optgroup", { label: repo }, rows.map((r) => {
-      const status = r.proven ? plural(r.proven, "proven finding") : (r.status === "unreadable" ? "unreadable" : "nothing proven");
-      const text = [prLabel(r), r.title || r.headline, status].filter(Boolean).join(" · ");
-      return h("option", { value: r.run_id, text });
-    })));
-  }
-  runSelect.replaceChildren(...children);
-  runSelect.setAttribute("aria-label", "Current run");
-  runSelect.onchange = () => {
-    if (runSelect.value) location.hash = runHref(runSelect.value);
+  if (!repoSelect) return;
+  const options = state.repos.map((r) => h("option", {
+    value: r.id,
+    text: `${repoShort(r.name)} (${plural(r.runs || 0, "run")}, ${plural(r.proven || 0, "proven")})`,
+  }));
+  repoSelect.replaceChildren(...options);
+  if (state.currentRepoId) repoSelect.value = state.currentRepoId;
+  repoSelect.onchange = () => {
+    if (!repoSelect.value) return;
+    state.currentRepoId = repoSelect.value;
+    const repo = state.reposById.get(state.currentRepoId);
+    if (repo && repo.last_run && repo.last_run.run_id) {
+      state.currentRunId = repo.last_run.run_id;
+    }
+    updateRepoSwitcherCard(state.currentRepoId);
+    const rawHash = location.hash.replace(/^#\/?/, "");
+    const first = rawHash.split("/")[0];
+    if (first === "findings" || first === "dependencies" || first === "runs") {
+      route();
+    } else {
+      location.hash = `#/repo/${encodeURIComponent(state.currentRepoId)}`;
+    }
   };
+  updateRepoSwitcherCard(state.currentRepoId);
+}
+
+function updateRunContextCard(runId, rowOverride = null) {
+  state.currentRunId = runId;
+  const row = rowOverride || (runId ? state.runsById.get(runId) : null);
+  if (row && row.repo_id) state.currentRepoId = row.repo_id;
+  if (row && envBranch) envBranch.textContent = row.branch || "resource-limited";
+  updateShellNavLinks();
 }
 
 function downloadData(filename, dataObj) {
@@ -868,17 +998,23 @@ async function renderHome(repoId) {
   setActiveNav("home");
   const index = await api("/api/repos");
   const repos = index.repos || [];
+  populateRepoSelect(repos);
   if (!repos.length) {
+    setSidebarLevel("repo", null);
     setShellHeader([{ text: "All repositories" }], "Home");
     show(emptyState("No runs found in this source.", "Run exhibit-a on a pull request, then point the dashboard at its runs folder."));
     return;
   }
-  const selected = repos.find((r) => r.id === repoId) || repos[0];
+  const selected = repos.find((r) => r.id === repoId) || repos.find((r) => r.id === state.currentRepoId) || repos[0];
+  setSidebarLevel("repo", selected.id);
   const detail = await api(`/api/repos/${encodeURIComponent(selected.id)}`);
   const m = detail.metrics || {};
   const name = repoShort(selected.name);
+  const allPrs = detail.pull_requests || [];
+  const prs = filterRunsByWindow(allPrs, state.windowKey);
   setShellHeader([{ text: name, href: `#/repo/${encodeURIComponent(selected.id)}` }, { text: "Home" }], name.split("/").pop() || name,
     "Export overview", () => downloadData(`repository-${selected.id}.json`, detail));
+  updateTopbarMeta(allPrs);
   setFooter(`${state.sourceLabel || index.source || "Local replay"} · ${plural(index.runs_considered || 0, "run")} read`);
 
   const last = selected.last_run || {};
@@ -902,13 +1038,12 @@ async function renderHome(repoId) {
     metricTile("Discarded suspicions", String(m.discarded || 0), "not proven; not evidence of safety"),
     metricTile("Cost", fmtCost(m.cost_usd), `${fmtTokens(m.tokens_in)} tokens in · ${fmtTokens(m.tokens_out)} out`));
 
-  const prs = detail.pull_requests || [];
   const serious = detail.top_findings || [];
   const prCard = h("section", { class: "card list-card" },
     h("div", { class: "card-head" },
       h("h3", { class: "card-title", text: "Recent pull requests" }),
-      h("a", { class: "card-link", href: "#/runs", text: "All runs →" })),
-    prs.length ? h("ul", { class: "pr-list" }, prs.slice(0, 8).map(prRow)) : emptyState("No runs for this repository."));
+      h("a", { class: "card-link", href: "#/runs", text: "All pull requests →" })),
+    prs.length ? h("ul", { class: "pr-list" }, prs.slice(0, 8).map(prRow)) : emptyState("No runs for this repository in the selected window."));
   const seriousCard = h("section", { class: "card list-card" },
     h("div", { class: "card-head" },
       h("h3", { class: "card-title", text: "Most serious findings" }),
@@ -941,7 +1076,8 @@ async function renderRunOverview(id) {
 
   const data = await api(`/api/runs/${encodeURIComponent(id)}`);
   const row = data.run;
-  setShellHeader([repoCrumb(row), runCrumb(row), { text: "Overview" }], "Run overview", "Export report", () => {
+  setSidebarLevel("pr", row);
+  setShellHeader([repoCrumb(row), runCrumb(row), { text: "Summary" }], "Summary", "Export report", () => {
     downloadData(`report-${row.run_id}.json`, data);
   });
   setFooter(row.synthetic ? "Illustrative data · Local replay" : `${repoShort(row.repo)} · ${row.run_id}`);
@@ -1047,6 +1183,7 @@ async function renderFindingDetail(runId, findingId) {
 
   const data = await api(`/api/runs/${encodeURIComponent(runId)}`);
   const row = data.run;
+  setSidebarLevel("pr", row);
   const finding = (data.proven || []).find((f) => f.id === findingId) ||
     (data.discarded || []).find((f) => f.id === findingId);
   if (!finding) {
@@ -1252,6 +1389,7 @@ async function renderReplay(id) {
 
   const detail = await api(`/api/runs/${encodeURIComponent(id)}`);
   const row = detail.run;
+  setSidebarLevel("pr", row);
   const total = row.event_count || 0;
   const reached = Object.fromEntries(STAGES.map((name) => [name, 0]));
   let cursor = 0;
@@ -1268,7 +1406,7 @@ async function renderReplay(id) {
   const step = h("button", { type: "button", text: "Step" });
   const restart = h("button", { type: "button", text: "Restart" });
 
-  setShellHeader([repoCrumb(row), runCrumb(row), { text: "Live run" }], "Live run", "Restart", () => restart.click(), "repeat-2");
+  setShellHeader([repoCrumb(row), runCrumb(row), { text: "Process" }], "Process", "Restart", () => restart.click(), "repeat-2");
 
   const redraw = () => {
     trackerHost.replaceChildren(stageTracker(STAGES.map((name) => ({ name, count: reached[name], reached: reached[name] > 0 })), current));
@@ -1337,15 +1475,23 @@ async function renderReplay(id) {
 // Findings list
 // ==============================================================================
 
-async function renderFindingsList(runId) {
+async function renderFindingsList(runId, isPrLevel = true) {
   setActiveNav("findings");
   updateRunContextCard(runId);
 
   const data = await api(`/api/runs/${encodeURIComponent(runId)}`);
   const row = data.run;
-  setShellHeader([repoCrumb(row), runCrumb(row), { text: "Findings" }], "Findings", "Export findings", () => {
-    downloadData(`findings-${runId}.json`, { proven: data.proven, discarded: data.discarded });
-  });
+  if (isPrLevel) {
+    setSidebarLevel("pr", row);
+    setShellHeader([repoCrumb(row), runCrumb(row), { text: "Findings" }], "Findings", "Export findings", () => {
+      downloadData(`findings-${runId}.json`, { proven: data.proven, discarded: data.discarded });
+    });
+  } else {
+    setSidebarLevel("repo", repoIdOf(row) || state.currentRepoId);
+    setShellHeader([repoCrumb(row), { text: "Findings" }], "Findings", "Export findings", () => {
+      downloadData(`findings-${runId}.json`, { proven: data.proven, discarded: data.discarded });
+    });
+  }
 
   show(
     syntheticBanner([row]),
@@ -1448,8 +1594,9 @@ function trendChart(points) {
 
 async function renderBenchmark() {
   setActiveNav("benchmark");
+  setSidebarLevel("repo", state.currentRepoId);
   const trendsData = await api("/api/trends?limit=50");
-  setShellHeader([{ text: "All repositories", href: "#/" }, { text: "Benchmark" }], "Benchmark & trends", "Export trends", () => {
+  setShellHeader([{ text: "All repositories", href: "#/" }, { text: "Benchmark" }], "Benchmark", "Export trends", () => {
     downloadData("trends.json", trendsData);
   });
   const points = trendsData.points || [];
@@ -2014,7 +2161,7 @@ function nodeWhere(n) {
   return `${n.file}:${n.line}${n.end && n.end !== n.line ? `–${n.end}` : ""}`;
 }
 
-async function renderDependencies(runId) {
+async function renderDependencies(runId, isPrLevel = false) {
   setActiveNav("dependencies");
   updateRunContextCard(runId);
   const [detail, graph] = await Promise.all([
@@ -2022,8 +2169,15 @@ async function renderDependencies(runId) {
     api(`/api/runs/${encodeURIComponent(runId)}/codegraph`),
   ]);
   const row = detail.run;
-  setShellHeader([repoCrumb(row), runCrumb(row), { text: "Code graph" }], "Code graph", "Export graph",
-    () => downloadData(`codegraph-${runId}.json`, graph), "download");
+  if (isPrLevel) {
+    setSidebarLevel("pr", row);
+    setShellHeader([repoCrumb(row), runCrumb(row), { text: "Code graph" }], "Code graph", "Export graph",
+      () => downloadData(`codegraph-${runId}.json`, graph), "download");
+  } else {
+    setSidebarLevel("repo", repoIdOf(row) || state.currentRepoId);
+    setShellHeader([repoCrumb(row), { text: "Code graph" }], "Code graph", "Export graph",
+      () => downloadData(`codegraph-${runId}.json`, graph), "download");
+  }
   setFooter("Parsed with ast only; the code was never run here. Reach paths are proposals; proven paths were observed.");
 
   if (!graph.available) {
@@ -2340,10 +2494,17 @@ async function renderDependencies(runId) {
 
 async function renderRuns(page = 1) {
   setActiveNav("runs");
+  setSidebarLevel("repo", state.currentRepoId);
   const data = await api(`/api/runs?page=${page}&per_page=25`);
-  setShellHeader([{ text: "All repositories", href: "#/" }, { text: "Runs" }], "All runs", "Refresh", () => route(), "repeat-2");
+  const repo = state.currentRepoId ? state.reposById.get(state.currentRepoId) : null;
+  const firstCrumb = repo
+    ? { text: repoShort(repo.name), href: `#/repo/${encodeURIComponent(repo.id)}` }
+    : { text: "All repositories", href: "#/" };
+  setShellHeader([firstCrumb, { text: "Pull requests" }], "Pull requests", "Refresh", () => route(), "repeat-2");
   setFooter(state.sourceLabel || "Local replay");
-  const rows = data.runs || [];
+  const allRows = data.runs || [];
+  const rows = filterRunsByWindow(allRows, state.windowKey);
+  updateTopbarMeta(allRows);
 
   const table = h("table", { class: "runs" },
     h("colgroup", {},
@@ -2383,11 +2544,100 @@ async function renderRuns(page = 1) {
     : null;
 
   show(
-    h("p", { class: "lede", text: `${plural(data.total, "run")} from ${data.source}; ${plural(totalProven, "proven finding")} on this page. A run with nothing proven means nothing could be proven, not that the code is safe.` }),
+    h("p", { class: "lede", text: `${plural(rows.length, "run")} from ${data.source}; ${plural(totalProven, "proven finding")} on this page. A run with nothing proven means nothing could be proven, not that the code is safe.` }),
     syntheticBanner(rows),
     rows.length
       ? h("div", { class: "card table-card" }, h("div", { class: "table-wrap" }, table), pager)
       : emptyState("No runs found in this source."));
+}
+
+// ==============================================================================
+// UI Font Comparison (Milestone 1: Inter vs Geist vs Manrope at real size)
+// ==============================================================================
+
+const UI_FONT_CANDIDATES = [
+  { id: "inter", label: "Candidate 1 · Inter", sub: "inter-latin-wght-normal.woff2 (SIL OFL 1.1) + JetBrains Mono" },
+  { id: "geist", label: "Candidate 2 · Geist", sub: "geist-latin-wght-normal.woff2 (SIL OFL 1.1) + JetBrains Mono" },
+  { id: "manrope", label: "Candidate 3 · Manrope", sub: "manrope-latin-wght-normal.woff2 (SIL OFL 1.1) + JetBrains Mono" },
+];
+
+function setUiFont(fontId) {
+  const valid = ["inter", "geist", "manrope", "ibm-plex-sans"].includes(fontId) ? fontId : "inter";
+  state.uiFont = valid;
+  document.documentElement.setAttribute("data-ui-font", valid);
+}
+
+function applyUiFontFromUrl() {
+  try {
+    const searchParams = new URLSearchParams(location.search);
+    const qFont = searchParams.get("font");
+    if (qFont) {
+      setUiFont(qFont.toLowerCase());
+      return;
+    }
+    const hashQueryIdx = location.hash.indexOf("?");
+    if (hashQueryIdx >= 0) {
+      const hashParams = new URLSearchParams(location.hash.slice(hashQueryIdx + 1));
+      const hFont = hashParams.get("font");
+      if (hFont) {
+        setUiFont(hFont.toLowerCase());
+      }
+    }
+  } catch (_) { /* ignore malformed query */ }
+}
+
+async function renderFontComparison() {
+  setActiveNav("home");
+  const index = await api("/api/repos");
+  const repos = index.repos || [];
+  populateRepoSelect(repos);
+  const selected = repos[0] || null;
+  setSidebarLevel("repo", selected ? selected.id : null);
+  const detail = selected ? await api(`/api/repos/${encodeURIComponent(selected.id)}`) : { metrics: {}, pull_requests: [], top_findings: [] };
+  const m = detail.metrics || {};
+  const prs = (detail.pull_requests || []).slice(0, 3);
+  const findings = (detail.top_findings || []).slice(0, 2);
+
+  setShellHeader([{ text: selected ? repoShort(selected.name) : "Exhibit A", href: "#/" }, { text: "Typography comparison" }], "UI font candidates");
+
+  const columns = UI_FONT_CANDIDATES.map((cand) => {
+    const activateBtn = h("button", {
+      type: "button",
+      class: "btn",
+      text: state.uiFont === cand.id ? "Active across app" : `Preview ${cand.label.split("·")[1].trim()}`,
+      onclick: () => {
+        setUiFont(cand.id);
+        renderFontComparison();
+      },
+    });
+    return h("section", { class: `font-candidate-col font-cand-${cand.id}` },
+      h("div", { class: "font-candidate-head" },
+        h("div", {},
+          h("div", { class: "font-candidate-name", text: cand.label }),
+          h("div", { class: "font-candidate-meta", text: cand.sub })),
+        activateBtn),
+      h("div", { class: "section-title-wrap" },
+        h("h2", { class: "section-title", text: selected ? repoShort(selected.name) : "acme/payments-service" }),
+        h("p", { class: "section-subtitle", text: "A suspicion becomes a finding only when an exploit test fails on the vulnerable code for the oracle-observed reason in an isolated and resource-limited sandbox." })),
+      h("div", { class: "metric-row" },
+        metricTile("Proven findings", String(m.proven || 0), `across ${plural(m.runs || 0, "run")}`, m.proven ? "is-proven" : ""),
+        metricTile("Fixes verified", String(m.fixes_verified || 0), m.fixes_bypassed ? `${m.fixes_bypassed} bypassed` : `of ${plural(m.proven || 0, "proven finding")}`),
+        metricTile("Cost", fmtCost(m.cost_usd), `${fmtTokens(m.tokens_in)} in · ${fmtTokens(m.tokens_out)} out`)),
+      h("div", { class: "card list-card" },
+        h("div", { class: "card-head" },
+          h("h3", { class: "card-title", text: "Most serious findings" }),
+          h("span", { class: "muted small", text: "real ledger data" })),
+        findings.length ? h("ul", { class: "serious-list" }, findings.map(seriousRow)) : nothingProven("repository")),
+      h("div", { class: "card list-card" },
+        h("div", { class: "card-head" },
+          h("h3", { class: "card-title", text: "Recent pull requests" }),
+          h("span", { class: "muted small", text: `${plural(prs.length, "run")} shown` })),
+        prs.length ? h("ul", { class: "pr-list" }, prs.map(prRow)) : emptyState("No runs recorded.")));
+  });
+
+  show(
+    syntheticBanner(repos),
+    h("div", { class: "font-compare-grid" }, columns));
 }
 
 // -- Router --------------------------------------------------------------------
@@ -2405,7 +2655,8 @@ async function route() {
   state.routeAbort.abort();
   state.routeAbort = new AbortController();
   const signal = state.routeAbort.signal;
-  const rawHash = location.hash.replace(/^#\/?/, "");
+  applyUiFontFromUrl();
+  const rawHash = location.hash.replace(/^#\/?/, "").split("?")[0];
   const parts = rawHash.split("/").map((p) => {
     try { return decodeURIComponent(p); } catch (_) { return ""; }
   });
@@ -2413,8 +2664,8 @@ async function route() {
   try {
     if (parts[0] === "run" && RUN_ID.test(parts[1] || "")) {
       if (parts[2] === "finding" && parts[3]) await renderFindingDetail(parts[1], parts[3]);
-      else if (parts[2] === "findings") await renderFindingsList(parts[1]);
-      else if (parts[2] === "graph") await renderDependencies(parts[1]);
+      else if (parts[2] === "findings") await renderFindingsList(parts[1], true);
+      else if (parts[2] === "graph") await renderDependencies(parts[1], true);
       else await renderRunOverview(parts[1]);
     } else if (parts[0] === "replay") {
       const id = (parts[1] && RUN_ID.test(parts[1])) ? parts[1] : fallbackRunId();
@@ -2423,13 +2674,15 @@ async function route() {
     } else if (parts[0] === "findings" || parts[0] === "dependencies") {
       const id = fallbackRunId();
       if (!id) await renderRuns(1);
-      else if (parts[0] === "findings") await renderFindingsList(id);
-      else await renderDependencies(id);
+      else if (parts[0] === "findings") await renderFindingsList(id, false);
+      else await renderDependencies(id, false);
     } else if (parts[0] === "trends" || parts[0] === "benchmark") {
       await renderBenchmark();
     } else if (parts[0] === "runs") {
       const page = Math.max(1, parseInt(parts[1] || "1", 10) || 1);
       await renderRuns(page);
+    } else if (parts[0] === "fonts") {
+      await renderFontComparison();
     } else if (parts[0] === "repo" && REPO_ID.test(parts[1] || "")) {
       await renderHome(parts[1]);
     } else {
@@ -2494,8 +2747,22 @@ function initBackdrop() {
 
 async function boot() {
   initTheme();
+  setUiFont(state.uiFont);
+  applyUiFontFromUrl();
   initBackdrop();
   if (themeToggle) themeToggle.onclick = toggleTheme;
+
+  if (windowSelector) {
+    windowSelector.querySelectorAll(".window-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const w = btn.dataset.window;
+        if (!w || w === state.windowKey) return;
+        state.windowKey = w;
+        updateTopbarMeta();
+        route();
+      });
+    });
+  }
 
   const iconMap = [
     ["icon-home", "house"],
@@ -2503,8 +2770,10 @@ async function boot() {
     ["icon-overview", "layout-dashboard"],
     ["icon-liverun", "activity"],
     ["icon-findings", "file-search"],
+    ["icon-pr-findings", "file-search"],
     ["icon-benchmark", "chart-no-axes-combined"],
     ["icon-dependencies", "git-branch"],
+    ["icon-pr-graph", "git-branch"],
     ["icon-monitor", "monitor"],
     ["icon-chevron", "chevrons-up-down"],
   ];
@@ -2514,12 +2783,16 @@ async function boot() {
   }
 
   try {
-    const data = await api("/api/runs?page=1&per_page=100");
-    state.runs = data.runs || [];
-    state.sourceLabel = data.source || "";
+    const [runsData, reposData] = await Promise.all([
+      api("/api/runs?page=1&per_page=100"),
+      api("/api/repos"),
+    ]);
+    state.runs = runsData.runs || [];
+    state.sourceLabel = runsData.source || "";
     state.runsById = new Map(state.runs.map((r) => [r.run_id, r]));
-    populateRunSelect();
+    populateRepoSelect(reposData.repos || []);
     if (state.runs.length && !state.currentRunId) updateRunContextCard(state.runs[0].run_id);
+    updateTopbarMeta();
   } catch (_) { /* the route below shows the error (or the sign-in notice) */ }
 
   window.addEventListener("hashchange", route);

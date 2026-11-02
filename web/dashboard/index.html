@@ -23,7 +23,17 @@
       <span class="brand-name">Exhibit A</span>
     </a>
 
-    <nav class="nav-section" aria-label="Repository">
+    <div class="repo-switcher-card" id="repo-switcher-card">
+      <label class="repo-switcher-label" for="repo-select">Repository</label>
+      <div class="repo-switcher-main">
+        <span class="repo-switcher-name" id="repo-current-name">All repositories</span>
+        <span class="repo-switcher-chevron" id="icon-chevron" aria-hidden="true"></span>
+      </div>
+      <div class="repo-switcher-sub" id="repo-current-sub">Loading repositories…</div>
+      <select id="repo-select" class="repo-switcher-select" aria-label="Repository"></select>
+    </div>
+
+    <nav class="nav-section" id="repo-nav" aria-label="Repository views">
       <div class="nav-menu">
         <a href="#/" class="nav-item" data-nav="home" id="nav-home">
           <span class="nav-icon" id="icon-home" aria-hidden="true"></span>
@@ -31,30 +41,7 @@
         </a>
         <a href="#/runs" class="nav-item" data-nav="runs" id="nav-runs">
           <span class="nav-icon" id="icon-runs" aria-hidden="true"></span>
-          <span class="nav-text">All runs</span>
-        </a>
-      </div>
-    </nav>
-
-    <div class="run-context-card">
-      <label class="run-context-label" for="run-select">Current run</label>
-      <div class="run-context-main">
-        <span class="run-context-id" id="run-current-id">Loading…</span>
-        <span class="run-context-chevron" id="icon-chevron" aria-hidden="true"></span>
-      </div>
-      <div class="run-context-sub" id="run-current-sub">Proof before accusation</div>
-      <select id="run-select" class="run-context-select"></select>
-    </div>
-
-    <nav class="nav-section" aria-label="Run views">
-      <div class="nav-menu">
-        <a href="#/runs" class="nav-item" data-nav="overview" id="nav-overview">
-          <span class="nav-icon" id="icon-overview" aria-hidden="true"></span>
-          <span class="nav-text">Overview</span>
-        </a>
-        <a href="#/replay" class="nav-item" data-nav="liverun" id="nav-liverun">
-          <span class="nav-icon" id="icon-liverun" aria-hidden="true"></span>
-          <span class="nav-text">Live run</span>
+          <span class="nav-text">Pull requests</span>
         </a>
         <a href="#/findings" class="nav-item" data-nav="findings" id="nav-findings">
           <span class="nav-icon" id="icon-findings" aria-hidden="true"></span>
@@ -64,9 +51,39 @@
           <span class="nav-icon" id="icon-dependencies" aria-hidden="true"></span>
           <span class="nav-text">Code graph</span>
         </a>
-        <a href="#/trends" class="nav-item" data-nav="benchmark" id="nav-benchmark">
+        <a href="#/benchmark" class="nav-item" data-nav="benchmark" id="nav-benchmark">
           <span class="nav-icon" id="icon-benchmark" aria-hidden="true"></span>
           <span class="nav-text">Benchmark</span>
+        </a>
+      </div>
+    </nav>
+
+    <nav class="nav-section" id="pr-nav" aria-label="Pull request views" hidden>
+      <a href="#/" class="nav-back" id="nav-back-repo">
+        <span class="nav-back-arrow" aria-hidden="true">←</span>
+        <span class="nav-back-label" id="nav-back-label">Back to repository</span>
+      </a>
+      <div class="pr-context-card" id="pr-context-card">
+        <span class="pr-context-kicker" id="pr-context-kicker">Pull request</span>
+        <span class="pr-context-title" id="pr-context-title">not available</span>
+        <span class="pr-context-sub mono" id="pr-context-sub">not available</span>
+      </div>
+      <div class="nav-menu">
+        <a href="#/runs" class="nav-item" data-nav="overview" id="nav-overview">
+          <span class="nav-icon" id="icon-overview" aria-hidden="true"></span>
+          <span class="nav-text">Summary</span>
+        </a>
+        <a href="#/replay" class="nav-item" data-nav="liverun" id="nav-liverun">
+          <span class="nav-icon" id="icon-liverun" aria-hidden="true"></span>
+          <span class="nav-text">Process</span>
+        </a>
+        <a href="#/findings" class="nav-item" data-nav="prfindings" id="nav-pr-findings">
+          <span class="nav-icon" id="icon-pr-findings" aria-hidden="true"></span>
+          <span class="nav-text">Findings</span>
+        </a>
+        <a href="#/dependencies" class="nav-item" data-nav="prgraph" id="nav-pr-graph">
+          <span class="nav-icon" id="icon-pr-graph" aria-hidden="true"></span>
+          <span class="nav-text">Code graph</span>
         </a>
       </div>
     </nav>
@@ -75,8 +92,8 @@
       <div class="env-info">
         <span class="env-icon" id="icon-monitor" aria-hidden="true"></span>
         <div class="env-details">
-          <span class="env-label" id="env-label">Local replay</span>
-          <span class="env-branch" id="env-branch">not available</span>
+          <span class="env-label" id="env-label">Isolated sandbox</span>
+          <span class="env-branch" id="env-branch">resource-limited</span>
         </div>
       </div>
       <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark theme">
@@ -92,6 +109,26 @@
         <h1 class="page-title" id="page-title">Loading</h1>
       </div>
       <div class="workspace-header-actions">
+        <div class="window-selector" id="window-selector" role="group" aria-label="Time window">
+          <button type="button" class="window-btn" data-window="7d">7 days</button>
+          <button type="button" class="window-btn" data-window="30d">30 days</button>
+          <button type="button" class="window-btn" data-window="90d">90 days</button>
+          <button type="button" class="window-btn active" data-window="total" aria-pressed="true">Total</button>
+        </div>
+        <div class="topbar-meta" id="topbar-meta">
+          <div class="topbar-meta-item">
+            <span class="topbar-meta-label">Window</span>
+            <span class="topbar-meta-val mono" id="meta-window">Total</span>
+          </div>
+          <div class="topbar-meta-item">
+            <span class="topbar-meta-label">Last update</span>
+            <span class="topbar-meta-val mono" id="meta-last-update">not available</span>
+          </div>
+          <div class="topbar-meta-item">
+            <span class="topbar-meta-label">Source</span>
+            <span class="topbar-meta-val mono" id="meta-source">not available</span>
+          </div>
+        </div>
         <button type="button" class="action-btn" id="action-btn" hidden>
           <span class="action-btn-icon" id="icon-action" aria-hidden="true"></span>
           <span id="action-btn-text">Export</span>

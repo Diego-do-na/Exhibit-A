@@ -58,6 +58,27 @@
   font-display: swap;
   src: url("fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2");
 }
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/inter-latin-wght-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/geist-latin-wght-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("fonts/manrope-latin-wght-normal.woff2") format("woff2");
+}
 
 /* -- Tokens ---------------------------------------------------------------------- */
 
@@ -126,37 +147,37 @@
   --rule-1-5: 1.5px;
   --rule-1-8: 1.8px;
 
-  /* Palette (tokens.json) */
+  /* Palette (tokens.json, contrast-tuned >= 4.5:1 over glass in both themes) */
   --surface-raised: #ffffff;
   --surface-workspace: #f0f5fb;
   --surface-workspace-white: #f4f7fc;
   --surface-selected: #eaf2ff;
-  --border-default: #d5e0ed;
-  --text-primary: #15283f;
-  --text-secondary: #4b5e75;
-  --text-navy: #0d1f3c;
-  --text-slate: #3a5a7a;
+  --border-default: #c8d6e8;
+  --text-primary: #0b1829;
+  --text-secondary: #243852;
+  --text-navy: #091830;
+  --text-slate: #284260;
   --text-inverse: #ffffff;
-  --accent-primary: #1559d6;
-  --severity-high: #895700;
-  --severity-critical: #a3262d;
-  --severity-medium: #7a5a00;
-  --severity-low: #3a5a7a;
+  --accent-primary: #124ec2;
+  --severity-high: #784900;
+  --severity-critical: #961d24;
+  --severity-medium: #694b00;
+  --severity-low: #264362;
   --chart-proven: #b53220;
-  --chart-unproven: #737f8d;
-  --chart-invalid: #aa5258;
-  --chart-flaky: #a07115;
-  --chart-environment: #367c91;
+  --chart-unproven: #546274;
+  --chart-invalid: #994148;
+  --chart-flaky: #8c600b;
+  --chart-environment: #29687c;
   --chart-duplicates: #c5d7f3;
-  --test-fail: #aa353d;
+  --test-fail: #9c2730;
   --test-fail-surface: #fff1f2;
-  --navigation-inactive: #7aa4d4;
-  --navigation-inactive-detail: #8ab8e0;
-  --navigation-context-ink: #b8d0f0;
-  --navigation-context-detail: #b8d4f0;
-  --navigation-breadcrumb: #9ec4e8;
-  --navigation-breadcrumb-detail: #a8c8e8;
-  --navigation-muted: #ddeaff;
+  --navigation-inactive: #c2dbf7;
+  --navigation-inactive-detail: #cce2fa;
+  --navigation-context-ink: #d4e6fc;
+  --navigation-context-detail: #cfe4fc;
+  --navigation-breadcrumb: #d0e5fc;
+  --navigation-breadcrumb-detail: #d8ebff;
+  --navigation-muted: #eef5ff;
   --navy-overview-ink: #020b18;
   --navy-overview-depth: #071830;
   --navy-overview-mid: #0b2545;
@@ -293,16 +314,16 @@
   --card-border: rgba(173, 203, 245, 0.14);
   --subtle-bg: rgba(255, 255, 255, 0.045);
   --selected-bg: rgba(84, 145, 255, 0.18);
-  --ink: #e9f1fc;
-  --ink-2: #aec2dc;
-  --ink-3: #93abc9;
-  --link: #8cbcff;
-  --track: rgba(255, 255, 255, 0.10);
-  --row-hover: rgba(255, 255, 255, 0.05);
-  --sev-critical: #ff9a94;
-  --sev-high: #f2bd62;
-  --sev-medium: #e8cf7a;
-  --sev-low: #a9c3e2;
+  --ink: #f0f6ff;
+  --ink-2: #c6d8f0;
+  --ink-3: #b3c9e6;
+  --link: #99c4ff;
+  --track: rgba(255, 255, 255, 0.12);
+  --row-hover: rgba(255, 255, 255, 0.06);
+  --sev-critical: #ffaba6;
+  --sev-high: #ffd07b;
+  --sev-medium: #f5dc84;
+  --sev-low: #c2daf6;
   --sev-critical-bg: rgba(255, 110, 100, 0.14);
   --sev-high-bg: rgba(242, 189, 98, 0.13);
   --sev-medium-bg: rgba(232, 207, 122, 0.12);
@@ -321,6 +342,22 @@
   --c-duplicates: #4b6c9c;
 }
 
+:root[data-ui-font="inter"] {
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+:root[data-ui-font="geist"] {
+  --font-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+:root[data-ui-font="manrope"] {
+  --font-ui: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+:root[data-ui-font="ibm-plex-sans"] {
+  --font-ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
 /* -- Base ------------------------------------------------------------------------ */
 
 *,
@@ -330,8 +367,8 @@
 }
 
 html {
-  /* 16px at 1728 px wide, ~14.6px at 1280, ~16.6px at 1920. */
-  font-size: clamp(13px, calc(10.4px + 0.324vw), 17px);
+  /* Minimum 16px at 1280px..1920px so body >= 15px, smallest label >= 13px, nothing < 12px. */
+  font-size: clamp(16px, calc(15px + 0.1vw), 18px);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -668,12 +705,12 @@ pre,
   text-overflow: ellipsis;
 }
 
-/* Run selector: a native <select> laid over a card, so keyboard and screen readers
- * get the platform control while the card shows the selection legibly. */
+/* Repository switcher & PR context in two-level sidebar */
+.repo-switcher-card,
 .run-context-card {
   position: relative;
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-4);
   padding: var(--space-12) var(--space-14);
   border: var(--rule-1) solid var(--glass-white-15);
   border-radius: var(--radius-12);
@@ -682,20 +719,27 @@ pre,
   color: var(--navigation-context-ink);
 }
 
+.repo-switcher-card:hover,
 .run-context-card:hover {
   background: var(--glass-white-9);
 }
 
+.repo-switcher-card:focus-within,
 .run-context-card:focus-within {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
+.repo-switcher-label,
 .run-context-label {
-  font-size: var(--type-size-14);
+  font-size: var(--type-size-13);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--navigation-context-ink);
 }
 
+.repo-switcher-main,
 .run-context-main {
   display: flex;
   align-items: center;
@@ -703,11 +747,12 @@ pre,
   min-width: 0;
 }
 
+.repo-switcher-name,
 .run-context-id {
   flex: 1;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: var(--type-size-18);
+  font-size: var(--type-size-15);
   font-weight: 600;
   line-height: 1.3;
   color: var(--text-inverse);
@@ -716,6 +761,7 @@ pre,
   text-overflow: ellipsis;
 }
 
+.repo-switcher-chevron,
 .run-context-chevron {
   display: inline-flex;
   flex: none;
@@ -724,19 +770,22 @@ pre,
   color: var(--navigation-context-ink);
 }
 
+.repo-switcher-chevron svg,
 .run-context-chevron svg {
   width: 100%;
   height: 100%;
 }
 
+.repo-switcher-sub,
 .run-context-sub {
-  font-size: var(--type-size-14);
+  font-size: var(--type-size-13);
   color: var(--navigation-context-detail);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+.repo-switcher-select,
 .run-context-select {
   position: absolute;
   inset: 0;
@@ -746,9 +795,70 @@ pre,
   cursor: pointer;
   appearance: none;
   border: 0;
-  /* the opened option list is drawn by the browser; keep it readable */
   color: var(--text-primary);
   background: var(--surface-raised);
+}
+
+.nav-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-10);
+  border: var(--rule-1) solid var(--glass-white-13);
+  background: var(--glass-white-3);
+  color: var(--navigation-muted);
+  font-size: var(--type-size-14);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.nav-back:hover {
+  background: var(--glass-white-9);
+  border-color: var(--glass-white-18);
+  color: var(--text-inverse);
+  text-decoration: none;
+}
+
+.nav-back-arrow {
+  font-family: var(--font-mono);
+  font-size: var(--type-size-16);
+  line-height: 1;
+}
+
+.pr-context-card {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-12) var(--space-14);
+  border-radius: var(--radius-12);
+  border: var(--rule-1) solid var(--glass-white-15);
+  background: var(--control-glass);
+}
+
+.pr-context-kicker {
+  font-size: var(--type-size-13);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--navigation-context-ink);
+}
+
+.pr-context-title {
+  font-size: var(--type-size-15);
+  font-weight: 600;
+  color: var(--text-inverse);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pr-context-sub {
+  font-size: var(--type-size-13);
+  color: var(--navigation-context-detail);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .sidebar-footer {
@@ -830,7 +940,8 @@ pre,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-24);
+  flex-wrap: wrap;
+  gap: var(--space-14) var(--space-24);
   min-height: var(--header-h);
   padding: var(--space-16) var(--space-20) var(--space-16);
   color: var(--shell-ink);
@@ -839,7 +950,8 @@ pre,
 .workspace-header-meta {
   display: grid;
   gap: var(--space-6);
-  min-width: 0;
+  flex: 1 1 15rem;
+  min-width: 14rem;
 }
 
 .breadcrumb {
@@ -896,8 +1008,160 @@ pre,
 .workspace-header-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-10);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-14);
   flex: none;
+}
+
+.window-selector {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-4);
+  border-radius: var(--radius-10);
+  border: var(--rule-1) solid var(--glass-white-15);
+  background: var(--control-glass);
+  gap: var(--space-2);
+}
+
+.window-btn {
+  padding: var(--space-6) var(--space-12);
+  border: 0;
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--navigation-inactive);
+  font-size: var(--type-size-14);
+  font-weight: 500;
+  line-height: 1.2;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.window-btn:hover {
+  color: var(--text-inverse);
+  background: var(--glass-white-7);
+}
+
+.window-btn.active {
+  background: var(--glass-white-18);
+  color: var(--text-inverse);
+  font-weight: 600;
+}
+
+.topbar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-16);
+  padding: var(--space-6) var(--space-14);
+  border-radius: var(--radius-10);
+  border: var(--rule-1) solid var(--glass-white-13);
+  background: var(--control-glass);
+}
+
+.topbar-meta-item {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.topbar-meta-label {
+  font-size: var(--type-size-13);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--navigation-context-ink);
+  line-height: 1.1;
+}
+
+.topbar-meta-val {
+  font-size: var(--type-size-14);
+  font-weight: 600;
+  color: var(--text-inverse);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Typography comparison (Milestone 1: Inter vs Geist vs Manrope at real size) */
+.font-compare-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  padding: var(--space-14) var(--space-18);
+  border-radius: var(--radius-12);
+  border: var(--rule-1) solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+.font-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-20);
+  align-items: start;
+}
+
+.font-candidate-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  padding: var(--space-20);
+  border-radius: var(--radius-18);
+  border: var(--rule-1) solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  min-width: 0;
+}
+
+.font-candidate-col.font-cand-inter,
+.font-candidate-col.font-inter {
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
+}
+
+.font-candidate-col.font-cand-geist,
+.font-candidate-col.font-geist {
+  --font-ui: "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
+}
+
+.font-candidate-col.font-cand-manrope,
+.font-candidate-col.font-manrope {
+  --font-ui: "Manrope", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
+}
+
+.font-candidate-col .metric-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-8);
+}
+
+.font-candidate-col .metric-tile {
+  padding: var(--space-12);
+}
+
+.font-candidate-col .metric-value {
+  font-size: var(--type-size-22);
+}
+
+.font-candidate-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-8);
+  padding-bottom: var(--space-12);
+  border-bottom: var(--rule-1) solid var(--card-border);
+}
+
+.font-candidate-name {
+  font-size: var(--type-size-22);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.font-candidate-meta {
+  font-family: var(--font-mono);
+  font-size: var(--type-size-13);
+  color: var(--ink-2);
 }
 
 .action-btn {
@@ -2986,7 +3250,7 @@ a.run-title:hover {
 .chart text {
   fill: var(--ink-2);
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: var(--type-size-13);
 }
 
 .chart .hit {

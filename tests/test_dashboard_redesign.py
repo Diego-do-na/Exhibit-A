@@ -30,7 +30,7 @@ def state(tmp_path: Path):
 def test_fonts_are_self_hosted_with_swap_and_served_as_woff2(state):
     faces = re.findall(r"@font-face\s*{([^}]*)}", CSS)
     families = {re.search(r'font-family:\s*"([^"]+)"', face).group(1) for face in faces}
-    assert {"Lora", "IBM Plex Sans", "JetBrains Mono"} <= families
+    assert {"Lora", "IBM Plex Sans", "JetBrains Mono", "Inter", "Geist", "Manrope"} <= families
     for face in faces:
         assert "font-display: swap" in face
         url = re.search(r'url\("([^"]+)"\)', face).group(1)
@@ -40,7 +40,7 @@ def test_fonts_are_self_hosted_with_swap_and_served_as_woff2(state):
         assert status == 200 and headers["content-type"] == ["font/woff2"]
         assert body[:4] == b"wOF2"
         assert headers["content-security-policy"][0].find("font-src 'self'") >= 0
-    for licence in ("lora", "ibm-plex-sans", "jetbrains-mono"):
+    for licence in ("lora", "ibm-plex-sans", "jetbrains-mono", "inter", "geist", "manrope"):
         assert (WEB_DIR / "fonts" / f"LICENSE-{licence}.txt").is_file()
 
 
@@ -166,6 +166,19 @@ def test_home_is_the_default_route_and_sidebar_starts_with_it():
     router = JS[JS.index("async function route()"):JS.index("// -- Bootstrap")]
     assert "await renderHome(null);" in router.split("} else {")[-1]  # unknown hashes land on home
     assert "renderHome(parts[1])" in router
+
+
+def test_two_level_navigation_and_siem_topbar_are_present():
+    assert 'id="repo-switcher-card"' in HTML and 'id="repo-select"' in HTML
+    assert 'id="repo-nav"' in HTML and 'id="pr-nav"' in HTML
+    assert 'id="nav-back-repo"' in HTML and 'id="pr-context-card"' in HTML
+    assert 'id="run-context-card"' not in HTML  # no Current run widget at repository level
+    assert 'id="window-selector"' in HTML
+    for window_key in ("7d", "30d", "90d", "total"):
+        assert f'data-window="{window_key}"' in HTML
+    for meta_id in ("meta-window", "meta-last-update", "meta-source"):
+        assert f'id="{meta_id}"' in HTML
+    assert "function setSidebarLevel" in JS and "function filterRunsByWindow" in JS
 
 
 def test_static_export_answers_the_repository_endpoints(tmp_path):
