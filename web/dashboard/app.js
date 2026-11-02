@@ -2057,6 +2057,290 @@ function seriousRow(f) {
       h("span", { class: "serious-side" }, h("span", { class: "chip-effect small-chip", text: f.effect_label || humanize(f.effect) || NA }), fixStatusChip(f.fix_status))));
 }
 
+// ==============================================================================
+// Overview (repository home): four headline cards, the project graph, proof by oracle
+// effect, the most serious findings and PR runs per day. Every number is a count or a
+// ratio of recorded run data; intervals are Wilson 95% on those counts, never a forecast.
+// ==============================================================================
+
+function wilson95(successes, total) {
+  if (!isNum(successes) || !isNum(total) || total <= 0) return null;
+  const z = 1.96;
+  const p = successes / total;
+  const d = 1 + (z * z) / total;
+  const c = p + (z * z) / (2 * total);
+  const m = z * Math.sqrt((p * (1 - p)) / total + (z * z) / (4 * total * total));
+  return [Math.round((100 * (c - m)) / d), Math.round((100 * (c + m)) / d)];
+}
+
+function quantile(values, q) {
+  const sorted = values.filter(isNum).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+function areaSpark(values, tone) {
+  const width = 160;
+  const height = 36;
+  const points = values.filter(isNum);
+  const root = svg("svg", { class: `ov-spark tone-${tone}`, viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", "aria-hidden": "true" });
+  if (points.length < 2) {
+    root.appendChild(svg("line", { class: "ov-spark-base", x1: 0, x2: width, y1: height - 1, y2: height - 1 }));
+    return root;
+  }
+  const max = Math.max(...points);
+  const min = Math.min(...points, 0);
+  const span = max - min || 1;
+  const xy = points.map((v, i) => [(i * width) / (points.length - 1), height - 4 - ((v - min) / span) * (height - 10)]);
+  const line = xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  root.appendChild(svg("polygon", { class: "ov-spark-area", points: `0,${height} ${line} ${width},${height}` }));
+  root.appendChild(svg("polyline", { class: "ov-spark-line", points: line }));
+  return root;
+}
+
+function ovKpi(label, value, chip, sub, series, tone) {
+  return h("div", { class: `ov-kpi tone-${tone}` },
+    h("div", { class: "ov-kpi-top" },
+      h("span", { class: "ov-label", text: label }),
+      chip ? h("span", { class: "ov-chip", text: chip }) : null),
+    h("div", { class: "ov-kpi-value", text: value }),
+    h("div", { class: "ov-kpi-sub", text: sub }),
+    areaSpark(series, tone));
+}
+
+function ovCard(title, aside, ...body) {
+  return h("section", { class: "ov-card" },
+    h("div", { class: "ov-card-head" },
+      h("h3", { class: "ov-card-title", text: title }),
+      aside || null),
+    ...body);
+}
+
+function chronological(prs) {
+  return [...(prs || [])].sort((a, b) => String(a.started_at || "").localeCompare(String(b.started_at || "")));
+}
+
+function overviewKpis(detail) {
+  const m = detail.metrics || {};
+  const runs = detail.run_series || [];
+  const prs = chronological(detail.pull_requests);
+  const proven = m.proven;
+  let cumProven = 0;
+  const provenSeries = runs.map((r) => (cumProven += r.proven || 0));
+  let cp = 0;
+  let cv = 0;
+  const survivalSeries = [];
+  for (const r of prs) {
+    cp += r.proven || 0;
+    cv += r.fixes_verified || 0;
+    if (cp > 0) survivalSeries.push((100 * cv) / cp);
+  }
+  const ci = wilson95(m.fixes_verified, proven);
+  const durations = runs.map((r) => r.duration_s).filter(isNum);
+  const p90 = quantile(durations, 0.9);
+  const perProven = isNum(m.cost_usd) && proven > 0 ? m.cost_usd / proven : null;
+  const costSeries = runs.map((r) => r.cost_usd);
+  return h("div", { class: "ov-kpi-row anim-enter" },
+    ovKpi("Proven findings", isNum(proven) ? String(proven) : NA,
+      isNum(m.root_causes) ? plural(m.root_causes, "root cause") : null,
+      isNum(m.runs) ? `across ${plural(m.runs, "PR run")}` : NA, provenSeries, "proven"),
+    ovKpi("Fix survival", proven > 0 ? `${pct(m.fixes_verified || 0, proven)}%` : NA,
+      proven > 0 ? `${m.fixes_verified || 0} of ${proven}` : null,
+      ci ? `95% CI ${ci[0]}–${ci[1]}% · held under bypass` : "no proven finding to fix yet", survivalSeries, "ok"),
+    ovKpi("Median run time", isNum(m.median_duration_s) ? fmtDuration(m.median_duration_s) : NA,
+      isNum(p90) ? `p90 ${fmtDuration(p90)}` : null, "per PR, sandboxed", durations, "link"),
+    ovKpi("Cost / proven", isNum(perProven) ? fmtCost(perProven) : NA,
+      isNum(m.cost_usd) ? `${fmtCost(m.cost_usd)} total` : null,
+      (isNum(m.tokens_in) && isNum(m.tokens_out)) ? `${fmtTokens(m.tokens_in)} in · ${fmtTokens(m.tokens_out)} out` : NA, costSeries, "link"));
+}
+
+function overviewEffects(detail) {
+  const totals = { read: 0, write: 0, exec: 0, sql: 0, unspecified: 0 };
+  for (const r of detail.run_series || []) {
+    for (const key of Object.keys(totals)) totals[key] += (r.effects_breakdown || {})[key] || 0;
+  }
+  const max = Math.max(1, ...Object.values(totals));
+  const rows = Object.entries(totals).filter(([k, v]) => v > 0 || k !== "unspecified").map(([key, count]) =>
+    h("div", { class: "ov-bar-row" },
+      h("span", { class: "ov-bar-name mono", text: key === "unspecified" ? "other" : `canary_${key}` }),
+      h("div", { class: "ov-bar-track", role: "img", "aria-label": `${count} proven by ${key}` },
+        h("i", { class: "ov-bar-fill", style: `width: ${count ? Math.max(4, (count / max) * 100) : 0}%` })),
+      h("span", { class: "ov-bar-count mono", text: String(count) })));
+  const m = detail.metrics || {};
+  const rate = isNum(m.exploits_written) && m.exploits_written > 0 ? wilson95(m.proven, m.exploits_written) : null;
+  return ovCard("Proven by oracle effect", h("span", { class: "ov-label", text: "findings" }),
+    h("div", { class: "ov-bars" }, rows),
+    h("p", { class: "ov-note", text: rate
+      ? `Proof rate ${m.proven}/${m.exploits_written} = ${pct(m.proven, m.exploits_written)}% · 95% CI ${rate[0]}–${rate[1]}% of exploits written`
+      : "No exploit was written yet, so no proof rate is shown." }));
+}
+
+function overviewGraphSvg(graph) {
+  const W = 620;
+  const H = 300;
+  const rank = (n) => (n.proven ? 4 : 0) + (n.in_pr ? 2 : 0) + (n.entry || n.sink ? 1 : 0);
+  const kept = graph.nodes.filter((n) => n.kind !== "file")
+    .sort((a, b) => rank(b) - rank(a) || (b.degree || 0) - (a.degree || 0) || String(a.id).localeCompare(String(b.id)))
+    .slice(0, 70);
+  const topDir = (n) => (String(n.file || "").split("/").length > 1 ? String(n.file).split("/")[0] : "(root)");
+  // Flat projects have no useful directories: fall back to one group per file.
+  const byFile = new Set(kept.filter((n) => !n.sink).map(topDir)).size < 3;
+  const groupOf = (n) => (n.sink ? "sinks" : byFile ? String(n.file || "(unknown)").split("/").pop() : topDir(n));
+  const groups = new Map();
+  for (const n of kept) groups.set(groupOf(n), [...(groups.get(groupOf(n)) || []), n]);
+  const hasProven = (list) => (list.some((n) => n.proven) ? 1 : 0);
+  const ordered = [...groups.entries()].sort((a, b) => hasProven(b[1]) - hasProven(a[1]) || b[1].length - a[1].length).slice(0, 6);
+  const root = svg("svg", { class: "ov-graph", viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": `Project graph: ${kept.length} of ${graph.stats ? graph.stats.functions : kept.length} functions, ${graph.stats ? graph.stats.proven_paths : 0} proven paths` });
+  const pos = new Map();
+  const k = ordered.length;
+  ordered.forEach(([name, list], i) => {
+    const angle = (2 * Math.PI * i) / Math.max(k, 1) - Math.PI / 2;
+    const cx = k === 1 ? W / 2 : W / 2 + W * 0.34 * Math.cos(angle);
+    const cy = k === 1 ? H / 2 : H / 2 + H * 0.3 * Math.sin(angle);
+    const radius = Math.min(58, 20 + 7 * Math.sqrt(list.length));
+    root.appendChild(svg("circle", { class: "ov-halo", cx: cx.toFixed(1), cy: cy.toFixed(1), r: (radius + 12).toFixed(1) }));
+    root.appendChild(svg("text", { class: "ov-cluster", x: (cx - radius).toFixed(1), y: (cy - radius - 16).toFixed(1), text: name }));
+    list.forEach((n, j) => {
+      const r = radius * Math.sqrt((j + 0.5) / list.length);
+      const a = j * 2.399963;
+      pos.set(n.id, [cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    });
+  });
+  const clusterOf = new Map();
+  ordered.forEach(([name, list]) => list.forEach((n) => clusterOf.set(n.id, name)));
+  // Cross-cluster lines are drawn only when they carry a reach or proven path.
+  const drawn = graph.edges.filter((e) => pos.has(e.source) && pos.has(e.target)
+    && (e.in_pr || e.proven || clusterOf.get(e.source) === clusterOf.get(e.target)));
+  for (const tier of ["base", "pr", "proven"]) {
+    for (const e of drawn) {
+      const t = e.proven ? "proven" : e.in_pr ? "pr" : "base";
+      if (t !== tier) continue;
+      const [x1, y1] = pos.get(e.source);
+      const [x2, y2] = pos.get(e.target);
+      root.appendChild(svg("line", { class: `ov-edge ${t}`, x1: x1.toFixed(1), y1: y1.toFixed(1), x2: x2.toFixed(1), y2: y2.toFixed(1) }));
+    }
+  }
+  const labelled = [];
+  for (const n of kept) {
+    const p = pos.get(n.id);
+    if (!p) continue;
+    const cls = n.proven && n.sink ? "sink-proven" : n.sink ? "sink" : n.entry ? "entry" : n.changed ? "changed" : "plain";
+    const r = { "sink-proven": 7, sink: 4.5, entry: 6, changed: 6, plain: 3 }[cls];
+    if (cls === "sink-proven") root.appendChild(svg("circle", { class: "ov-pulse", cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: r + 6 }));
+    root.appendChild(svg("circle", { class: `ov-node ${cls}`, cx: p[0].toFixed(1), cy: p[1].toFixed(1), r }));
+    if ((cls === "sink-proven" || (n.proven && n.entry)) && labelled.length < 4) labelled.push([n, p]);
+  }
+  for (const [n, p] of labelled) {
+    const text = String(n.label || n.name || "").slice(0, 24);
+    const left = p[0] > W * 0.7;
+    root.appendChild(svg("text", { class: "ov-node-label", x: (p[0] + (left ? -11 : 11)).toFixed(1), y: (p[1] + 4).toFixed(1), "text-anchor": left ? "end" : "start", text }));
+  }
+  return root;
+}
+
+function overviewGraphCard(runId) {
+  const body = h("div", { class: "ov-graph-body" }, h("p", { class: "ov-note", text: "Loading the graph…" }));
+  const stat = h("span", { class: "ov-label", text: "entry → changed function → sink" });
+  const legend = h("ul", { class: "ov-legend" },
+    [["entry", "entry point"], ["changed", "changed function"], ["sink-proven", "proven sink"], ["plain", "function"]]
+      .map(([c, t]) => h("li", {}, h("i", { class: `ov-node ${c}` }), t)));
+  const card = ovCard("Project graph", h("a", { class: "card-link", href: "#/dependencies", text: "Open code graph →" }), stat, body, legend);
+  if (!runId) {
+    body.replaceChildren(h("p", { class: "ov-note", text: "No run recorded yet, so there is no graph." }));
+    return card;
+  }
+  api(`/api/runs/${encodeURIComponent(runId)}/codegraph`).then((graph) => {
+    if (!graph || !graph.available || !(graph.nodes || []).length) {
+      body.replaceChildren(h("p", { class: "ov-note", text: (graph && graph.reason) || "No code graph is available for the latest run." }));
+      return;
+    }
+    const s = graph.stats || {};
+    stat.textContent = `${plural(s.files || 0, "file")} · ${plural(s.functions || 0, "function")} · ${plural(s.proven_paths || 0, "proven path")}`;
+    body.replaceChildren(overviewGraphSvg(graph));
+  }).catch(() => {
+    body.replaceChildren(h("p", { class: "ov-note", text: "The code graph could not be loaded." }));
+  });
+  return card;
+}
+
+function overviewFindings(detail) {
+  const serious = (detail.top_findings || []).slice(0, 5);
+  let body;
+  if (!serious.length) {
+    body = nothingProven("repository");
+  } else {
+    const stateOf = (s) => (s === "verified" ? ["Fix verified", "ok"] : s === "bypassed" ? ["Bypassed", "warn"] : ["Fix pending", "idle"]);
+    body = h("table", { class: "ov-table" },
+      h("thead", {}, h("tr", {}, ["Finding", "Oracle effect", "Location", "State"].map((t) => h("th", { scope: "col", text: t })))),
+      h("tbody", {}, serious.map((f) => {
+        const [label, tone] = stateOf(f.fix_status);
+        return h("tr", {},
+          h("td", {}, h("a", { class: "ov-find", href: runHref(f.run_id, `/finding/${encodeURIComponent(f.finding_id)}`) },
+            h("span", { class: `sev-dot mix-${f.severity || "unknown"}`, "aria-hidden": "true" }), humanize(f.class) || f.finding_id)),
+          h("td", {}, h("span", { class: "ov-pill mono", text: f.effect || NA })),
+          h("td", { class: "mono ov-loc", text: `${f.file || NA}${f.line ? `:${f.line}` : ""}` }),
+          h("td", { class: `ov-state ${tone}`, text: label }));
+      })));
+  }
+  return ovCard("Findings by root cause", h("a", { class: "card-link", href: "#/findings", text: "All findings →" }), body);
+}
+
+function overviewPrsPerDay(detail) {
+  const prs = (detail.pull_requests || []).filter((r) => r.started_at && !isNaN(Date.parse(r.started_at)));
+  if (!prs.length) return ovCard("PR runs per day", h("span", { class: "ov-label", text: "last 30 days" }), h("p", { class: "ov-note", text: "No dated runs yet." }));
+  const DAY = 86400000;
+  const keyOf = (t) => Math.floor(t / DAY);
+  const last = Math.max(...prs.map((r) => keyOf(Date.parse(r.started_at))));
+  const days = 30;
+  const buckets = Array.from({ length: days }, () => ({ proven: 0, clean: 0 }));
+  for (const r of prs) {
+    const idx = days - 1 - (last - keyOf(Date.parse(r.started_at)));
+    if (idx < 0 || idx >= days) continue;
+    buckets[idx][(r.proven || 0) > 0 ? "proven" : "clean"] += 1;
+  }
+  const W = 420;
+  const H = 190;
+  const padL = 22;
+  const base = H - 24;
+  const top = 12;
+  const max = Math.max(4, ...buckets.map((b) => b.proven + b.clean));
+  const bw = (W - padL) / days;
+  const root = svg("svg", { class: "ov-days", viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": `PR runs per day over the last ${days} days: ${prs.length} runs, ${prs.filter((r) => (r.proven || 0) > 0).length} with a proven finding` });
+  for (const g of [0, Math.round(max / 2), max]) {
+    const y = base - (g / max) * (base - top);
+    root.appendChild(svg("line", { class: "ov-axis", x1: padL, x2: W, y1: y, y2: y }));
+    root.appendChild(svg("text", { class: "ov-tick", x: 0, y: y + 3, text: String(g) }));
+  }
+  const totals = [];
+  buckets.forEach((b, i) => {
+    const x = padL + i * bw + 1.5;
+    let y = base;
+    for (const [key, cls] of [["proven", "proven"], ["clean", "clean"]]) {
+      const hh = (b[key] / max) * (base - top);
+      if (!hh) continue;
+      y -= hh;
+      root.appendChild(svg("rect", { class: `ov-day ${cls}`, x: x.toFixed(1), y: y.toFixed(1), width: Math.max(2, bw - 3).toFixed(1), height: Math.max(1, hh - 1).toFixed(1), rx: 2 }));
+    }
+    totals.push(b.proven + b.clean);
+  });
+  const avg = totals.map((_, i) => { const w = totals.slice(Math.max(0, i - 6), i + 1); return w.reduce((a, c) => a + c, 0) / w.length; });
+  root.appendChild(svg("polyline", { class: "ov-avg", points: avg.map((v, i) => `${(padL + i * bw + bw / 2).toFixed(1)},${(base - (v / max) * (base - top)).toFixed(1)}`).join(" ") }));
+  for (let i = 0; i < days; i += 7) {
+    const when = new Date((last - (days - 1 - i)) * DAY);
+    root.appendChild(svg("text", { class: "ov-tick", x: (padL + i * bw).toFixed(1), y: H - 6, text: when.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) }));
+  }
+  const legend = h("ul", { class: "ov-legend" },
+    h("li", {}, h("i", { class: "ov-swatch proven" }), "with a proven finding"),
+    h("li", {}, h("i", { class: "ov-swatch clean" }), "nothing proven"),
+    h("li", {}, h("i", { class: "ov-swatch avg" }), "7-day average"));
+  return ovCard("PR runs per day", h("span", { class: "ov-label", text: "last 30 days" }), root, legend);
+}
+
 async function renderHome(repoId) {
   setActiveNav("home");
   const index = await api("/api/repos");
@@ -2071,7 +2355,6 @@ async function renderHome(repoId) {
   const selected = repos.find((r) => r.id === repoId) || repos.find((r) => r.id === state.currentRepoId) || repos[0];
   setSidebarLevel("repo", selected.id);
   const detail = await api(`/api/repos/${encodeURIComponent(selected.id)}`);
-  const m = detail.metrics || {};
   const name = repoShort(selected.name);
   const prs = detail.pull_requests || [];
   setShellHeader([{ text: name, href: `#/repo/${encodeURIComponent(selected.id)}` }, { text: "Home" }], name.split("/").pop() || name,
@@ -2085,95 +2368,11 @@ async function renderHome(repoId) {
   // Keep the sidebar's run views inside the selected repository.
   if (lastRunId && (!current || current.repo_id !== selected.id)) updateRunContextCard(lastRunId);
 
-  const cards = h("section", { class: "section-stack" },
-    h("div", { class: "section-head" },
-      h("div", { class: "section-title-wrap" },
-        h("h2", { class: "section-title", text: "Repositories" }),
-        h("p", { class: "section-subtitle", text: `${plural(repos.length, "repository", "repositories")} across ${plural(index.runs_considered || 0, "run")}. Pick one to see its pull requests and findings.` }))),
-    h("div", { class: "repo-grid" }, repos.map((r) => repoCard(r, r.id === selected.id))));
-
-  const runsNote = isNum(m.runs)
-    ? `${plural(m.runs, "PR run")}${(index.runs_total || 0) > (index.runs_considered || 0) ? ` (newest ${index.runs_considered} of ${index.runs_total} read)` : ""}`
-    : NA;
-  const metrics = h("div", { class: "metric-row anim-enter" },
-    metricTile(
-      "Proven findings",
-      isNum(m.proven) ? String(m.proven) : NA,
-      isNum(m.root_causes) ? `${plural(m.root_causes, "unique root cause")} across ${runsNote}` : NA,
-      m.proven > 0 ? "is-proven" : "",
-    ),
-    metricTile(
-      "Fixes verified",
-      isNum(m.fixes_verified) ? String(m.fixes_verified) : NA,
-      isNum(m.proven) ? `of ${plural(m.proven, "proven finding")} (${pct(m.fixes_verified || 0, m.proven || 1)}% held)` : NA,
-      "is-verified",
-    ),
-    metricTile(
-      "Defeated by bypass",
-      isNum(m.fixes_bypassed) ? String(m.fixes_bypassed) : NA,
-      "defender variant broke proposed fix",
-      m.fixes_bypassed > 0 ? "is-warn" : "",
-    ),
-    metricTile(
-      "Discarded suspicions",
-      isNum(m.discarded) ? String(m.discarded) : NA,
-      isNum(m.suspicions_raised) ? `of ${plural(m.suspicions_raised, "suspicion")} raised · not evidence of safety` : "not proven; not evidence of safety",
-    ),
-    metricTile(
-      "PR runs",
-      isNum(m.runs) ? String(m.runs) : NA,
-      isNum(m.exploits_written) ? `cumulative history · ${plural(m.exploits_written, "exploit")} written` : "cumulative repository history",
-    ),
-    metricTile(
-      "Total cost",
-      isNum(m.cost_usd) ? fmtCost(m.cost_usd) : NA,
-      (isNum(m.tokens_in) && isNum(m.tokens_out)) ? `${fmtTokens(m.tokens_in)} in · ${fmtTokens(m.tokens_out)} out` : NA,
-    ),
-    metricTile(
-      "Median duration",
-      isNum(m.median_duration_s) ? fmtDuration(m.median_duration_s) : NA,
-      "median sandbox runtime per PR",
-    ));
-
-  const chartsGrid = h("div", { class: "charts-grid" },
-    chartCard(buildFindingsPerRunSpec(detail.run_series), "col-span-7"),
-    chartCard(buildFunnelSpec(detail.funnel), "col-span-5"),
-    chartCard(buildOutcomeDonutSpec(detail.verdict_totals), "col-span-5"),
-    chartCard(buildRoleCostSpec(detail.run_series), "col-span-7"),
-    chartCard(buildHotFilesSpec(detail.hot_files), "col-span-12"),
-    chartCard(buildStageDurationSpec(detail.stage_durations), "col-span-6"),
-    chartCard(buildCweDistributionSpec(detail.cwe_distribution, selected.severity_mix || {}), "col-span-6"));
-
-  const serious = detail.top_findings || [];
-  const seriousCard = h("section", { class: "card list-card anim-enter" },
-    h("div", { class: "card-head" },
-      h("h3", { class: "card-title", text: "Most serious findings (grouped by root cause)" }),
-      h("a", { class: "card-link", href: "#/findings", text: "All repository findings →" })),
-    serious.length
-      ? h("ul", { class: "serious-list" }, serious.slice(0, 8).map(seriousRow))
-      : nothingProven("repository"),
-    serious.length ? h("p", { class: "list-note", text: "Merge status is not recorded in the ledger: a verified fix may not be merged yet." }) : null);
-
-  const prSection = h("section", { class: "section-stack" },
-    h("div", { class: "section-head" },
-      h("div", { class: "section-title-wrap" },
-        h("h3", { class: "section-title", text: "Pull request verification runs" }),
-        h("p", { class: "section-subtitle", text: "Click any row to open its PR report. Left border indicates highest proven severity (neutral when nothing could be proven)." }))),
-    prs.length ? buildPrFilterTable(prs, { showRepo: false }) : emptyState("No runs for this repository."));
-
   show(
     syntheticBanner([selected]),
-    cards,
-    h("section", { class: "section-stack" },
-      h("div", { class: "section-head" },
-        h("div", { class: "section-title-wrap" },
-          h("h2", { class: "section-title", text: name }),
-          h("p", { class: "section-subtitle", text: last.started_at ? `Cumulative history through ${fmtDate(last.started_at, false)} · Last run: ${prLabel(last) ? `${prLabel(last)} · ` : ""}${last.headline || ""}` : "No runs recorded." })),
-        h("div", { class: "section-aside" }, h("span", { class: "micro-label", text: "Proven severity mix" }), severityMix(selected.severity_mix || {}))),
-      metrics,
-      chartsGrid,
-      seriousCard,
-      prSection));
+    overviewKpis(detail),
+    h("div", { class: "ov-grid" }, overviewGraphCard(lastRunId), overviewEffects(detail)),
+    h("div", { class: "ov-grid" }, overviewFindings(detail), overviewPrsPerDay(detail)));
 }
 
 // ==============================================================================
@@ -3803,59 +4002,10 @@ async function route() {
 
 // -- Bootstrap -----------------------------------------------------------------
 
-// The backdrop drifts slowly (a few px/s), so it is stepped 5 times a second from here
-// rather than animated at the display rate: the steps are sub-pixel, and the glass
-// surfaces above re-blur 5 times a second instead of 60. Transform only: no layout or
-// repaint. Stopped while the tab is hidden and when the user prefers reduced motion.
-const DRIFT = [
-  // [x vw, y vh, scale delta, half period s] for .field-1 ... .field-5
-  [9, 7, 0.12, 58],
-  [-12, 10, 0.18, 71],
-  [-10, 16, -0.13, 83],
-  [-8, -9, 0.15, 67],
-  [22, -6, 0.1, 76],
-];
-const DRIFT_STEP_MS = 200;
-
-function driftTransform(spec, seconds) {
-  const [dx, dy, ds, half] = spec;
-  const k = (1 - Math.cos((Math.PI * seconds) / half)) / 2; // eased 0 -> 1 -> 0
-  return `translate3d(${(dx * k).toFixed(3)}vw, ${(dy * k).toFixed(3)}vh, 0) scale(${(1 + ds * k).toFixed(4)})`;
-}
-
-function initBackdrop() {
-  const backdrop = document.getElementById("backdrop");
-  if (!backdrop) return;
-  const fields = [...backdrop.querySelectorAll(".field")];
-  const reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
-  const origin = performance.now() - 23000; // start mid-drift, not at the rest pose
-  let timer = 0;
-  const step = () => {
-    const seconds = (performance.now() - origin) / 1000;
-    fields.forEach((el, i) => el.style.setProperty("transform", driftTransform(DRIFT[i % DRIFT.length], seconds)));
-  };
-  const sync = () => {
-    clearInterval(timer);
-    timer = 0;
-    const still = document.hidden || (reduce && reduce.matches);
-    backdrop.classList.toggle("is-paused", Boolean(still));
-    if (reduce && reduce.matches) {
-      fields.forEach((el) => el.style.removeProperty("transform"));
-      return;
-    }
-    step();
-    if (!still) timer = setInterval(step, DRIFT_STEP_MS);
-  };
-  document.addEventListener("visibilitychange", sync);
-  if (reduce && reduce.addEventListener) reduce.addEventListener("change", sync);
-  sync();
-}
-
 async function boot() {
   initTheme();
   setUiFont(state.uiFont);
   applyUiFontFromUrl();
-  initBackdrop();
   if (themeToggle) themeToggle.onclick = toggleTheme;
 
   const iconMap = [

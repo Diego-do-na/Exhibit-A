@@ -192,23 +192,31 @@ def test_static_export_answers_the_repository_endpoints(tmp_path):
 # -- C: dynamic backdrop and liquid glass ----------------------------------------------
 
 
-def test_backdrop_is_decorative_and_moves_only_with_transforms():
+def test_backdrop_is_decorative_and_standing_still():
     assert re.search(r'<div class="backdrop" id="backdrop" aria-hidden="true">', HTML)
-    assert HTML.count('class="field field-') >= 4
+    assert 'class="field' not in HTML
     assert re.search(r"\.backdrop\s*{[^}]*contain:\s*strict", CSS)
-    assert re.search(r"\.field\s*{[^}]*will-change:\s*transform", CSS)
-    init = JS[JS.index("const DRIFT = ["):JS.index("async function boot")]
-    # app.js only ever sets transform on the fields, stepped a few times a second
-    assert re.findall(r'style\.setProperty\("([a-z-]+)"', init) == ["transform"]
-    assert "const DRIFT_STEP_MS = 200;" in init and "setInterval(step, DRIFT_STEP_MS)" in init
-    assert "@keyframes drift" not in CSS  # no display-rate animation under the glass
+    # a fixed picture: no drifting fields, no stepped transforms, no animation under the glass
+    assert "DRIFT" not in JS and "initBackdrop" not in JS
+    assert ".field" not in CSS
+    assert "@keyframes drift" not in CSS
 
 
-def test_backdrop_respects_reduced_motion_and_pauses_when_hidden():
-    init = JS[JS.index("function initBackdrop"):JS.index("async function boot")]
-    assert '"(prefers-reduced-motion: reduce)"' in init
-    assert "visibilitychange" in init and "document.hidden" in init and "clearInterval(timer)" in init
-    assert 'removeProperty("transform")' in init  # reduced motion: the static picture
+def test_home_is_the_overview_with_four_cards_and_four_panels():
+    home = JS[JS.index("async function renderHome"):JS.index("// Run overview (frame 04)")]
+    for builder in ("overviewKpis(detail)", "overviewGraphCard(lastRunId)", "overviewEffects(detail)",
+                    "overviewFindings(detail)", "overviewPrsPerDay(detail)"):
+        assert builder in home
+    # the old home stack (repository grid, seven tiles, seven charts) is gone from the page
+    for gone in ("repoCard(", "metricTile(", "chartsGrid", "buildPrFilterTable"):
+        assert gone not in home
+
+
+def test_overview_intervals_are_wilson_and_only_counts_are_shown():
+    block = JS[JS.index("function wilson95"):JS.index("function areaSpark")]
+    assert "const z = 1.96;" in block and "Math.sqrt" in block
+    kpis = JS[JS.index("function overviewKpis"):JS.index("function overviewEffects")]
+    assert "wilson95(m.fixes_verified, proven)" in kpis
 
 
 def test_graph_route_keeps_the_canvas_out_of_a_blurred_layer():

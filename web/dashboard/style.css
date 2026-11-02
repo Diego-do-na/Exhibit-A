@@ -258,12 +258,12 @@
 
   /* Semantic roles, light theme (default) */
   --shell-ink: var(--text-inverse);
-  --panel-bg: linear-gradient(145deg, rgba(244, 249, 255, 0.72) 0%, rgba(224, 238, 255, 0.62) 52%, rgba(236, 245, 255, 0.70) 100%);
+  --panel-bg: linear-gradient(150deg, #f3f8ff 0%, #dcebff 55%, #cfe3ff 100%);
   --panel-solid: var(--surface-workspace-white);
   --panel-border: rgba(255, 255, 255, 0.78);
   --panel-highlight: inset 0 1.5px 0 rgba(255, 255, 255, 0.96), inset 1px 0 0 rgba(255, 255, 255, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.38);
   --panel-shadow: 0 28px 68px -22px rgba(1, 10, 32, 0.58);
-  --card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.78) 0%, rgba(240, 247, 255, 0.64) 100%);
+  --card-bg: #ffffff;
   --card-solid: var(--surface-raised);
   --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 1px 0 0 rgba(255, 255, 255, 0.65), 0 2px 5px rgba(9, 24, 52, 0.06), 0 14px 32px -14px rgba(9, 24, 52, 0.24);
   --sidebar-bg: linear-gradient(180deg, rgba(2, 10, 26, 0.58), rgba(4, 16, 40, 0.48));
@@ -271,7 +271,7 @@
   --control-glass: rgba(8, 26, 64, 0.44);
   --control-solid: #0b1f45;
   --glass-specular: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.92) 25%, rgba(255, 255, 255, 0.92) 75%, rgba(255, 255, 255, 0));
-  --card-border: rgba(255, 255, 255, 0.82);
+  --card-border: #e4edfb;
   --subtle-bg: var(--surface-workspace);
   --selected-bg: var(--surface-selected);
   --ink: var(--text-primary);
@@ -468,11 +468,10 @@ pre,
   min-width: 0;
 }
 
-/* -- Backdrop: a slow mesh of soft blue fields ------------------------------------
- * Fixed behind everything. The fields are large radial gradients that app.js moves
- * with transform only (no layout, no repaint), a few pixels per second, stepped five
- * times a second: the steps are sub-pixel, and the glass above re-blurs 5 times a
- * second instead of 60. Reduced motion and hidden tabs get the picture standing still.
+/* -- Backdrop: a still field of deep blue -----------------------------------------
+ * Fixed behind everything and never animated: a saturated navy -> royal -> azure
+ * diagonal with a faint technical grid, so the glass above blurs a fixed picture
+ * and the data keeps all the contrast.
  */
 
 .backdrop {
@@ -483,87 +482,23 @@ pre,
   overflow: hidden;
   contain: strict;
   background:
-    radial-gradient(90% 80% at 92% 92%, var(--bg-glow) 0%, var(--bg-sky) 22%, rgba(63, 132, 238, 0) 60%),
-    linear-gradient(138deg, var(--bg-ink) 0%, var(--bg-deep) 22%, var(--bg-navy) 44%, var(--bg-royal) 68%, var(--bg-azure) 86%, var(--bg-sky) 100%);
+    radial-gradient(80% 70% at 90% 105%, #8fc4ff 0%, rgba(63, 132, 238, 0) 62%),
+    linear-gradient(138deg, #010615 0%, #04164a 28%, #0a2f9e 58%, #1a56e0 82%, #3f8cff 100%);
 }
 
 .backdrop::after {
-  /* the dark top band that keeps header text legible wherever the fields drift */
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(1, 5, 13, 0.56) 0%, rgba(1, 5, 13, 0.14) 16%, rgba(1, 5, 13, 0) 28%);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 44px 44px;
 }
 
-.field {
-  position: absolute;
-  border-radius: 50%;
-  will-change: transform;
-}
-
-.field-1 {
-  /* deep sapphire disc behind upper-left sidebar and header */
-  width: 52vmax;
-  height: 52vmax;
-  left: -10vmax;
-  top: -14vmax;
-  background: radial-gradient(closest-side, rgba(6, 28, 88, 0.88), rgba(15, 58, 165, 0.42) 55%, rgba(6, 28, 88, 0));
-}
-
-.field-2 {
-  /* luminous electric blue disc right behind upper-centre workspace */
-  width: 46vmax;
-  height: 46vmax;
-  left: 22vw;
-  top: 4vh;
-  background: radial-gradient(closest-side, rgba(56, 189, 248, 0.72), rgba(37, 99, 235, 0.48) 52%, rgba(37, 99, 235, 0));
-}
-
-.field-3 {
-  /* bright cyan-aqua orb behind right workspace cards */
-  width: 42vmax;
-  height: 42vmax;
-  right: 4vw;
-  top: 16vh;
-  background: radial-gradient(closest-side, rgba(34, 211, 238, 0.68), rgba(59, 130, 246, 0.44) 54%, rgba(59, 130, 246, 0));
-}
-
-.field-4 {
-  /* ice-sky glow disc behind lower-right workspace */
-  width: 50vmax;
-  height: 50vmax;
-  right: -8vmax;
-  bottom: -12vmax;
-  background: radial-gradient(closest-side, rgba(224, 242, 254, 0.92), rgba(125, 211, 252, 0.58) 48%, rgba(125, 211, 252, 0));
-}
-
-.field-5 {
-  /* indigo-violet orb crossing lower-left workspace */
-  width: 44vmax;
-  height: 44vmax;
-  left: 10vw;
-  bottom: -6vmax;
-  background: radial-gradient(closest-side, rgba(99, 102, 241, 0.66), rgba(29, 78, 216, 0.42) 52%, rgba(29, 78, 216, 0));
-}
-
-:root[data-theme="dark"] .backdrop .field-2 {
-  background: radial-gradient(closest-side, rgba(56, 189, 248, 0.52), rgba(37, 99, 235, 0.36) 54%, rgba(37, 99, 235, 0));
-}
-
-:root[data-theme="dark"] .backdrop .field-3 {
-  background: radial-gradient(closest-side, rgba(34, 211, 238, 0.46), rgba(59, 130, 246, 0.30) 54%, rgba(59, 130, 246, 0));
-}
-
-:root[data-theme="dark"] .backdrop .field-4 {
-  opacity: 0.48;
-}
-
-:root[data-theme="dark"] .backdrop .field-5 {
-  background: radial-gradient(closest-side, rgba(99, 102, 241, 0.52), rgba(29, 78, 216, 0.32) 52%, rgba(29, 78, 216, 0));
-}
-
-:root[data-theme="dark"] .backdrop::after {
-  background: linear-gradient(180deg, rgba(1, 5, 13, 0.58) 0%, rgba(1, 5, 13, 0.18) 24%, rgba(1, 5, 13, 0.22) 100%);
+:root[data-theme="dark"] .backdrop {
+  background:
+    radial-gradient(80% 70% at 90% 105%, rgba(63, 132, 238, 0.55) 0%, rgba(63, 132, 238, 0) 62%),
+    linear-gradient(138deg, #01050d 0%, #03112b 30%, #072260 62%, #0d3aa8 100%);
 }
 
 /* -- Liquid glass ----------------------------------------------------------------
@@ -4008,3 +3943,174 @@ table.pr-table tbody tr.sev-border-none td:first-child     { border-left-color: 
     scroll-behavior: auto !important;
   }
 }
+
+
+/* -- Overview (repository home) ---------------------------------------------------
+ * Four headline cards, then two rows of two cards. Cards are near-opaque white in the
+ * light theme so the data keeps its contrast over the blue panel.
+ */
+
+.ov-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-20);
+}
+
+.ov-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: var(--space-20);
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .ov-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ov-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.tone-proven { --tone: var(--c-proven); }
+.tone-ok { --tone: var(--ok); }
+.tone-link { --tone: var(--link); }
+
+.ov-kpi,
+.ov-card {
+  position: relative;
+  padding: var(--space-20) var(--space-24);
+  border: var(--rule-1) solid var(--card-border);
+  border-radius: var(--radius-18);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  min-width: 0;
+}
+
+.ov-kpi-top,
+.ov-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.ov-card-head { margin-bottom: var(--space-14); }
+
+.ov-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.ov-chip {
+  padding: 2px var(--space-8);
+  border-radius: 999px;
+  background: var(--track);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--tone, var(--ink-2));
+  white-space: nowrap;
+}
+
+.ov-kpi-value {
+  margin-top: var(--space-6);
+  font-family: var(--font-mono);
+  font-size: 2.25rem;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 1.1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-kpi-sub {
+  margin: var(--space-2) 0 var(--space-10);
+  font-size: var(--type-size-13);
+  color: var(--ink-3);
+}
+
+.ov-spark { display: block; width: 100%; height: 2.25rem; }
+.ov-spark-line { fill: none; stroke: var(--tone, var(--link)); stroke-width: 1.8; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.ov-spark-area { fill: var(--tone, var(--link)); fill-opacity: 0.16; }
+.ov-spark-base { stroke: var(--track); stroke-width: 1; }
+
+.ov-card-title {
+  font-size: var(--type-size-16);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ov-note { margin-top: var(--space-10); font-size: var(--type-size-13); color: var(--ink-3); }
+
+.ov-graph { display: block; width: 100%; height: auto; }
+.ov-halo { fill: var(--link); fill-opacity: 0.06; stroke: var(--link); stroke-opacity: 0.2; stroke-dasharray: 3 4; }
+.ov-cluster { font-family: var(--font-mono); font-size: 10px; fill: var(--ink-3); }
+.ov-edge.base { stroke: var(--ink-3); stroke-opacity: 0.28; stroke-width: 1; }
+.ov-edge.pr { stroke: var(--link); stroke-opacity: 0.6; stroke-width: 1.4; }
+.ov-edge.proven { stroke: var(--c-proven); stroke-width: 2.6; }
+.ov-node { stroke: var(--card-solid); stroke-width: 1.5; }
+.ov-node.plain { fill: var(--ink-3); }
+.ov-node.entry { fill: var(--link); }
+.ov-node.changed { fill: var(--warn); }
+.ov-node.sink { fill: var(--ink); }
+.ov-node.sink-proven { fill: var(--c-proven); }
+.ov-pulse { fill: var(--c-proven); fill-opacity: 0.22; }
+.ov-node-label { font-family: var(--font-mono); font-size: 10.5px; fill: var(--ink); paint-order: stroke; stroke: var(--card-solid); stroke-width: 3px; stroke-linejoin: round; }
+
+.ov-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6) var(--space-16);
+  margin-top: var(--space-10);
+  padding: 0;
+  list-style: none;
+  font-size: var(--type-size-13);
+  color: var(--ink-3);
+}
+.ov-legend li { display: inline-flex; align-items: center; gap: var(--space-6); }
+.ov-legend .ov-node, .ov-swatch { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: 50%; border: 0; }
+.ov-legend .ov-node.plain { background: var(--ink-3); }
+.ov-legend .ov-node.entry { background: var(--link); }
+.ov-legend .ov-node.changed { background: var(--warn); }
+.ov-legend .ov-node.sink-proven { background: var(--c-proven); }
+.ov-swatch { border-radius: 3px; }
+.ov-swatch.proven { background: var(--c-proven); }
+.ov-swatch.clean { background: var(--link); opacity: 0.55; }
+.ov-swatch.avg { height: 0; width: 1rem; border-top: 2px dashed var(--ink); border-radius: 0; }
+
+.ov-bars { display: flex; flex-direction: column; gap: var(--space-10); }
+.ov-bar-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) 1.75rem; gap: var(--space-10); align-items: center; }
+.ov-bar-name { font-size: var(--type-size-13); color: var(--ink-2); }
+.ov-bar-track { height: 0.625rem; border-radius: 5px; background: var(--track); overflow: hidden; }
+.ov-bar-fill { display: block; height: 100%; border-radius: 5px; background: var(--c-proven); }
+.ov-bar-count { text-align: right; font-size: var(--type-size-13); color: var(--ink-3); }
+
+.ov-table { width: 100%; border-collapse: collapse; }
+.ov-table th {
+  padding: 0 var(--space-12) var(--space-10) 0;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ov-table td { padding: var(--space-12) var(--space-12) var(--space-12) 0; border-top: var(--rule-1) solid var(--track); vertical-align: middle; }
+.ov-find { display: inline-flex; align-items: center; gap: var(--space-8); font-weight: 500; color: var(--ink); text-decoration: none; }
+.ov-find:hover { color: var(--link); text-decoration: underline; }
+.ov-pill { padding: 3px var(--space-8); border-radius: 999px; background: var(--track); font-size: 0.75rem; white-space: nowrap; }
+.ov-loc { font-size: 0.75rem; color: var(--ink-3); white-space: nowrap; }
+.ov-state { font-weight: 600; white-space: nowrap; }
+.ov-state.ok { color: var(--ok); }
+.ov-state.warn { color: var(--warn); }
+.ov-state.idle { color: var(--ink-3); }
+
+.ov-days { display: block; width: 100%; height: auto; }
+.ov-axis { stroke: var(--track); stroke-width: 1; }
+.ov-tick { font-family: var(--font-mono); font-size: 9.5px; fill: var(--ink-3); }
+.ov-day.proven { fill: var(--c-proven); }
+.ov-day.clean { fill: var(--link); fill-opacity: 0.55; }
+.ov-avg { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 3; }

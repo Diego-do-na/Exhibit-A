@@ -81,7 +81,7 @@ const { chromium } = require('playwright');
   await page.goto(bootstrap);
   const views = [['runs', '#/runs', 'table.runs'], ['detail', '#/run/run-hostile', '.finding'],
                  ['trends', '#/trends', '.chart svg'], ['replay', '#/replay/run-hostile', 'button.primary'],
-                 ['home', '#/', '.repo-card']];
+                 ['home', '#/', '.ov-kpi-row']];
   for (const [name, hash, selector] of views) {
     await page.goto(base + hash);
     await page.waitForSelector(selector, { timeout: 10000 });
