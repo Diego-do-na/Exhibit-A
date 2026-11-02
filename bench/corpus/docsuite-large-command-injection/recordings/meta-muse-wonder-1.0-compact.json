@@ -1,0 +1,58 @@
+{
+  "aborted": "",
+  "base_url": "https://api.meta.ai/v1",
+  "baseline_ok": true,
+  "budget_usd": {
+    "case": 0.5,
+    "run_total": 4.0
+  },
+  "calls": 7,
+  "calls_by_role": {
+    "adversary": 1,
+    "defender": 2,
+    "fixer": 2,
+    "test_writer": 2
+  },
+  "case": "docsuite-large-command-injection",
+  "cost_usd": 0.105176,
+  "date_utc": "2026-11-01T23:28:01Z",
+  "exhibit_a": {
+    "commit": "3e292e420252f7b21e2a92bd0b4545185719cb27",
+    "dirty": true
+  },
+  "hand_authored": false,
+  "max_output_tokens": 10000,
+  "model": "muse-wonder-1.0",
+  "pricing_usd_per_mtok": {
+    "input": 4.0,
+    "output": 20.0
+  },
+  "profile": "compact",
+  "provider": "meta",
+  "reasoning_effort": "minimal",
+  "recording": "meta-muse-wonder-1.0-compact.jsonl",
+  "spent_before_usd": 0.124656,
+  "stop_detail": "",
+  "stopped": "",
+  "suspicions_raised": 2,
+  "tokens_in": 4709,
+  "tokens_out": 4317,
+  "verdicts": [
+    {
+      "fix_incomplete": false,
+      "fix_verified": true,
+      "reason": "canary executed by a process application code started through an entry point; test failed",
+      "reason_code": "",
+      "suspicion_id": "S1",
+      "verdict": "proven"
+    },
+    {
+      "fix_incomplete": false,
+      "fix_verified": true,
+      "reason": "canary executed by a process application code started through an entry point; test failed",
+      "reason_code": "",
+      "suspicion_id": "S2",
+      "verdict": "proven"
+    }
+  ]
+}
