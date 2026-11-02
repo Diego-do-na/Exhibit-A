@@ -859,6 +859,1100 @@ function findingCard(row, item) {
 // ==============================================================================
 
 const SEVERITY_ORDER = ["critical", "high", "medium", "low", "unknown"];
+const EFFECT_KEYS = [
+  ["read", "File read", "eff-read"],
+  ["write", "File write", "eff-write"],
+  ["exec", "Process exec", "eff-exec"],
+  ["sql", "SQL query", "eff-sql"],
+];
+const ROLE_KEYS = [
+  ["adversary", "Adversary", "role-adversary"],
+  ["test_writer", "Test writer", "role-test_writer"],
+  ["fixer", "Fixer", "role-fixer"],
+  ["defender", "Defender", "role-defender"],
+];
+const OUTCOME_KEYS = [
+  ["proven", "Proven", "out-proven"],
+  ["discarded_unproven", "Discarded (unproven)", "out-unproven"],
+  ["invalid_test", "Invalid test", "out-invalid"],
+  ["flaky", "Flaky", "out-flaky"],
+  ["env_failure", "Environment failure", "out-env"],
+];
+
+const chartModal = document.getElementById("chart-modal");
+let activeModalCleanup = null;
+
+function closeChartModal() {
+  if (activeModalCleanup) {
+    try { activeModalCleanup(); } catch (_) {}
+    activeModalCleanup = null;
+  }
+  if (chartModal) {
+    chartModal.hidden = true;
+    chartModal.replaceChildren();
+  }
+}
+
+function whatStandsOutFromSeries(items, unitLabel = "items", isCurrency = false) {
+  if (!Array.isArray(items) || !items.length) {
+    return ["No recorded items are available in this source."];
+  }
+  const cleanItems = items.filter((it) => it && isNum(it.value));
+  if (!cleanItems.length) {
+    return [`Values are ${NA} in this source.`];
+  }
+  const fmtVal = (v) => (isCurrency ? fmtCost(v) : String(Math.round(v * 1000) / 1000));
+  const total = cleanItems.reduce((acc, it) => acc + it.value, 0);
+  const nonZero = cleanItems.filter((it) => it.value > 0);
+  const zeroCount = cleanItems.length - nonZero.length;
+  if (total <= 0) {
+    return [
+      `Total across ${cleanItems.length} shown items: ${fmtVal(0)} (${unitLabel}).`,
+      `Zero-value items: ${zeroCount} of ${cleanItems.length}.`,
+    ];
+  }
+  const sorted = [...nonZero].sort((a, b) => b.value - a.value);
+  const top = sorted[0];
+  const topShare = ((top.value / total) * 100).toFixed(1);
+  const lines = [
+    `Total across ${cleanItems.length} shown items: ${fmtVal(total)} (${unitLabel}).`,
+    `Largest item: ${top.label} with ${fmtVal(top.value)} of ${fmtVal(total)} (${topShare}%).`,
+  ];
+  if (sorted.length > 1) {
+    const bottom = sorted[sorted.length - 1];
+    const botShare = ((bottom.value / total) * 100).toFixed(1);
+    lines.push(`Smallest non-zero item: ${bottom.label} with ${fmtVal(bottom.value)} of ${fmtVal(total)} (${botShare}%).`);
+  }
+  lines.push(`Zero-value items: ${zeroCount} of ${cleanItems.length}.`);
+  return lines;
+}
+
+function buildNumbersTable(headers, rows, tableId = "") {
+  if (!Array.isArray(rows) || !rows.length) {
+    return h("p", { class: "muted small", text: `Table data is ${NA}.` });
+  }
+  return h("div", { class: "table-wrap" },
+    h("table", { class: "chart-numbers-table", "data-chart-table": tableId || null },
+      h("thead", {},
+        h("tr", {}, headers.map((col, idx) => h("th", { class: idx > 0 ? "num" : "", text: col })))),
+      h("tbody", {},
+        rows.map((r) => h("tr", {},
+          r.map((cell, idx) => h("td", {
+            class: idx > 0 ? "num mono" : "mono",
+            text: cell === null || cell === undefined || cell === "" ? NA : String(cell),
+          })))))));
+}
+
+function openChartModal(spec) {
+  if (!chartModal) return;
+  closeChartModal();
+
+  let zoom = 1;
+  let panX = 0;
+  let panY = 0;
+  let drag = null;
+
+  const zoomReadout = h("span", { class: "zoom-readout", text: "100%" });
+  const canvasWrap = h("div", { class: "chart-modal-canvas" }, spec.renderChart(true));
+  const viewport = h("div", {
+    class: "chart-modal-viewport",
+    tabindex: "0",
+    role: "region",
+    "aria-label": `${spec.title} interactive zoom and pan canvas`,
+  }, canvasWrap);
+
+  const syncTransform = () => {
+    canvasWrap.style.setProperty("transform", `translate3d(${panX.toFixed(1)}px, ${panY.toFixed(1)}px, 0) scale(${zoom.toFixed(3)})`);
+    zoomReadout.textContent = `${Math.round(zoom * 100)}%`;
+  };
+
+  const stepZoom = (factor) => {
+    zoom = Math.max(0.5, Math.min(4, zoom * factor));
+    syncTransform();
+  };
+
+  const resetZoom = () => {
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+    syncTransform();
+  };
+
+  viewport.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    stepZoom(e.deltaY < 0 ? 1.15 : 0.87);
+  }, { passive: false });
+
+  viewport.addEventListener("dblclick", () => {
+    if (Math.abs(zoom - 1) < 0.05) {
+      zoom = 1.75;
+      syncTransform();
+    } else {
+      resetZoom();
+    }
+  });
+
+  viewport.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    drag = { x: e.clientX, y: e.clientY, startX: panX, startY: panY };
+    viewport.classList.add("is-panning");
+    try { viewport.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+
+  viewport.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    panX = drag.startX + (e.clientX - drag.x);
+    panY = drag.startY + (e.clientY - drag.y);
+    syncTransform();
+  });
+
+  const endPan = () => {
+    drag = null;
+    viewport.classList.remove("is-panning");
+  };
+  viewport.addEventListener("pointerup", endPan);
+  viewport.addEventListener("pointercancel", endPan);
+
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeChartModal();
+    } else if (e.key === "+" || e.key === "=") {
+      e.preventDefault();
+      stepZoom(1.2);
+    } else if (e.key === "-") {
+      e.preventDefault();
+      stepZoom(0.83);
+    } else if (e.key === "0") {
+      e.preventDefault();
+      resetZoom();
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      panX += 28;
+      syncTransform();
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      panX -= 28;
+      syncTransform();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      panY += 28;
+      syncTransform();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      panY -= 28;
+      syncTransform();
+    }
+  };
+  window.addEventListener("keydown", onKeyDown);
+  activeModalCleanup = () => window.removeEventListener("keydown", onKeyDown);
+
+  const dialog = h("div", { class: "chart-modal-dialog", onclick: (e) => e.stopPropagation() },
+    h("div", { class: "chart-modal-header" },
+      h("div", { class: "chart-card-titles" },
+        h("h2", { class: "chart-card-title", id: "chart-modal-title", text: spec.title }),
+        spec.subtitle ? h("p", { class: "chart-card-sub", text: spec.subtitle }) : null),
+      h("div", { class: "chart-modal-toolbar" },
+        h("button", { type: "button", class: "chart-expand-btn", "aria-label": "Zoom out", onclick: () => stepZoom(0.8) }, icon("minus", 14)),
+        zoomReadout,
+        h("button", { type: "button", class: "chart-expand-btn", "aria-label": "Zoom in", onclick: () => stepZoom(1.25) }, icon("plus", 14)),
+        h("button", { type: "button", class: "chart-expand-btn", text: "Reset", onclick: resetZoom }),
+        h("button", { type: "button", class: "chart-expand-btn modal-close-btn", "aria-label": "Close modal", onclick: closeChartModal }, icon("x", 14), h("span", { text: "Close" })))),
+    viewport,
+    h("div", { class: "chart-modal-sections" },
+      h("section", { class: "chart-modal-panel" },
+        h("h3", { class: "chart-modal-kicker", text: "HOW TO READ THIS" }),
+        h("p", { class: "small", text: spec.howToRead || NA })),
+      h("section", { class: "chart-modal-panel" },
+        h("h3", { class: "chart-modal-kicker", text: "WHAT STANDS OUT" }),
+        h("ul", { class: "chart-modal-list" },
+          (spec.whatStandsOut && spec.whatStandsOut.length ? spec.whatStandsOut : [NA]).map((line) => h("li", { text: line })))),
+      h("section", { class: "chart-modal-panel full-span" },
+        h("h3", { class: "chart-modal-kicker", text: "THE NUMBERS" }),
+        buildNumbersTable(spec.tableHeaders || [], spec.tableRows || [], spec.id))));
+
+  chartModal.replaceChildren(dialog);
+  chartModal.onclick = closeChartModal;
+  chartModal.hidden = false;
+  onTeardown(closeChartModal);
+  viewport.focus();
+}
+
+function chartCard(spec, spanClass = "col-span-6") {
+  const expandBtn = h("button", {
+    type: "button",
+    class: "chart-expand-btn",
+    "data-chart-expand": spec.id,
+    "aria-label": `Expand ${spec.title}`,
+    title: "Expand chart, zoom/pan, and inspect exact numbers",
+    onclick: () => openChartModal(spec),
+  }, icon("maximize", 14), h("span", { text: "Expand" }));
+
+  return h("section", { class: `chart-card anim-enter ${spanClass}`.trim(), "data-chart-id": spec.id },
+    h("div", { class: "chart-card-head" },
+      h("div", { class: "chart-card-titles" },
+        h("h3", { class: "chart-card-title", text: spec.title }),
+        spec.subtitle ? h("p", { class: "chart-card-sub", text: spec.subtitle }) : null),
+      expandBtn),
+    spec.legend ? spec.legend : null,
+    h("div", { class: "chart-body" }, spec.renderChart(false)));
+}
+
+function runAxisLabel(pt) {
+  if (pt.pr) return `PR #${String(pt.pr).replace(/^#/, "")}`;
+  if (pt.commit) return shortSha(pt.commit);
+  return `#${pt.order || "?"}`;
+}
+
+function runDateSubLabel(pt) {
+  const raw = String(pt.started_at || "");
+  return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(5, 10) : "";
+}
+
+// 1. Proven findings per PR run (stacked by effect, PR order on x-axis)
+function buildFindingsPerRunSpec(runSeries) {
+  const points = Array.isArray(runSeries) ? runSeries : [];
+  const effectTotals = Object.fromEntries(EFFECT_KEYS.map(([k]) => [k, 0]));
+  points.forEach((p) => {
+    const eb = p.effects_breakdown || {};
+    EFFECT_KEYS.forEach(([k]) => { effectTotals[k] += Number(eb[k] || 0); });
+  });
+
+  const legend = h("ul", { class: "chart-legend-inline" },
+    ...EFFECT_KEYS.map(([k, label, cls]) => h("li", {},
+      h("span", { class: `swatch ${cls}` }),
+      h("span", { text: label }),
+      h("span", { class: "chart-legend-count", text: String(effectTotals[k]) }))),
+    h("li", {},
+      h("span", { class: "swatch", style: "background: var(--link)" }),
+      h("span", { text: "Suspicions raised (dashed)" })));
+
+  const renderChart = (isModal) => {
+    if (!points.length) return emptyState("not available", "No readable PR runs in this repository.");
+    const width = isModal ? 920 : 620;
+    const height = isModal ? 310 : 230;
+    const pad = { top: 16, right: 16, bottom: 42, left: 36 };
+    const innerW = width - pad.left - pad.right;
+    const innerH = height - pad.top - pad.bottom;
+    const maxVal = Math.max(
+      2,
+      ...points.map((p) => Math.max(Number(p.proven || 0), Number(p.suspicions_raised || 0))),
+    );
+    const step = maxVal <= 5 ? 1 : Math.ceil(maxVal / 5);
+    const top = Math.ceil(maxVal / step) * step;
+    const y = (v) => pad.top + innerH - (v / top) * innerH;
+    const slot = innerW / Math.max(points.length, 1);
+    const barW = Math.max(8, Math.min(34, slot * 0.56));
+
+    const root = svg("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": "Proven findings per PR run in sequence order, stacked by oracle effect",
+    });
+
+    const grid = svg("g", { class: "grid axis" });
+    for (let v = 0; v <= top; v += step) {
+      grid.appendChild(svg("line", { x1: pad.left, x2: width - pad.right, y1: y(v), y2: y(v) }));
+      grid.appendChild(svg("text", { x: pad.left - 8, y: y(v) + 4, "text-anchor": "end", text: String(v) }));
+    }
+    root.appendChild(grid);
+
+    const wrap = h("div", { class: "chart" });
+    const tip = h("div", { class: "tooltip", hidden: "hidden", role: "status" });
+    const labelEvery = Math.max(1, Math.ceil(points.length / (isModal ? 13 : 8)));
+
+    const suspCoords = [];
+    points.forEach((p, i) => {
+      const cx = pad.left + slot * i + slot / 2;
+      suspCoords.push([cx, y(Number(p.suspicions_raised || 0))]);
+      let base = 0;
+      const eb = p.effects_breakdown || {};
+      EFFECT_KEYS.forEach(([key, , cls]) => {
+        const val = Number(eb[key] || 0);
+        if (!val) return;
+        const y0 = y(base);
+        const y1 = y(base + val);
+        root.appendChild(svg("rect", {
+          class: `seg ${cls}`,
+          x: cx - barW / 2,
+          y: y1,
+          width: barW,
+          height: Math.max(2, y0 - y1),
+          rx: 2,
+        }));
+        base += val;
+      });
+
+      if (i % labelEvery === 0) {
+        root.appendChild(svg("text", { x: cx, y: height - 20, "text-anchor": "middle", class: "axis", text: runAxisLabel(p) }));
+        const sub = runDateSubLabel(p);
+        if (sub) {
+          root.appendChild(svg("text", { x: cx, y: height - 6, "text-anchor": "middle", class: "sub-axis", text: sub }));
+        }
+      }
+    });
+
+    if (suspCoords.length > 1) {
+      const d = suspCoords.map(([x, yPos], idx) => `${idx === 0 ? "M" : "L"}${x.toFixed(1)},${yPos.toFixed(1)}`).join(" ");
+      root.appendChild(svg("path", { class: "susp-line", d }));
+    }
+    suspCoords.forEach(([x, yPos]) => {
+      root.appendChild(svg("circle", { class: "susp-dot", cx: x, cy: yPos, r: 3 }));
+    });
+
+    points.forEach((p, i) => {
+      const cx = pad.left + slot * i + slot / 2;
+      const eb = p.effects_breakdown || {};
+      const hit = svg("rect", {
+        class: "hit",
+        x: cx - slot / 2,
+        y: pad.top,
+        width: slot,
+        height: innerH,
+        tabindex: "0",
+        "aria-label": `${runAxisLabel(p)}: ${p.proven || 0} proven, ${p.suspicions_raised || 0} suspicions`,
+      });
+      const showTip = () => {
+        tip.replaceChildren(
+          h("strong", { text: `${runAxisLabel(p)} · ${p.title || p.run_id}` }),
+          h("div", { class: "muted small", text: fmtDate(p.started_at, false) }),
+          ...EFFECT_KEYS.map(([k, label, cls]) => h("div", { class: "row" },
+            h("span", {}, h("span", { class: `swatch ${cls}` }), ` ${label}`),
+            h("strong", { class: "mono", text: String(eb[k] || 0) }))),
+          h("div", { class: "row" }, h("span", { text: "Suspicions raised" }), h("strong", { class: "mono", text: String(p.suspicions_raised || 0) })));
+        tip.hidden = false;
+        const box = wrap.getBoundingClientRect();
+        const left = Math.min(Math.max((cx / width) * box.width - 90, 0), Math.max(box.width - 210, 0));
+        tip.style.setProperty("left", `${left}px`);
+        tip.style.setProperty("top", "0px");
+      };
+      hit.addEventListener("mouseenter", showTip);
+      hit.addEventListener("focus", showTip);
+      hit.addEventListener("mouseleave", () => { tip.hidden = true; });
+      hit.addEventListener("blur", () => { tip.hidden = true; });
+      hit.addEventListener("click", () => { location.hash = runHref(p.run_id); });
+      root.appendChild(hit);
+    });
+
+    return append(wrap, [root, tip]);
+  };
+
+  return {
+    id: "chart-home-findings-series",
+    title: "Proven findings per PR run (by effect)",
+    subtitle: "PR run sequence on x-axis (oldest → newest); date as secondary label",
+    legend,
+    renderChart,
+    howToRead: "Each vertical bar represents one pull request run in chronological run order (PR # and commit on the x-axis, date underneath). Stacked bar segments show proven findings split by oracle-observed effect (read, write, exec, SQL). The dashed line marks total suspicions raised in that run.",
+    whatStandsOut: whatStandsOutFromSeries(
+      points.map((p) => ({ label: runAxisLabel(p), value: Number(p.proven || 0) })),
+      "proven findings",
+    ),
+    tableHeaders: ["Order", "PR / Commit", "Date", "Read", "Write", "Exec", "SQL", "Proven", "Suspicions"],
+    tableRows: points.map((p) => {
+      const eb = p.effects_breakdown || {};
+      return [
+        p.order,
+        runAxisLabel(p),
+        String(p.started_at || "").slice(0, 10) || NA,
+        Number(eb.read || 0),
+        Number(eb.write || 0),
+        Number(eb.exec || 0),
+        Number(eb.sql || 0),
+        Number(p.proven || 0),
+        Number(p.suspicions_raised || 0),
+      ];
+    }),
+  };
+}
+
+// 2. Verification funnel (Suspicions -> Exploits written -> Proven -> Fix verified -> Bypass-resistant)
+function buildFunnelSpec(funnel) {
+  const f = funnel || {};
+  const hasData = isNum(f.suspicions_raised);
+  const stages = [
+    ["Suspicions raised", f.suspicions_raised, "fill-neutral"],
+    ["Exploits written", f.exploits_written, "fill-verified"],
+    ["Proven findings", f.proven, "fill-proven"],
+    ["Fixes verified", f.fixes_verified, "fill-verified"],
+    ["Bypass-resistant", f.bypass_resistant, "fill-verified"],
+  ];
+  const base = Number(f.suspicions_raised || 0);
+
+  const renderChart = () => {
+    if (!hasData) return emptyState("not available", "Funnel counts are not available.");
+    return h("div", { class: "hbar-list" },
+      stages.map(([label, val, fillCls], idx) => {
+        const num = isNum(val) ? val : 0;
+        const prev = idx === 0 ? num : (isNum(stages[idx - 1][1]) ? stages[idx - 1][1] : 0);
+        const shareOfTop = base > 0 ? Math.round((num / base) * 100) : 0;
+        const stepPct = idx === 0 ? 100 : (prev > 0 ? Math.round((num / prev) * 100) : 0);
+        return h("div", { class: "hbar-row" },
+          h("div", { class: "hbar-head" },
+            h("span", { class: "hbar-label", text: `${idx + 1}. ${label}` }),
+            h("span", { class: "hbar-meta" },
+              h("strong", { text: isNum(val) ? String(val) : NA }),
+              h("span", { text: base > 0 ? `(${shareOfTop}% of suspicions · ${stepPct}% step)` : "" }))),
+          h("div", { class: "hbar-track" },
+            h("div", { class: `hbar-fill ${fillCls}`, style: `width: ${base > 0 ? Math.max(num > 0 ? 4 : 0, shareOfTop) : 0}%` })));
+      }));
+  };
+
+  return {
+    id: "chart-home-funnel",
+    title: "Proof & fix verification funnel",
+    subtitle: "Suspicions → Exploits written → Proven → Fix verified → Bypass-resistant",
+    renderChart,
+    howToRead: "Tracks every suspicion raised across all runs of the repository through the 8-stage proof loop: how many had an exploit test written, how many failed on the vulnerable code for the oracle-observed reason (Proven), how many passed on the fixed code with the baseline intact (Fixes verified), and how many held against all defender bypass variants (Bypass-resistant).",
+    whatStandsOut: hasData
+      ? whatStandsOutFromSeries(stages.map(([label, val]) => ({ label, value: Number(val || 0) })), "stage count")
+      : [`Funnel data is ${NA}.`],
+    tableHeaders: ["Stage", "Count", "Share of suspicions (%)", "Step conversion (%)"],
+    tableRows: hasData
+      ? stages.map(([label, val], idx) => {
+          const num = Number(val || 0);
+          const prev = idx === 0 ? num : Number(stages[idx - 1][1] || 0);
+          return [
+            label,
+            num,
+            base > 0 ? Number(((num / base) * 100).toFixed(1)) : 0,
+            idx === 0 ? 100 : (prev > 0 ? Number(((num / prev) * 100).toFixed(1)) : 0),
+          ];
+        })
+      : [],
+  };
+}
+
+// 3. Verdict outcome donut with legend, counts, and centre total
+function buildOutcomeDonutSpec(verdictTotals) {
+  const vt = verdictTotals || {};
+  const hasData = Object.keys(vt).length > 0;
+  const slices = OUTCOME_KEYS.map(([key, label, swatchCls]) => ({
+    key,
+    label,
+    swatchCls,
+    count: isNum(vt[key]) ? vt[key] : 0,
+  }));
+  const total = slices.reduce((acc, s) => acc + s.count, 0);
+
+  const colorMap = {
+    proven: "var(--c-proven)",
+    discarded_unproven: "var(--c-unproven)",
+    invalid_test: "var(--c-invalid)",
+    flaky: "var(--c-flaky)",
+    env_failure: "var(--c-environment)",
+  };
+
+  const renderChart = (isModal) => {
+    if (!hasData) return emptyState("not available", "Verdict totals are not available.");
+    const size = isModal ? 220 : 176;
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = isModal ? 76 : 60;
+    const strokeW = isModal ? 24 : 20;
+    const circum = 2 * Math.PI * r;
+
+    const donutSvg = svg("svg", {
+      viewBox: `0 0 ${size} ${size}`,
+      role: "img",
+      "aria-label": `Verdict outcomes donut: ${total} total verdicts`,
+    });
+
+    donutSvg.appendChild(svg("circle", {
+      cx,
+      cy,
+      r,
+      fill: "none",
+      stroke: "var(--track)",
+      "stroke-width": strokeW,
+    }));
+
+    let offset = 0;
+    if (total > 0) {
+      slices.forEach((s) => {
+        if (!s.count) return;
+        const segLen = (s.count / total) * circum;
+        const circle = svg("circle", {
+          cx,
+          cy,
+          r,
+          fill: "none",
+          stroke: colorMap[s.key] || "var(--c-unproven)",
+          "stroke-width": strokeW,
+          "stroke-dasharray": `${Math.max(1, segLen - 1.5)} ${circum}`,
+          "stroke-dashoffset": String(-offset),
+          transform: `rotate(-90 ${cx} ${cy})`,
+        });
+        donutSvg.appendChild(circle);
+        offset += segLen;
+      });
+    }
+
+    donutSvg.appendChild(svg("text", {
+      x: cx,
+      y: cy + 4,
+      "text-anchor": "middle",
+      class: "donut-center-num",
+      text: String(total),
+    }));
+    donutSvg.appendChild(svg("text", {
+      x: cx,
+      y: cy + 20,
+      "text-anchor": "middle",
+      class: "donut-center-sub",
+      text: "VERDICTS",
+    }));
+
+    const legendList = h("ul", { class: "donut-legend-list" },
+      slices.map((s) => {
+        const share = total > 0 ? ((s.count / total) * 100).toFixed(1) : "0.0";
+        return h("li", { class: "donut-legend-row" },
+          h("span", { class: `swatch ${s.swatchCls}` }),
+          h("span", { class: "donut-legend-name", text: s.label }),
+          h("span", { class: "donut-legend-count", text: String(s.count) }),
+          h("span", { class: "donut-legend-pct", text: `${share}%` }));
+      }));
+
+    return h("div", { class: "donut-layout" },
+      h("div", { class: "donut-svg-wrap" }, donutSvg),
+      legendList);
+  };
+
+  return {
+    id: "chart-home-donut",
+    title: "Verdict outcomes",
+    subtitle: "Cumulative distribution across all suspicions judged",
+    renderChart,
+    howToRead: "Shows the centre total of all recorded verdicts across the repository and breaks them down into the five schema-defined verdict outcomes: Proven, Discarded (unproven), Invalid test, Flaky, and Environment failure.",
+    whatStandsOut: hasData
+      ? whatStandsOutFromSeries(slices.map((s) => ({ label: s.label, value: s.count })), "verdicts")
+      : [`Verdict totals are ${NA}.`],
+    tableHeaders: ["Verdict", "Count", "Share (%)"],
+    tableRows: hasData
+      ? slices.map((s) => [
+          s.label,
+          s.count,
+          total > 0 ? Number(((s.count / total) * 100).toFixed(1)) : 0,
+        ])
+      : [],
+  };
+}
+
+// 4. Cost & tokens per PR run split by model role
+function buildRoleCostSpec(runSeries) {
+  const points = Array.isArray(runSeries) ? runSeries : [];
+  const roleTotals = Object.fromEntries(ROLE_KEYS.map(([k]) => [k, { cost: 0, tokens: 0 }]));
+  points.forEach((p) => {
+    const br = p.by_role || {};
+    ROLE_KEYS.forEach(([k]) => {
+      const r = br[k] || {};
+      roleTotals[k].cost += Number(r.cost_usd || 0);
+      roleTotals[k].tokens += Number(r.tokens_in || 0) + Number(r.tokens_out || 0);
+    });
+  });
+
+  const legend = h("ul", { class: "chart-legend-inline" },
+    ROLE_KEYS.map(([k, label, cls]) => h("li", {},
+      h("span", { class: `swatch ${cls}` }),
+      h("span", { text: label }),
+      h("span", { class: "chart-legend-count", text: `${fmtCost(roleTotals[k].cost)} (${fmtTokens(roleTotals[k].tokens)})` }))));
+
+  const renderChart = (isModal) => {
+    if (!points.length) return emptyState("not available", "No readable PR runs in this repository.");
+    const width = isModal ? 920 : 620;
+    const height = isModal ? 310 : 230;
+    const pad = { top: 16, right: 16, bottom: 42, left: 60 };
+    const innerW = width - pad.left - pad.right;
+    const innerH = height - pad.top - pad.bottom;
+    const totals = points.map((p) => ROLE_KEYS.reduce((s, [k]) => s + Number(((p.by_role || {})[k] || {}).cost_usd || 0), 0));
+    const maxCost = Math.max(0.01, ...totals);
+    const top = Math.ceil(maxCost * 100) / 100;
+    const y = (v) => pad.top + innerH - (v / top) * innerH;
+    const slot = innerW / Math.max(points.length, 1);
+    const barW = Math.max(8, Math.min(34, slot * 0.56));
+
+    const root = svg("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": "Model cost per PR run in USD split by role: adversary, test writer, fixer, defender",
+    });
+
+    const grid = svg("g", { class: "grid axis" });
+    for (let i = 0; i <= 4; i++) {
+      const v = (top / 4) * i;
+      grid.appendChild(svg("line", { x1: pad.left, x2: width - pad.right, y1: y(v), y2: y(v) }));
+      grid.appendChild(svg("text", { x: pad.left - 6, y: y(v) + 4, "text-anchor": "end", text: fmtCost(v) }));
+    }
+    root.appendChild(grid);
+
+    const wrap = h("div", { class: "chart" });
+    const tip = h("div", { class: "tooltip", hidden: "hidden", role: "status" });
+    const labelEvery = Math.max(1, Math.ceil(points.length / (isModal ? 13 : 8)));
+
+    points.forEach((p, i) => {
+      const cx = pad.left + slot * i + slot / 2;
+      let base = 0;
+      const br = p.by_role || {};
+      ROLE_KEYS.forEach(([k, , cls]) => {
+        const val = Number((br[k] || {}).cost_usd || 0);
+        if (val <= 0) return;
+        const y0 = y(base);
+        const y1 = y(base + val);
+        root.appendChild(svg("rect", {
+          class: `seg ${cls}`,
+          x: cx - barW / 2,
+          y: y1,
+          width: barW,
+          height: Math.max(2, y0 - y1),
+          rx: 2,
+        }));
+        base += val;
+      });
+
+      if (i % labelEvery === 0) {
+        root.appendChild(svg("text", { x: cx, y: height - 20, "text-anchor": "middle", class: "axis", text: runAxisLabel(p) }));
+        const sub = runDateSubLabel(p);
+        if (sub) {
+          root.appendChild(svg("text", { x: cx, y: height - 6, "text-anchor": "middle", class: "sub-axis", text: sub }));
+        }
+      }
+
+      const hit = svg("rect", {
+        class: "hit",
+        x: cx - slot / 2,
+        y: pad.top,
+        width: slot,
+        height: innerH,
+        tabindex: "0",
+        "aria-label": `${runAxisLabel(p)}: total cost ${fmtCost(p.cost_usd)}`,
+      });
+      const showTip = () => {
+        tip.replaceChildren(
+          h("strong", { text: `${runAxisLabel(p)} · ${fmtCost(p.cost_usd)}` }),
+          h("div", { class: "muted small", text: `${fmtTokens(p.tokens_in)} in · ${fmtTokens(p.tokens_out)} out` }),
+          ...ROLE_KEYS.map(([k, label, cls]) => {
+            const rc = Number((br[k] || {}).cost_usd || 0);
+            return h("div", { class: "row" },
+              h("span", {}, h("span", { class: `swatch ${cls}` }), ` ${label}`),
+              h("strong", { class: "mono", text: fmtCost(rc) }));
+          }));
+        tip.hidden = false;
+        const box = wrap.getBoundingClientRect();
+        const left = Math.min(Math.max((cx / width) * box.width - 90, 0), Math.max(box.width - 210, 0));
+        tip.style.setProperty("left", `${left}px`);
+        tip.style.setProperty("top", "0px");
+      };
+      hit.addEventListener("mouseenter", showTip);
+      hit.addEventListener("focus", showTip);
+      hit.addEventListener("mouseleave", () => { tip.hidden = true; });
+      hit.addEventListener("blur", () => { tip.hidden = true; });
+      hit.addEventListener("click", () => { location.hash = runHref(p.run_id); });
+      root.appendChild(hit);
+    });
+
+    return append(wrap, [root, tip]);
+  };
+
+  return {
+    id: "chart-home-cost-role",
+    title: "Cost & tokens per PR run by model role",
+    subtitle: "Stacked USD spend per PR run across adversary, test writer, fixer, and defender",
+    legend,
+    renderChart,
+    howToRead: "Each bar shows the recorded model spend (USD) for one PR run in run order, split by the four model roles (adversary, test_writer, fixer, defender) from ledger event metadata. Skipped or deterministic runs with zero model calls show $0.00.",
+    whatStandsOut: whatStandsOutFromSeries(
+      points.map((p) => ({ label: runAxisLabel(p), value: Number(p.cost_usd || 0) })),
+      "USD",
+      true,
+    ),
+    tableHeaders: ["Order", "PR / Commit", "Adversary ($)", "Test writer ($)", "Fixer ($)", "Defender ($)", "Total cost ($)", "Tokens in", "Tokens out"],
+    tableRows: points.map((p) => {
+      const br = p.by_role || {};
+      return [
+        p.order,
+        runAxisLabel(p),
+        Number(((br.adversary || {}).cost_usd || 0).toFixed(4)),
+        Number(((br.test_writer || {}).cost_usd || 0).toFixed(4)),
+        Number(((br.fixer || {}).cost_usd || 0).toFixed(4)),
+        Number(((br.defender || {}).cost_usd || 0).toFixed(4)),
+        Number(Number(p.cost_usd || 0).toFixed(4)),
+        Number(p.tokens_in || 0),
+        Number(p.tokens_out || 0),
+      ];
+    }),
+  };
+}
+
+// 5. Hot files heatmap (file × PR run)
+function buildHotFilesSpec(hotFiles) {
+  const hf = hotFiles || {};
+  const files = Array.isArray(hf.files) ? hf.files : [];
+  const runs = Array.isArray(hf.runs) ? hf.runs : [];
+  const cells = Array.isArray(hf.cells) ? hf.cells : [];
+  const cellMap = new Map(cells.map((c) => [`${c.file}::${c.run_id}`, c]));
+
+  const legend = h("ul", { class: "chart-legend-inline" },
+    h("li", {}, h("span", { class: "hm-cell hm-proven", text: "P:1" }), h("span", { text: "Proven finding(s) in file" })),
+    h("li", {}, h("span", { class: "hm-cell hm-discarded", text: "S:1" }), h("span", { text: "Discarded suspicion(s) only" })),
+    h("li", {}, h("span", { class: "hm-cell hm-touched", text: "·" }), h("span", { text: "Touched in PR diff, 0 suspicions" })),
+    h("li", {}, h("span", { class: "hm-cell hm-empty", text: "–" }), h("span", { text: "Not touched in run" })));
+
+  const fileAgg = files.map((fname) => {
+    let proven = 0;
+    let discarded = 0;
+    let touchedRuns = 0;
+    runs.forEach((r) => {
+      const c = cellMap.get(`${fname}::${r.run_id}`);
+      if (c) {
+        proven += Number(c.proven || 0);
+        discarded += Number(c.discarded || 0);
+        if (c.touched || c.proven || c.discarded) touchedRuns += 1;
+      }
+    });
+    return { file: fname, proven, discarded, touchedRuns };
+  });
+
+  const renderChart = () => {
+    if (!files.length || !runs.length) {
+      return emptyState("not available", "No file activity recorded across runs.");
+    }
+    return h("div", { class: "heatmap-scroll" },
+      h("table", { class: "heatmap-table", "aria-label": "Hot files heatmap across PR runs" },
+        h("thead", {},
+          h("tr", {},
+            h("th", { class: "hm-file-col", text: "File" }),
+            ...runs.map((r) => h("th", { class: "mono", text: runAxisLabel(r), title: fmtDate(r.started_at, false) })),
+            h("th", { class: "num mono", text: "Proven" }))),
+        h("tbody", {},
+          fileAgg.map((fa) => h("tr", {},
+            h("td", { class: "hm-file-col", text: fa.file, title: fa.file }),
+            ...runs.map((r) => {
+              const c = cellMap.get(`${fa.file}::${r.run_id}`) || { proven: 0, discarded: 0, touched: false };
+              if (c.proven > 0) {
+                return h("td", {}, h("a", {
+                  class: "hm-cell hm-proven",
+                  href: runHref(r.run_id),
+                  title: `${fa.file} in ${runAxisLabel(r)}: ${c.proven} proven, ${c.discarded} discarded`,
+                  text: `P:${c.proven}`,
+                }));
+              }
+              if (c.discarded > 0) {
+                return h("td", {}, h("a", {
+                  class: "hm-cell hm-discarded",
+                  href: runHref(r.run_id),
+                  title: `${fa.file} in ${runAxisLabel(r)}: 0 proven, ${c.discarded} discarded`,
+                  text: `S:${c.discarded}`,
+                }));
+              }
+              if (c.touched) {
+                return h("td", {}, h("a", {
+                  class: "hm-cell hm-touched",
+                  href: runHref(r.run_id),
+                  title: `${fa.file} touched in ${runAxisLabel(r)}: 0 suspicions`,
+                  text: "·",
+                }));
+              }
+              return h("td", {}, h("span", { class: "hm-cell hm-empty", text: "–" }));
+            }),
+            h("td", { class: "num mono", text: String(fa.proven) }))))));
+  };
+
+  return {
+    id: "chart-home-heatmap",
+    title: "Hot files heatmap (file × PR run)",
+    subtitle: "Files touched, suspected, or proven vulnerable across PR runs in sequence order",
+    legend,
+    renderChart,
+    howToRead: "Rows list repository files ordered by proven findings and suspicion frequency; columns list PR runs from oldest to newest. 'P:n' marks n proven findings observed in that file during that PR run; 'S:n' marks n discarded suspicions; '·' marks a file modified by the PR diff with no suspicions.",
+    whatStandsOut: whatStandsOutFromSeries(
+      fileAgg.map((fa) => ({ label: fa.file, value: fa.proven })),
+      "proven findings across files",
+    ),
+    tableHeaders: ["File", "Runs touched", "Proven findings", "Discarded suspicions"],
+    tableRows: fileAgg.map((fa) => [fa.file, fa.touchedRuns, fa.proven, fa.discarded]),
+  };
+}
+
+// 6. Cumulative time & events per stage (BASELINE .. PACKAGE)
+function buildStageDurationSpec(stageDurations) {
+  const rows = Array.isArray(stageDurations) ? stageDurations : [];
+  const maxSec = Math.max(1, ...rows.map((r) => Number(r.duration_s || 0)));
+
+  const renderChart = () => {
+    if (!rows.length) return emptyState("not available", "Stage durations are not available.");
+    return h("div", { class: "hbar-list" },
+      rows.map((r, idx) => {
+        const sec = Number(r.duration_s || 0);
+        const ev = Number(r.events || 0);
+        const widthPct = maxSec > 0 ? Math.max(sec > 0 ? 3 : 0, Math.round((sec / maxSec) * 100)) : 0;
+        return h("div", { class: "hbar-row" },
+          h("div", { class: "hbar-head" },
+            h("span", { class: "hbar-label mono", text: `${idx + 1}. ${r.stage}` }),
+            h("span", { class: "hbar-meta" },
+              h("strong", { text: `${sec.toFixed(1)}s` }),
+              h("span", { text: `${plural(ev, "event")} · ${plural(r.runs_active || 0, "run")}` }))),
+          h("div", { class: "hbar-track" },
+            h("div", { class: "hbar-fill fill-verified", style: `width: ${widthPct}%` })));
+      }));
+  };
+
+  return {
+    id: "chart-home-stage-time",
+    title: "Time & events per verification stage",
+    subtitle: "Cumulative elapsed duration (s) and event counts across BASELINE → PACKAGE",
+    renderChart,
+    howToRead: "Sums the elapsed ledger timestamps (and recorded step latencies) for each of the eight verification stages across all readable runs in the repository.",
+    whatStandsOut: whatStandsOutFromSeries(
+      rows.map((r) => ({ label: r.stage, value: Number(r.duration_s || 0) })),
+      "seconds",
+    ),
+    tableHeaders: ["Stage", "Duration (s)", "Events", "Active runs"],
+    tableRows: rows.map((r) => [
+      r.stage,
+      Number(Number(r.duration_s || 0).toFixed(3)),
+      Number(r.events || 0),
+      Number(r.runs_active || 0),
+    ]),
+  };
+}
+
+// 7. Severity & CWE distribution
+function buildCweDistributionSpec(cweDist, severityMixObj) {
+  const rows = Array.isArray(cweDist) ? cweDist : [];
+  const mix = severityMixObj || {};
+  const maxCount = Math.max(1, ...rows.map((r) => Number(r.count || 0)));
+
+  const renderChart = () => {
+    if (!rows.length) {
+      return h("div", { class: "hbar-list" },
+        severityMix(mix, false),
+        nothingProven("repository"));
+    }
+    return h("div", { class: "hbar-list" },
+      severityMix(mix, false),
+      ...rows.map((r) => {
+        const cnt = Number(r.count || 0);
+        const sev = r.severity || "low";
+        const widthPct = Math.max(6, Math.round((cnt / maxCount) * 100));
+        return h("div", { class: "hbar-row" },
+          h("div", { class: "hbar-head" },
+            h("span", { class: "hbar-label" },
+              h("span", { class: `tag-severity sev-${sev}`, text: humanize(sev) }),
+              h("span", { class: "mono", text: r.cwe || "unspecified" }),
+              h("span", { class: "muted small", text: `· ${humanize(String(r.effect || "").replace(/^canary_/, ""))}` })),
+            h("span", { class: "hbar-meta" },
+              h("strong", { text: plural(cnt, "proven finding") }))),
+          h("div", { class: "hbar-track" },
+            h("div", { class: `hbar-fill fill-${sev}`, style: `width: ${widthPct}%` })));
+      }));
+  };
+
+  return {
+    id: "chart-home-cwe-dist",
+    title: "Proven severity & CWE distribution",
+    subtitle: "Grouped by CWE identifier, severity band, and oracle effect",
+    renderChart,
+    howToRead: "Top bar shows the proportion of proven findings by severity band (critical, high, medium, low). Horizontal tracks below list each (CWE, severity, oracle effect) tuple observed in proven findings.",
+    whatStandsOut: rows.length
+      ? whatStandsOutFromSeries(rows.map((r) => ({ label: `${r.cwe} (${r.severity})`, value: Number(r.count || 0) })), "proven findings")
+      : ["No proven findings recorded in this repository; nothing could be proven."],
+    tableHeaders: ["CWE", "Severity", "Effect", "Proven findings"],
+    tableRows: rows.map((r) => [r.cwe || NA, r.severity || NA, r.effect || NA, Number(r.count || 0)]),
+  };
+}
+
+// Filter panel + Sortable Pull Requests Table (coloured left border by severity + chips)
+function buildPrFilterTable(rows, opts = {}) {
+  const allRows = Array.isArray(rows) ? rows : [];
+  const showRepo = Boolean(opts.showRepo);
+  const filterState = {
+    query: "",
+    outcome: "all",
+    severity: "all",
+    risk: "all",
+    effect: "all",
+    sort: "newest",
+  };
+
+  const searchInput = h("input", {
+    type: "search",
+    class: "pr-filter-search",
+    placeholder: "Filter by PR #, title, branch, commit, file, or CWE…",
+    "aria-label": "Filter pull requests",
+  });
+
+  const outcomeSel = h("select", { class: "pr-filter-select", "aria-label": "Filter by outcome" },
+    h("option", { value: "all", text: "All outcomes" }),
+    h("option", { value: "proven", text: "Proven findings (> 0)" }),
+    h("option", { value: "nothing_proven", text: "Nothing proven (0)" }),
+    h("option", { value: "bypassed", text: "Fix defeated by bypass" }),
+    h("option", { value: "non_completed", text: "Skipped / aborted / timed out" }));
+
+  const sevSel = h("select", { class: "pr-filter-select", "aria-label": "Filter by proven severity" },
+    h("option", { value: "all", text: "All severities" }),
+    h("option", { value: "critical", text: "Critical" }),
+    h("option", { value: "high", text: "High" }),
+    h("option", { value: "medium", text: "Medium" }),
+    h("option", { value: "low", text: "Low" }));
+
+  const riskSel = h("select", { class: "pr-filter-select", "aria-label": "Filter by change risk" },
+    h("option", { value: "all", text: "All change risks" }),
+    h("option", { value: "high", text: "Gate: high" }),
+    h("option", { value: "medium", text: "Gate: medium" }),
+    h("option", { value: "low", text: "Gate: low" }));
+
+  const effSel = h("select", { class: "pr-filter-select", "aria-label": "Filter by oracle effect" },
+    h("option", { value: "all", text: "All effects" }),
+    h("option", { value: "read", text: "Effect: read" }),
+    h("option", { value: "write", text: "Effect: write" }),
+    h("option", { value: "exec", text: "Effect: exec" }),
+    h("option", { value: "sql", text: "Effect: sql" }));
+
+  const sortSel = h("select", { class: "pr-filter-select", "aria-label": "Sort pull requests" },
+    h("option", { value: "newest", text: "Sort: Newest first" }),
+    h("option", { value: "oldest", text: "Sort: Oldest first (run order)" }),
+    h("option", { value: "severity", text: "Sort: Highest proven severity" }),
+    h("option", { value: "proven", text: "Sort: Most proven findings" }),
+    h("option", { value: "duration", text: "Sort: Longest duration" }),
+    h("option", { value: "cost", text: "Sort: Highest cost" }));
+
+  const countBadge = h("span", { class: "pr-filter-count", text: `${allRows.length} of ${allRows.length} PRs` });
+  const tbody = h("tbody", {});
+
+  const renderRows = () => {
+    const q = filterState.query.trim().toLowerCase();
+    const filtered = allRows.filter((r) => {
+      if (filterState.outcome === "proven" && !(r.proven > 0)) return false;
+      if (filterState.outcome === "nothing_proven" && (r.proven > 0 || r.status === "unreadable")) return false;
+      if (filterState.outcome === "bypassed" && !(r.fixes_bypassed > 0)) return false;
+      if (filterState.outcome === "non_completed" && r.status === "completed") return false;
+      if (filterState.severity !== "all" && (r.highest_severity || "") !== filterState.severity) return false;
+      if (filterState.risk !== "all" && (r.risk || "") !== filterState.risk) return false;
+      if (filterState.effect !== "all") {
+        const effs = (r.effects || []).map((e) => String(e).replace(/^canary_/, ""));
+        if (!effs.includes(filterState.effect)) return false;
+      }
+      if (q) {
+        const hay = [
+          r.run_id,
+          r.pr,
+          r.title,
+          r.headline,
+          r.repo,
+          r.branch,
+          r.commit,
+          ...(r.cwes || []),
+          ...(r.effects || []),
+          ...(r.files_touched || []),
+        ].join(" ").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      if (filterState.sort === "oldest") {
+        return String(a.started_at || "").localeCompare(String(b.started_at || ""));
+      }
+      if (filterState.sort === "severity") {
+        const sa = a.proven > 0 ? (SEVERITY_RANK[a.highest_severity] || 0) : -1;
+        const sb = b.proven > 0 ? (SEVERITY_RANK[b.highest_severity] || 0) : -1;
+        if (sb !== sa) return sb - sa;
+      }
+      if (filterState.sort === "proven") {
+        if ((b.proven || 0) !== (a.proven || 0)) return (b.proven || 0) - (a.proven || 0);
+      }
+      if (filterState.sort === "duration") {
+        return (Number(b.duration_s) || -1) - (Number(a.duration_s) || -1);
+      }
+      if (filterState.sort === "cost") {
+        return (Number(b.cost_usd) || -1) - (Number(a.cost_usd) || -1);
+      }
+      return String(b.started_at || "").localeCompare(String(a.started_at || ""));
+    });
+
+    countBadge.textContent = `${filtered.length} of ${allRows.length} PRs`;
+
+    if (!filtered.length) {
+      tbody.replaceChildren(h("tr", {},
+        h("td", { colspan: "7", class: "muted", text: "No pull requests match the active filters." })));
+      return;
+    }
+
+    tbody.replaceChildren(...filtered.map((row) => {
+      const target = runHref(row.run_id);
+      const title = row.title || row.headline || row.run_id;
+      const sev = row.proven > 0 ? (row.highest_severity || "low") : "none";
+      const effects = (row.effects || []).map((e) => String(e).replace(/^canary_/, ""));
+      const cwes = row.cwes || [];
+
+      const chips = [];
+      effects.forEach((eff) => chips.push(h("span", { class: "mini-chip", text: humanize(eff) })));
+      cwes.forEach((cwe) => chips.push(h("span", { class: "mini-chip chip-cwe", text: cwe })));
+
+      const verdictCell = [];
+      if (row.proven > 0 && row.highest_severity) {
+        verdictCell.push(h("span", { class: `tag-severity sev-${row.highest_severity}`, text: humanize(row.highest_severity) }));
+      }
+      verdictCell.push(statusBadge(row));
+      if (row.fixes_bypassed > 0) {
+        verdictCell.push(h("span", { class: "badge fail", text: "bypassed" }));
+      } else if (row.fixes_verified > 0) {
+        verdictCell.push(h("span", { class: "badge ok", text: `${row.fixes_verified} verified` }));
+      }
+
+      return h("tr", {
+        class: `pr-table-row sev-border-${sev}`,
+        onclick: (e) => { if (!(e.target instanceof HTMLAnchorElement)) location.hash = target; },
+      },
+        h("td", {},
+          h("div", { class: "cell-stack" },
+            h("div", { class: "chip-cluster" },
+              h("span", { class: "mono", text: prLabel(row) || shortSha(row.commit) || row.run_id }),
+              row.synthetic ? h("span", { class: "tag", text: "synthetic" }) : null),
+            h("span", { class: "run-sub mono", text: `${shortSha(row.commit) || NA} · ${fmtDate(row.started_at, false)}` }))),
+        h("td", {},
+          h("div", { class: "cell-stack" },
+            h("a", { class: "run-title", href: target, text: title, title }),
+            h("span", {
+              class: "run-sub",
+              text: `${showRepo && row.repo ? `${repoShort(row.repo)} · ` : ""}${row.branch || row.headline || NA}`,
+            }))),
+        h("td", {}, h("div", { class: "chip-cluster" }, verdictCell)),
+        h("td", {}, chips.length ? h("div", { class: "chip-cluster" }, chips) : h("span", { class: "muted small", text: "–" })),
+        h("td", {}, row.risk
+          ? h("span", { class: `mini-chip chip-risk-${row.risk}`, text: `gate: ${row.risk}` })
+          : h("span", { class: "muted small", text: NA })),
+        h("td", { class: "num mono", text: fmtDuration(row.duration_s) }),
+        h("td", { class: "num mono", text: fmtCost(row.cost_usd) }));
+    }));
+  };
+
+  searchInput.addEventListener("input", () => { filterState.query = searchInput.value; renderRows(); });
+  outcomeSel.addEventListener("change", () => { filterState.outcome = outcomeSel.value; renderRows(); });
+  sevSel.addEventListener("change", () => { filterState.severity = sevSel.value; renderRows(); });
+  riskSel.addEventListener("change", () => { filterState.risk = riskSel.value; renderRows(); });
+  effSel.addEventListener("change", () => { filterState.effect = effSel.value; renderRows(); });
+  sortSel.addEventListener("change", () => { filterState.sort = sortSel.value; renderRows(); });
+
+  renderRows();
+
+  const filterBar = h("div", { class: "pr-filter-bar" },
+    searchInput, outcomeSel, sevSel, riskSel, effSel, sortSel, countBadge);
+
+  const table = h("table", { class: "runs pr-table" },
+    h("thead", {}, h("tr", {},
+      h("th", { scope: "col", text: "PR · Commit" }),
+      h("th", { scope: "col", text: "Pull request & branch" }),
+      h("th", { scope: "col", text: "Proven severity & status" }),
+      h("th", { scope: "col", text: "Effects & CWEs" }),
+      h("th", { scope: "col", text: "Change risk" }),
+      h("th", { scope: "col", class: "num", text: "Duration" }),
+      h("th", { scope: "col", class: "num", text: "Cost" }))),
+    tbody);
+
+  return h("div", { class: "card table-card anim-enter" }, filterBar, h("div", { class: "table-wrap" }, table));
+}
 
 function sparkline(trend) {
   // Proven findings per run, oldest to newest. Bars, not a line: the runs are discrete.
@@ -998,28 +2092,74 @@ async function renderHome(repoId) {
         h("p", { class: "section-subtitle", text: `${plural(repos.length, "repository", "repositories")} across ${plural(index.runs_considered || 0, "run")}. Pick one to see its pull requests and findings.` }))),
     h("div", { class: "repo-grid" }, repos.map((r) => repoCard(r, r.id === selected.id))));
 
-  const runsNote = `${plural(m.runs || 0, "run")}${(index.runs_total || 0) > (index.runs_considered || 0) ? ` (newest ${index.runs_considered} of ${index.runs_total} read)` : ""}`;
-  const metrics = h("div", { class: "metric-row" },
-    metricTile("Proven findings", String(m.proven || 0), `across ${runsNote}`, m.proven ? "is-proven" : ""),
-    metricTile("Unique root causes", String(m.root_causes || 0), "same effect, CWE and code"),
-    metricTile("Fixes verified", String(m.fixes_verified || 0), m.fixes_bypassed ? `${m.fixes_bypassed} bypassed by a variant` : `of ${plural(m.proven || 0, "proven finding")}`),
-    metricTile("Discarded suspicions", String(m.discarded || 0), "not proven; not evidence of safety"),
-    metricTile("Cost", fmtCost(m.cost_usd), `${fmtTokens(m.tokens_in)} tokens in · ${fmtTokens(m.tokens_out)} out`));
+  const runsNote = isNum(m.runs)
+    ? `${plural(m.runs, "PR run")}${(index.runs_total || 0) > (index.runs_considered || 0) ? ` (newest ${index.runs_considered} of ${index.runs_total} read)` : ""}`
+    : NA;
+  const metrics = h("div", { class: "metric-row anim-enter" },
+    metricTile(
+      "Proven findings",
+      isNum(m.proven) ? String(m.proven) : NA,
+      isNum(m.root_causes) ? `${plural(m.root_causes, "unique root cause")} across ${runsNote}` : NA,
+      m.proven > 0 ? "is-proven" : "",
+    ),
+    metricTile(
+      "Fixes verified",
+      isNum(m.fixes_verified) ? String(m.fixes_verified) : NA,
+      isNum(m.proven) ? `of ${plural(m.proven, "proven finding")} (${pct(m.fixes_verified || 0, m.proven || 1)}% held)` : NA,
+      "is-verified",
+    ),
+    metricTile(
+      "Defeated by bypass",
+      isNum(m.fixes_bypassed) ? String(m.fixes_bypassed) : NA,
+      "defender variant broke proposed fix",
+      m.fixes_bypassed > 0 ? "is-warn" : "",
+    ),
+    metricTile(
+      "Discarded suspicions",
+      isNum(m.discarded) ? String(m.discarded) : NA,
+      isNum(m.suspicions_raised) ? `of ${plural(m.suspicions_raised, "suspicion")} raised · not evidence of safety` : "not proven; not evidence of safety",
+    ),
+    metricTile(
+      "PR runs",
+      isNum(m.runs) ? String(m.runs) : NA,
+      isNum(m.exploits_written) ? `cumulative history · ${plural(m.exploits_written, "exploit")} written` : "cumulative repository history",
+    ),
+    metricTile(
+      "Total cost",
+      isNum(m.cost_usd) ? fmtCost(m.cost_usd) : NA,
+      (isNum(m.tokens_in) && isNum(m.tokens_out)) ? `${fmtTokens(m.tokens_in)} in · ${fmtTokens(m.tokens_out)} out` : NA,
+    ),
+    metricTile(
+      "Median duration",
+      isNum(m.median_duration_s) ? fmtDuration(m.median_duration_s) : NA,
+      "median sandbox runtime per PR",
+    ));
+
+  const chartsGrid = h("div", { class: "charts-grid" },
+    chartCard(buildFindingsPerRunSpec(detail.run_series), "col-span-7"),
+    chartCard(buildFunnelSpec(detail.funnel), "col-span-5"),
+    chartCard(buildOutcomeDonutSpec(detail.verdict_totals), "col-span-5"),
+    chartCard(buildRoleCostSpec(detail.run_series), "col-span-7"),
+    chartCard(buildHotFilesSpec(detail.hot_files), "col-span-12"),
+    chartCard(buildStageDurationSpec(detail.stage_durations), "col-span-6"),
+    chartCard(buildCweDistributionSpec(detail.cwe_distribution, selected.severity_mix || {}), "col-span-6"));
 
   const serious = detail.top_findings || [];
-  const prCard = h("section", { class: "card list-card" },
+  const seriousCard = h("section", { class: "card list-card anim-enter" },
     h("div", { class: "card-head" },
-      h("h3", { class: "card-title", text: "Recent pull requests" }),
-      h("a", { class: "card-link", href: "#/runs", text: "All pull requests →" })),
-    prs.length ? h("ul", { class: "pr-list" }, prs.slice(0, 8).map(prRow)) : emptyState("No runs for this repository in the selected window."));
-  const seriousCard = h("section", { class: "card list-card" },
-    h("div", { class: "card-head" },
-      h("h3", { class: "card-title", text: "Most serious findings" }),
-      h("span", { class: "muted small", text: "by severity, then fix status" })),
+      h("h3", { class: "card-title", text: "Most serious findings (grouped by root cause)" }),
+      h("a", { class: "card-link", href: "#/findings", text: "All repository findings →" })),
     serious.length
-      ? h("ul", { class: "serious-list" }, serious.slice(0, 6).map(seriousRow))
+      ? h("ul", { class: "serious-list" }, serious.slice(0, 8).map(seriousRow))
       : nothingProven("repository"),
     serious.length ? h("p", { class: "list-note", text: "Merge status is not recorded in the ledger: a verified fix may not be merged yet." }) : null);
+
+  const prSection = h("section", { class: "section-stack" },
+    h("div", { class: "section-head" },
+      h("div", { class: "section-title-wrap" },
+        h("h3", { class: "section-title", text: "Pull request verification runs" }),
+        h("p", { class: "section-subtitle", text: "Click any row to open its PR report. Left border indicates highest proven severity (neutral when nothing could be proven)." }))),
+    prs.length ? buildPrFilterTable(prs, { showRepo: false }) : emptyState("No runs for this repository."));
 
   show(
     syntheticBanner([selected]),
@@ -1028,10 +2168,12 @@ async function renderHome(repoId) {
       h("div", { class: "section-head" },
         h("div", { class: "section-title-wrap" },
           h("h2", { class: "section-title", text: name }),
-          h("p", { class: "section-subtitle", text: last.started_at ? `Last run ${fmtRelative(last.started_at)}: ${prLabel(last) ? `${prLabel(last)} · ` : ""}${last.headline || ""}` : "No runs recorded." })),
-        h("div", { class: "section-aside" }, h("span", { class: "micro-label", text: "Risk mix" }), severityMix(selected.severity_mix || {}))),
+          h("p", { class: "section-subtitle", text: last.started_at ? `Cumulative history through ${fmtDate(last.started_at, false)} · Last run: ${prLabel(last) ? `${prLabel(last)} · ` : ""}${last.headline || ""}` : "No runs recorded." })),
+        h("div", { class: "section-aside" }, h("span", { class: "micro-label", text: "Proven severity mix" }), severityMix(selected.severity_mix || {}))),
       metrics,
-      h("div", { class: "home-columns" }, prCard, seriousCard)));
+      chartsGrid,
+      seriousCard,
+      prSection));
 }
 
 // ==============================================================================
@@ -1444,22 +2586,48 @@ async function renderReplay(id) {
 // ==============================================================================
 
 async function renderFindingsList(runId, isPrLevel = true) {
-  setActiveNav("findings");
+  if (!isPrLevel) {
+    setActiveNav("findings");
+    const index = await api("/api/repos");
+    const repos = index.repos || [];
+    populateRepoSelect(repos);
+    const selected = repos.find((r) => r.id === state.currentRepoId) || repos[0];
+    if (!selected) {
+      setSidebarLevel("repo", null);
+      setShellHeader([{ text: "All repositories", href: "#/" }, { text: "Findings" }], "Findings");
+      show(emptyState("No runs found in this source."));
+      return;
+    }
+    setSidebarLevel("repo", selected.id);
+    const detail = await api(`/api/repos/${encodeURIComponent(selected.id)}`);
+    const name = repoShort(selected.name);
+    const allFindings = detail.all_findings || detail.top_findings || [];
+    setShellHeader([{ text: name, href: `#/repo/${encodeURIComponent(selected.id)}` }, { text: "Findings" }], "Repository findings", "Export findings", () => {
+      downloadData(`repo-findings-${selected.id}.json`, allFindings);
+    });
+    updateTopbarMeta(detail.pull_requests || []);
+
+    show(
+      syntheticBanner([selected]),
+      h("div", { class: "section-title-wrap" },
+        h("h2", { class: "section-title", text: `Proven findings across ${name} (${allFindings.length})` }),
+        h("p", { class: "section-subtitle", text: "Every finding below failed on the vulnerable code for the oracle-observed reason in an isolated and resource-limited sandbox." })),
+      allFindings.length
+        ? h("div", { class: "card list-card anim-enter" },
+            h("ul", { class: "serious-list" }, allFindings.map((f) => seriousRow({ ...f, occurrences: f.occurrences || 1 }))))
+        : h("div", { class: "finding" }, nothingProven("repository")));
+    return;
+  }
+
+  setActiveNav("prfindings");
   updateRunContextCard(runId);
 
   const data = await api(`/api/runs/${encodeURIComponent(runId)}`);
   const row = data.run;
-  if (isPrLevel) {
-    setSidebarLevel("pr", row);
-    setShellHeader([repoCrumb(row), runCrumb(row), { text: "Findings" }], "Findings", "Export findings", () => {
-      downloadData(`findings-${runId}.json`, { proven: data.proven, discarded: data.discarded });
-    });
-  } else {
-    setSidebarLevel("repo", repoIdOf(row) || state.currentRepoId);
-    setShellHeader([repoCrumb(row), { text: "Findings" }], "Findings", "Export findings", () => {
-      downloadData(`findings-${runId}.json`, { proven: data.proven, discarded: data.discarded });
-    });
-  }
+  setSidebarLevel("pr", row);
+  setShellHeader([repoCrumb(row), runCrumb(row), { text: "Findings" }], "Findings", "Export findings", () => {
+    downloadData(`findings-${runId}.json`, { proven: data.proven, discarded: data.discarded });
+  });
 
   show(
     syntheticBanner([row]),
@@ -2463,7 +3631,7 @@ async function renderDependencies(runId, isPrLevel = false) {
 async function renderRuns(page = 1) {
   setActiveNav("runs");
   setSidebarLevel("repo", state.currentRepoId);
-  const data = await api(`/api/runs?page=${page}&per_page=25`);
+  const data = await api(`/api/runs?page=${page}&per_page=50`);
   const repo = state.currentRepoId ? state.reposById.get(state.currentRepoId) : null;
   const firstCrumb = repo
     ? { text: repoShort(repo.name), href: `#/repo/${encodeURIComponent(repo.id)}` }
@@ -2472,35 +3640,6 @@ async function renderRuns(page = 1) {
   setFooter(state.sourceLabel || "Local replay");
   const rows = data.runs || [];
   updateTopbarMeta(rows);
-
-  const table = h("table", { class: "runs" },
-    h("colgroup", {},
-      h("col", { class: "col-status" }), h("col", { class: "col-run" }), h("col", { class: "col-repo" }),
-      h("col", { class: "col-risk" }), h("col", { class: "col-proven" }), h("col", { class: "col-duration" }), h("col", { class: "col-cost" })),
-    h("thead", {}, h("tr", {},
-      h("th", { scope: "col", text: "Status" }),
-      h("th", { scope: "col", text: "Pull request" }),
-      h("th", { scope: "col", text: "Repository · commit" }),
-      h("th", { scope: "col", text: "Risk" }),
-      h("th", { scope: "col", class: "num", text: "Proven" }),
-      h("th", { scope: "col", class: "num", text: "Duration" }),
-      h("th", { scope: "col", class: "num", text: "Cost" }))),
-    h("tbody", {}, rows.map((row) => {
-      const target = runHref(row.run_id);
-      const title = row.title || row.headline || row.run_id;
-      return h("tr", { onclick: (e) => { if (!(e.target instanceof HTMLAnchorElement)) location.hash = target; } },
-        h("td", {}, statusBadge(row)),
-        h("td", {}, h("div", { class: "cell-stack" },
-          h("a", { class: "run-title", href: target, text: title, title }),
-          h("span", { class: "run-sub", text: `${fmtDate(row.started_at)} · ${row.headline}`, title: row.run_id }))),
-        h("td", {}, h("div", { class: "cell-stack" },
-          h("span", { class: "run-title", text: repoShort(row.repo), title: row.repo || null }),
-          h("span", { class: "run-sub mono", text: prCommit(row) }))),
-        h("td", {}, row.risk ? h("span", { class: "tag", text: row.risk }) : h("span", { class: "muted small", text: NA })),
-        h("td", { class: "num", text: String(row.proven) }),
-        h("td", { class: "num", text: fmtDuration(row.duration_s) }),
-        h("td", { class: "num", text: fmtCost(row.cost_usd) }));
-    })));
 
   const totalProven = rows.reduce((n, r) => n + (r.proven || 0), 0);
   const pager = (data.pages > 1)
@@ -2514,7 +3653,7 @@ async function renderRuns(page = 1) {
     h("p", { class: "lede", text: `${plural(rows.length, "run")} from ${data.source}; ${plural(totalProven, "proven finding")} on this page. A run with nothing proven means nothing could be proven, not that the code is safe.` }),
     syntheticBanner(rows),
     rows.length
-      ? h("div", { class: "card table-card" }, h("div", { class: "table-wrap" }, table), pager)
+      ? h("div", { class: "section-stack" }, buildPrFilterTable(rows, { showRepo: true }), pager)
       : emptyState("No runs found in this source."));
 }
 

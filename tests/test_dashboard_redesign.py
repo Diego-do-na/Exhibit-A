@@ -437,3 +437,45 @@ def test_sample_runs_span_all_four_windows_and_carry_gate_reasons_and_patches(st
     assert detail["proven"][0]["evidence"]["fix"]["diff"].startswith("--- a/starlette/staticfiles.py")
     assert all(s["duration_s"] is not None and s["duration_s"] > 0 for s in detail["stages"] if s["reached"])
 
+
+def test_repo_detail_series_and_chart_modal_contracts(state):
+    _, _, starlette = api(state, f"/api/repos/{repo_id(STARLETTE)}")
+    m = starlette["metrics"]
+    assert m["runs"] == 7 and m["proven"] == 3 and m["fixes_verified"] == 3 and m["fixes_bypassed"] == 0
+    assert m["suspicions_raised"] > 0 and m["exploits_written"] > 0 and m["median_duration_s"] > 0
+
+    funnel = starlette["funnel"]
+    assert funnel["suspicions_raised"] == m["suspicions_raised"]
+    assert funnel["exploits_written"] == m["exploits_written"]
+    assert funnel["proven"] == m["proven"]
+    assert funnel["fixes_verified"] == m["fixes_verified"]
+    assert funnel["bypass_resistant"] == m["fixes_verified"]
+
+    series = starlette["run_series"]
+    assert [pt["order"] for pt in series] == [1, 2, 3, 4, 5, 6, 7]
+    assert sum(pt["proven"] for pt in series) == m["proven"]
+    for pt in series:
+        assert sum(pt["effects_breakdown"].values()) == pt["proven"]
+
+    vt = starlette["verdict_totals"]
+    assert vt["proven"] == 3 and sum(vt.values()) >= 3
+    assert len(starlette["stage_durations"]) == 8
+    assert starlette["hot_files"]["files"] and starlette["hot_files"]["cells"]
+    assert starlette["cwe_distribution"][0]["cwe"] == "CWE-22"
+    assert len(starlette["all_findings"]) == 3
+
+    assert 'id="chart-modal"' in HTML
+    for section in ("HOW TO READ THIS", "WHAT STANDS OUT", "THE NUMBERS"):
+        assert section in JS
+    for chart_id in (
+        "chart-home-findings-series",
+        "chart-home-funnel",
+        "chart-home-donut",
+        "chart-home-cost-role",
+        "chart-home-heatmap",
+        "chart-home-stage-time",
+        "chart-home-cwe-dist",
+    ):
+        assert chart_id in JS
+
+

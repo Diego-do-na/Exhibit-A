@@ -949,6 +949,8 @@ def _finding_row(row: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
         "finding_id": item.get("id", ""),
         "class": item.get("class", ""),
         "hypothesis": item.get("hypothesis", ""),
+        "entry_point": _text(item.get("entry_point"), 200),
+        "reason": _text(item.get("reason"), 300),
         "severity": severity if severity in SEVERITIES else "",
         "cwe": _text(evidence.get("cwe"), 80),
         "effect": _text(effect.get("type"), 64),
@@ -957,6 +959,7 @@ def _finding_row(row: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
         "line": observed.get("line") or item.get("line", 0),
         "fix_status": _fix_status(evidence),
         "pr": row.get("pr", ""),
+        "commit": row.get("commit", ""),
         "title": row.get("title", ""),
         "started_at": row.get("started_at", ""),
         "root_cause": _root_cause(item),
@@ -1054,24 +1057,205 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
         if row.get("status") != "unreadable" and isinstance(row.get("duration_s"), (int, float))
     ]
     median_duration_s = round(float(statistics.median(durations)), 3) if durations else None
+
+    readable_entries = [
+        (row, detail) for row, detail in group
+        if row.get("status") != "unreadable" and detail is not None
+    ]
+    chronological = list(reversed(readable_entries))
+
+    verdict_totals = {v.value: 0 for v in VerdictValue}
+    for row, _ in readable_entries:
+        rv = row.get("verdicts") or {}
+        for v in VerdictValue:
+            verdict_totals[v.value] += int(rv.get(v.value) or 0)
+
+    suspicions_total = sum(int(row.get("suspicions_raised") or 0) for row, _ in readable_entries)
+    exploits_total = sum(int(row.get("exploits_written") or 0) for row, _ in readable_entries)
+    proven_total = len(findings)
+    fixes_verified_total = sum(1 for f in findings if f["fix_status"] == "verified")
+    fixes_bypassed_total = sum(1 for f in findings if f["fix_status"] == "bypassed")
+    funnel = {
+        "suspicions_raised": suspicions_total,
+        "exploits_written": exploits_total,
+        "proven": proven_total,
+        "fixes_verified": fixes_verified_total,
+        "bypass_resistant": fixes_verified_total,
+    }
+
+    run_series: list[dict[str, Any]] = []
+    stage_sec = {name: 0.0 for name in STAGES}
+    stage_ev = {name: 0 for name in STAGES}
+    stage_runs = {name: 0 for name in STAGES}
+
+    file_stats: dict[str, dict[str, int]] = {}
+    per_run_files: list[tuple[dict[str, Any], dict[str, dict[str, int]]]] = []
+
+    def _clean_path(raw: Any) -> str:
+        return _text(raw, 300).removeprefix("/workspace/").lstrip("/")
+
+    def _norm_effect(raw: Any) -> str:
+        eff = _text(raw, 64).lower().removeprefix("canary_")
+        return eff if eff in ("read", "write", "exec", "sql") else "unspecified"
+
+    for idx, (row, detail) in enumerate(chronological, start=1):
+        det = detail or {}
+        eff_counts = {"read": 0, "write": 0, "exec": 0, "sql": 0, "unspecified": 0}
+        run_file_map: dict[str, dict[str, int]] = {}
+
+        for tf in row.get("files_touched") or []:
+            cf = _clean_path(tf)
+            if cf:
+                run_file_map.setdefault(cf, {"proven": 0, "discarded": 0, "touched": 1})
+
+        for item in det.get("proven", []):
+            ev = _dict(item.get("evidence"))
+            key = _norm_effect(_dict(ev.get("effect")).get("type"))
+            eff_counts[key] += 1
+            obs = _dict(ev.get("observed_location"))
+            cf = _clean_path(obs.get("file") or item.get("file"))
+            if cf:
+                cell = run_file_map.setdefault(cf, {"proven": 0, "discarded": 0, "touched": 1})
+                cell["proven"] += 1
+                cell["touched"] = 1
+
+        for item in det.get("discarded", []):
+            cf = _clean_path(item.get("file"))
+            if cf:
+                cell = run_file_map.setdefault(cf, {"proven": 0, "discarded": 0, "touched": 1})
+                cell["discarded"] += 1
+                cell["touched"] = 1
+
+        for cf, cell in run_file_map.items():
+            agg = file_stats.setdefault(cf, {"proven": 0, "discarded": 0, "runs": 0})
+            agg["proven"] += cell["proven"]
+            agg["discarded"] += cell["discarded"]
+            agg["runs"] += 1
+        per_run_files.append((row, run_file_map))
+
+        by_role_raw = _dict(_dict(det.get("costs")).get("by_role"))
+        by_role: dict[str, dict[str, Any]] = {}
+        for rname, rvals in by_role_raw.items():
+            rv_dict = _dict(rvals)
+            by_role[rname] = {
+                "cost_usd": round(float(rv_dict.get("cost_usd") or 0.0), 8),
+                "tokens_in": int(rv_dict.get("tokens_in") or 0),
+                "tokens_out": int(rv_dict.get("tokens_out") or 0),
+                "events": int(rv_dict.get("events") or 0),
+            }
+
+        for st in det.get("stages") or []:
+            st_dict = _dict(st)
+            sname = _text(st_dict.get("name"), 32)
+            if sname in stage_sec:
+                ev_c = int(st_dict.get("count") or 0)
+                dur_c = float(st_dict.get("duration_s") or 0.0)
+                stage_sec[sname] += dur_c
+                stage_ev[sname] += ev_c
+                if ev_c > 0:
+                    stage_runs[sname] += 1
+
+        run_series.append({
+            "order": idx,
+            "run_id": row["run_id"],
+            "pr": row.get("pr", ""),
+            "commit": row.get("commit", ""),
+            "title": row.get("title", ""),
+            "started_at": row.get("started_at", ""),
+            "status": row.get("status", ""),
+            "proven": int(row.get("proven") or 0),
+            "dropped": int(row.get("dropped") or 0),
+            "suspicions_raised": int(row.get("suspicions_raised") or 0),
+            "cost_usd": round(float(row.get("cost_usd") or 0.0), 8),
+            "tokens_in": int(row.get("tokens_in") or 0),
+            "tokens_out": int(row.get("tokens_out") or 0),
+            "duration_s": row.get("duration_s"),
+            "effects_breakdown": eff_counts,
+            "by_role": by_role,
+        })
+
+    stage_durations = [
+        {
+            "stage": name,
+            "duration_s": round(stage_sec[name], 3),
+            "events": stage_ev[name],
+            "runs_active": stage_runs[name],
+        }
+        for name in STAGES
+    ]
+
+    top_files = sorted(
+        file_stats.keys(),
+        key=lambda f: (-file_stats[f]["proven"], -file_stats[f]["discarded"], -file_stats[f]["runs"], f),
+    )[:12]
+    hot_cells: list[dict[str, Any]] = []
+    for fname in top_files:
+        for row, rmap in per_run_files:
+            cell = rmap.get(fname, {"proven": 0, "discarded": 0, "touched": 0})
+            hot_cells.append({
+                "file": fname,
+                "run_id": row["run_id"],
+                "pr": row.get("pr", ""),
+                "proven": cell["proven"],
+                "discarded": cell["discarded"],
+                "touched": bool(cell["touched"]),
+            })
+    hot_files = {
+        "files": top_files,
+        "runs": [
+            {
+                "order": idx,
+                "run_id": row["run_id"],
+                "pr": row.get("pr", ""),
+                "commit": row.get("commit", ""),
+                "started_at": row.get("started_at", ""),
+            }
+            for idx, (row, _) in enumerate(per_run_files, start=1)
+        ],
+        "cells": hot_cells,
+    }
+
+    cwe_buckets: dict[tuple[str, str, str], int] = {}
+    for f in findings:
+        key = (
+            f["cwe"] or "unspecified",
+            f["severity"] or "unknown",
+            f["effect"] or "unspecified",
+        )
+        cwe_buckets[key] = cwe_buckets.get(key, 0) + 1
+    cwe_distribution = [
+        {"cwe": k[0], "severity": k[1], "effect": k[2], "count": count}
+        for k, count in sorted(
+            cwe_buckets.items(),
+            key=lambda kv: (-kv[1], rank_severity.get(kv[0][1], len(SEVERITIES)), kv[0][0]),
+        )
+    ]
+
     return {
         "repo": summary,
         "metrics": {
             "runs": len(group),
-            "proven": sum(1 for _ in findings),
+            "proven": proven_total,
             "root_causes": len(causes),
-            "suspicions_raised": sum(int(row.get("suspicions_raised") or 0) for row, _ in group if row.get("status") != "unreadable"),
-            "exploits_written": sum(int(row.get("exploits_written") or 0) for row, _ in group if row.get("status") != "unreadable"),
-            "fixes_verified": sum(1 for f in findings if f["fix_status"] == "verified"),
-            "fixes_bypassed": sum(1 for f in findings if f["fix_status"] == "bypassed"),
+            "suspicions_raised": suspicions_total,
+            "exploits_written": exploits_total,
+            "fixes_verified": fixes_verified_total,
+            "fixes_bypassed": fixes_bypassed_total,
             "discarded": discarded,
             "cost_usd": round(cost, 8),
             "tokens_in": tokens_in,
             "tokens_out": tokens_out,
             "median_duration_s": median_duration_s,
         },
+        "verdict_totals": verdict_totals,
+        "funnel": funnel,
+        "run_series": run_series,
+        "stage_durations": stage_durations,
+        "hot_files": hot_files,
+        "cwe_distribution": cwe_distribution,
         "pull_requests": pull_requests,
         "top_findings": serious[:MAX_REPO_ROWS],
+        "all_findings": findings[:MAX_REPO_ROWS],
     }
 
 
