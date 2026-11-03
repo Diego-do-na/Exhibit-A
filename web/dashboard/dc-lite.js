@@ -194,6 +194,13 @@
       for (const a of Array.from(node.attributes)) {
         if (a.name.startsWith('hint-')) continue;
         const m = WHOLE.exec(a.value);
+        if (a.name.startsWith('data-ev-')) {
+          // CSP-compliant event binding: templates write data-ev-click etc.,
+          // never inline on* attributes (script-src 'self' would log a
+          // violation for those at parse time even though they never run).
+          if (m) { const fn = lookup(scope, m[1]); if (typeof fn === 'function') bind(el, eventName('on' + a.name.slice(8), el), fn); }
+          continue;
+        }
         if (/^on[a-z]+$/i.test(a.name)) {
           if (m) { const fn = lookup(scope, m[1]); if (typeof fn === 'function') bind(el, eventName(a.name, el), fn); }
           continue;

@@ -81,8 +81,8 @@
       </section>
 
       <section class="card" data-style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
-        <div data-style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center"><span class="lbl" data-style="min-width: 150px">MITRE ATT&amp;CK</span><sc-for list="{{attack}}" as="t"><button type="button" class="tag" onClick="{{t.open}}" aria-label="{{t.aria}}"><span class="tag-id">{{t.id}}</span><span class="tag-n">{{t.name}}</span></button></sc-for></div>
-        <div data-style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center"><span class="lbl" data-style="min-width: 150px">Weakness</span><sc-for list="{{weak}}" as="t"><button type="button" class="tag" onClick="{{t.open}}" aria-label="{{t.aria}}"><span class="tag-id">{{t.id}}</span><span class="tag-n">{{t.name}}</span></button></sc-for></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center"><span class="lbl" data-style="min-width: 150px">MITRE ATT&amp;CK</span><sc-for list="{{attack}}" as="t"><button type="button" class="tag" data-ev-click="{{t.open}}" aria-label="{{t.aria}}"><span class="tag-id">{{t.id}}</span><span class="tag-n">{{t.name}}</span></button></sc-for></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center"><span class="lbl" data-style="min-width: 150px">Weakness</span><sc-for list="{{weak}}" as="t"><button type="button" class="tag" data-ev-click="{{t.open}}" aria-label="{{t.aria}}"><span class="tag-id">{{t.id}}</span><span class="tag-n">{{t.name}}</span></button></sc-for></div>
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
@@ -95,16 +95,16 @@
               <span class="mono" data-style="font-size: 13px; color: #3d4b68">{{live.clock}}</span>
             </div>
             <div data-style="display: flex; gap: 8px; align-items: center">
-              <button type="button" class="ib" aria-label="{{live.playL}}" onClick="{{live.toggle}}"><sc-if value="{{live.playing}}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14"></rect><rect x="14" y="5" width="4" height="14"></rect></svg></sc-if><sc-if value="{{live.paused}}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5v14l12-7z"></path></svg></sc-if></button>
-              <button type="button" class="ib" aria-label="Replay" onClick="{{live.replay}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path></svg></button>
-              <div class="seg" role="group" aria-label="Speed"><sc-for list="{{live.speeds}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+              <button type="button" class="ib" aria-label="{{live.playL}}" data-ev-click="{{live.toggle}}"><sc-if value="{{live.playing}}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14"></rect><rect x="14" y="5" width="4" height="14"></rect></svg></sc-if><sc-if value="{{live.paused}}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5v14l12-7z"></path></svg></sc-if></button>
+              <button type="button" class="ib" aria-label="Replay" data-ev-click="{{live.replay}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path></svg></button>
+              <div class="seg" role="group" aria-label="Speed"><sc-for list="{{live.speeds}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
             </div>
           </div>
           <div data-style="height: 4px; background: rgba(13,27,62,.08)"><div data-style="height: 100%; width: {{live.pct}}%; background: #2c4fc4; transition: width .4s"></div></div>
           <sc-if value="{{live.scrub}}" hint-placeholder-val="{{ false }}">
             <div class="scrub">
               <span class="mono" data-style="font-size: 12px; color: #3d4b68">Scrub the ledger</span>
-              <input type="range" min="0" max="{{live.scrub.max}}" value="{{live.scrub.val}}" onChange="{{live.scrub.onScrub}}" aria-label="Scrub the ledger timeline">
+              <input type="range" min="0" max="{{live.scrub.max}}" value="{{live.scrub.val}}" data-ev-change="{{live.scrub.onScrub}}" aria-label="Scrub the ledger timeline">
               <span class="scrub-now">{{live.scrub.label}}</span>
             </div>
           </sc-if>
@@ -174,7 +174,7 @@
             <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#7a86a1" stroke-width="1.4" stroke-opacity=".6"></path></svg>Other calls, not affected</span>
             <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#7a86a1" stroke-width="1.4" stroke-dasharray="5 5"></path></svg>Would inherit the problem</span>
             <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#ff6b6b" stroke-width="2.6"></path></svg>Connection the exploit reaches</span>
-            <div class="seg" role="group" aria-label="Blast radius view" data-style="margin-left: auto"><sc-for list="{{bvOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+            <div class="seg" role="group" aria-label="Blast radius view" data-style="margin-left: auto"><sc-for list="{{bvOpts}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
           </div>
           <div id="blastnet" class="net" data-keep role="group" aria-label="Network of the code the exploit reaches" data-style="display: {{bNet}}; min-height: 480px"></div>
           <div id="blast" class="gv" data-keep role="group" aria-label="Dependency graph of the affected path" data-style="display: {{bPath}}; min-height: 460px; border-radius: 4px; border: 1px solid rgba(13,27,62,.08); background-color: rgba(255,255,255,.35); background-image: radial-gradient(rgba(13,27,62,.18) 1px, transparent 1.2px); background-size: 22px 22px"></div>
@@ -203,7 +203,7 @@
                   <span data-style="font-size: 15px; line-height: 1.5; color: #26365a">{{e}}</span>
                 </div>
               </sc-for>
-              <button type="button" class="btn btn-p" onClick="{{askApprove}}" data-style="margin-top: 6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Approve and commit fix</button>
+              <button type="button" class="btn btn-p" data-ev-click="{{askApprove}}" data-style="margin-top: 6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Approve and commit fix</button>
               <span data-style="font-size: 13px; color: #3d4b68; text-align: center">exhibit-a[bot] pushes one commit to nested-pamphlets</span>
             </div>
           </div>
@@ -225,7 +225,7 @@
             <div class="card" data-style="padding: 22px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center">
               <span data-style="width: 44px; height: 44px; border-radius: 50%; background: #2c4fc4; color: #ffffff; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></span>
               <div data-style="flex: 1 1 300px; min-width: 0"><div class="mono" data-style="font-size: 15px">fix: confine pamphlet names to the shelf directory</div><div data-style="font-size: 14px; color: #3d4b68; margin-top: 4px">exhibit-a[bot] · nested-pamphlets · 1 file · +6 −2 · approved from this dashboard</div></div>
-              <button type="button" class="btn btn-s" onClick="{{reset}}">Reset demo</button>
+              <button type="button" class="btn btn-s" data-ev-click="{{reset}}">Reset demo</button>
             </div>
             <div class="card" data-style="padding: 8px 22px 14px; overflow-x: auto">
               <div data-style="min-width: 560px" role="table" aria-label="Before and after the fix">
@@ -298,18 +298,18 @@
         <h2 class="dsp" data-style="margin: 0; font-size: 28px; font-weight: 500; letter-spacing: -.02em">Commit the verified fix?</h2>
         <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">exhibit-a[bot] will push one commit to <span class="mono" data-style="font-size: 14px">nested-pamphlets</span> that restores the containment check in <span class="mono" data-style="font-size: 14px">_resolve</span>. The proof loop then re-runs on the new head before the pull request can merge.</p>
         <div class="mono" data-style="font-size: 13px; padding: 12px 14px; border-radius: 4px; background: rgba(10,24,64,.05)">fix: confine pamphlet names to the shelf directory</div>
-        <div data-style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap"><button type="button" class="btn btn-s" onClick="{{cancel}}">Cancel</button><button type="button" class="btn btn-p" onClick="{{doCommit}}">Confirm and commit</button></div>
+        <div data-style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap"><button type="button" class="btn btn-s" data-ev-click="{{cancel}}">Cancel</button><button type="button" class="btn btn-p" data-ev-click="{{doCommit}}">Confirm and commit</button></div>
       </div>
     </div>
   </sc-if>
 
   <sc-if value="{{tag.open}}" hint-placeholder-val="{{ false }}">
-    <div class="ovl" role="dialog" aria-modal="true" aria-label="{{tag.name}}" onClick="{{tag.close}}">
-      <div class="modal" onClick="{{stop}}">
+    <div class="ovl" role="dialog" aria-modal="true" aria-label="{{tag.name}}" data-ev-click="{{tag.close}}">
+      <div class="modal" data-ev-click="{{stop}}">
         <div data-style="display: flex; align-items: center; gap: 12px; padding: 18px 24px; border-bottom: 1px solid rgba(13,27,62,.1)">
           <span class="mono" data-style="font-size: 13px; padding: 4px 10px; border-radius: 3px; border: 1px solid rgba(13,27,62,.18); color: #2c4fc4">{{tag.id}}</span>
           <span class="lbl">{{tag.cat}}</span>
-          <button type="button" class="ib" aria-label="Close" onClick="{{tag.close}}" data-style="margin-left: auto"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+          <button type="button" class="ib" aria-label="Close" data-ev-click="{{tag.close}}" data-style="margin-left: auto"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
         </div>
         <div data-style="padding: 24px; display: flex; flex-direction: column; gap: 18px">
           <h2 class="dsp" data-style="margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -.02em">{{tag.name}}</h2>

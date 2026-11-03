@@ -48,9 +48,9 @@
         </div>
         <div data-style="display: flex; gap: 8px; flex-wrap: wrap">
           <label for="ag" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Author</label>
-          <select id="ag" class="sel" value="{{agent}}" onChange="{{onAgent}}" data-options="{{agOpts}}"></select>
+          <select id="ag" class="sel" value="{{agent}}" data-ev-change="{{onAgent}}" data-options="{{agOpts}}"></select>
           <label for="ak" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Author type</label>
-          <select id="ak" class="sel" value="{{kind}}" onChange="{{onKind}}" data-options="{{kindOpts}}"></select>
+          <select id="ak" class="sel" value="{{kind}}" data-ev-change="{{onKind}}" data-options="{{kindOpts}}"></select>
         </div>
       </header>
 
@@ -76,7 +76,7 @@
           <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
             <h3 class="ct">Merge timeline</h3>
             <div data-style="display: flex; gap: 8px; align-items: center">
-              <div class="seg" role="group" aria-label="Vertical axis"><sc-for list="{{yOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+              <div class="seg" role="group" aria-label="Vertical axis"><sc-for list="{{yOpts}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
               <button type="button" class="ib" data-zoom data-zoom-id="tl" data-zoom-desc="Each point is one pull request, placed at the moment it merged. Vertical position shows how big it was (lines, files or cycle time, chosen with the toggle), so the late surge of heavy changes on October 31 and November 1 stands out on its own." data-zoom-points="Select a point to read that pull request in the panel next to the table.|The tall points are corpus expansions and generated benchmark results, not hand-written code." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
             </div>
           </div>
@@ -91,7 +91,7 @@
               <text x="40" y="{{g.ty}}" text-anchor="end" fill="#3d4b68" font-size="12" font-family="JetBrains Mono">{{g.l}}</text>
             </sc-for>
             <sc-for list="{{tl.dots}}" as="p">
-              <circle cx="{{p.x}}" cy="{{p.y}}" r="{{p.r}}" fill="{{p.c}}" fill-opacity="{{p.op}}" stroke="{{p.s}}" stroke-width="{{p.sw}}" onClick="{{p.pick}}" data-style="cursor: pointer"><title>{{p.t}}</title></circle>
+              <circle cx="{{p.x}}" cy="{{p.y}}" r="{{p.r}}" fill="{{p.c}}" fill-opacity="{{p.op}}" stroke="{{p.s}}" stroke-width="{{p.sw}}" data-ev-click="{{p.pick}}" data-style="cursor: pointer"><title>{{p.t}}</title></circle>
             </sc-for>
             <text x="{{tl.sx}}" y="{{tl.sy}}" text-anchor="middle" fill="#0d1b3e" font-size="13" font-weight="500" font-family="JetBrains Mono">{{tl.sl}}</text>
           </svg>
@@ -136,17 +136,17 @@
               <div data-style="position: relative; flex: 1 1 240px">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4a5873" stroke-width="2" aria-hidden="true" data-style="position: absolute; left: 11px; top: 12px"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
                 <label for="q" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search</label>
-                <input id="q" class="inp" type="search" placeholder="Search" value="{{q}}" onChange="{{onQ}}">
+                <input id="q" class="inp" type="search" placeholder="Search" value="{{q}}" data-ev-change="{{onQ}}">
               </div>
               <label for="so" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Sort</label>
-              <select id="so" class="sel" value="{{sort}}" onChange="{{onSort}}" data-options="{{sortOpts}}"></select>
+              <select id="so" class="sel" value="{{sort}}" data-ev-change="{{onSort}}" data-options="{{sortOpts}}"></select>
             </div>
             <div data-style="overflow-x: auto">
               <div data-style="min-width: 560px">
                 <div class="prow lbl" data-style="cursor: default; min-height: 38px; font-size: 11px"><span>ID</span><span>Title</span><span>Merged</span><span data-style="text-align: right">Lines</span><span data-style="text-align: right">Cycle</span></div>
                 <div data-style="max-height: 576px; overflow-y: auto">
                   <sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
-                    <button type="button" class="{{r.cls}}" onClick="{{r.pick}}" aria-label="{{r.aria}}">
+                    <button type="button" class="{{r.cls}}" data-ev-click="{{r.pick}}" aria-label="{{r.aria}}">
                       <span class="mono" data-style="font-size: 13px; color: #2c4fc4">{{r.id}}</span>
                       <span data-style="display: flex; gap: 8px; align-items: center; min-width: 0"><span data-style="flex: none; width: 8px; height: 8px; background: {{r.c}}"></span><span data-style="flex: none; font-size: 11px; color: #45587c" title="{{r.ty}}">{{r.ty}}</span><span data-style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.t}}</span></span>
                       <span data-style="font-size: 13px; color: #3d4b68">{{r.when}}</span>

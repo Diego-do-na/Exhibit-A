@@ -41,7 +41,7 @@
         <header data-style="padding: 12px 4px 0">
           <div data-style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
             <span class="lbl">Finding package · {{runId}} · exported {{printedAt}}</span>
-            <button type="button" class="btn btn-s no-print" onClick="{{doPrint}}" data-style="margin-left: auto; min-height: 40px">Print this package</button>
+            <button type="button" class="btn btn-s no-print" data-ev-click="{{doPrint}}" data-style="margin-left: auto; min-height: 40px">Print this package</button>
           </div>
           <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 48px; font-weight: 500; line-height: 1.05; letter-spacing: -.03em">{{item.id}} · {{item.cls}}</h1>
           <p class="lead" data-style="font-size: 18px">{{item.reason}}</p>
@@ -81,7 +81,7 @@
         <section class="find-sheet" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
           <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
             <h2 class="ct">Replay the proof</h2>
-            <button type="button" class="btn btn-s no-print" onClick="{{replay.start}}">{{replay.label}}</button>
+            <button type="button" class="btn btn-s no-print" data-ev-click="{{replay.start}}">{{replay.label}}</button>
           </div>
           <p data-style="margin: 0; font-size: 14px; color: #3d4b68">Animated from this finding's ledger record. A step the ledger does not hold is marked "not recorded".</p>
           <sc-for list="{{replay.steps}}" as="s">

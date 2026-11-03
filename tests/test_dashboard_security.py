@@ -173,6 +173,16 @@ def test_pr_page_has_a_view_per_verdict():
     assert "'not reached'" in js
 
 
+def test_templates_have_no_inline_event_handler_attributes():
+    import re
+
+    for path in sorted(WEB_DIR.glob("*.html")):
+        html = path.read_text(encoding="utf-8")
+        assert not re.search(r"\son[A-Z][A-Za-z]*=", html), path.name
+    dc = (WEB_DIR / "dc-lite.js").read_text(encoding="utf-8")
+    assert "data-ev-" in dc
+
+
 def test_economics_page_loads_and_is_registered():
     from exhibit_a.dashboard.server import STATIC_FILES
 

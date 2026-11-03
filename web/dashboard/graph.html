@@ -82,16 +82,16 @@
               <div data-style="position: relative; flex: 1 1 200px; max-width: 280px">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4a5873" stroke-width="2" aria-hidden="true" data-style="position: absolute; left: 11px; top: 12px"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
                 <label for="gq" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Find node</label>
-                <input id="gq" class="inp" type="search" placeholder="Find node" value="{{q}}" onChange="{{onQ}}">
+                <input id="gq" class="inp" type="search" placeholder="Find node" value="{{q}}" data-ev-change="{{onQ}}">
               </div>
-              <div class="seg" role="group" aria-label="Level"><sc-for list="{{lvOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
-              <div class="seg" role="group" aria-label="Functions" data-style="display: {{fnDisp}}"><sc-for list="{{fnOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
-              <div class="seg" role="group" aria-label="Layer"><sc-for list="{{lyOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
+              <div class="seg" role="group" aria-label="Level"><sc-for list="{{lvOpts}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
+              <div class="seg" role="group" aria-label="Functions" data-style="display: {{fnDisp}}"><sc-for list="{{fnOpts}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
+              <div class="seg" role="group" aria-label="Layer"><sc-for list="{{lyOpts}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
               <div data-style="display: flex; gap: 6px; margin-left: auto">
-                <button type="button" class="ib" aria-label="Zoom in" onClick="{{zin}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
-                <button type="button" class="ib" aria-label="Zoom out" onClick="{{zout}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
-                <button type="button" class="ib" aria-label="Fit to view" onClick="{{zfit}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></button>
-                <button type="button" class="ib" aria-label="{{fullL}}" aria-pressed="{{full}}" onClick="{{toggleFull}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+                <button type="button" class="ib" aria-label="Zoom in" data-ev-click="{{zin}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+                <button type="button" class="ib" aria-label="Zoom out" data-ev-click="{{zout}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+                <button type="button" class="ib" aria-label="Fit to view" data-ev-click="{{zfit}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></button>
+                <button type="button" class="ib" aria-label="{{fullL}}" aria-pressed="{{full}}" data-ev-click="{{toggleFull}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
               </div>
             </div>
             <div id="ncanvas" class="net" data-keep role="group" aria-label="Code network" data-style="display: {{nDisp}}; flex: 1 1 auto; min-height: 660px"></div>
@@ -109,7 +109,7 @@
             <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Packages</h3><span class="lbl">lines</span></div>
             <div data-style="display: flex; flex-direction: column">
               <sc-for list="{{pk}}" as="p">
-                <button type="button" class="{{p.cls}}" onClick="{{p.pick}}">
+                <button type="button" class="{{p.cls}}" data-ev-click="{{p.pick}}">
                   <span data-style="width: 10px; height: 10px; border-radius: 50%; background: {{p.c}}; opacity: {{p.op}}"></span>
                   <span data-style="display: flex; flex-direction: column; gap: 5px; min-width: 0"><span class="mono" data-style="font-size: 13px; opacity: {{p.op}}">{{p.n}}</span><span data-style="height: 3px; background: rgba(13,27,62,.07)"><span data-style="display: block; height: 100%; width: {{p.w}}%; background: {{p.c}}; opacity: {{p.op}}"></span></span></span>
                   <span class="mono" data-style="font-size: 12px; text-align: right; color: #3d4b68">{{p.v}}</span>
@@ -121,8 +121,8 @@
               <div data-style="border-top: 1px solid rgba(13,27,62,.1); padding-top: 16px; display: flex; flex-direction: column; gap: 12px">
                 <div data-style="display: flex; align-items: center; gap: 10px"><span data-style="width: 12px; height: 12px; border-radius: 50%; background: {{det.c}}"></span><span class="mono" data-style="font-size: 15px; overflow-wrap: anywhere">{{det.n}}</span></div>
                 <div data-style="font-size: 13px; color: #3d4b68">{{det.meta}}</div>
-                <sc-if value="{{det.hasDeps}}"><div data-style="display: flex; flex-direction: column; gap: 8px"><span class="lbl" data-style="color: #2c4fc4">Depends on · {{det.nDeps}}</span><div data-style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{det.deps}}" as="d"><button type="button" class="detail-chip" onClick="{{d.pick}}">{{d.n}}</button></sc-for></div></div></sc-if>
-                <sc-if value="{{det.hasUsers}}"><div data-style="display: flex; flex-direction: column; gap: 8px"><span class="lbl" data-style="color: #a5703f">Used by · {{det.nUsers}}</span><div data-style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{det.users}}" as="d"><button type="button" class="detail-chip" onClick="{{d.pick}}">{{d.n}}</button></sc-for></div></div></sc-if>
+                <sc-if value="{{det.hasDeps}}"><div data-style="display: flex; flex-direction: column; gap: 8px"><span class="lbl" data-style="color: #2c4fc4">Depends on · {{det.nDeps}}</span><div data-style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{det.deps}}" as="d"><button type="button" class="detail-chip" data-ev-click="{{d.pick}}">{{d.n}}</button></sc-for></div></div></sc-if>
+                <sc-if value="{{det.hasUsers}}"><div data-style="display: flex; flex-direction: column; gap: 8px"><span class="lbl" data-style="color: #a5703f">Used by · {{det.nUsers}}</span><div data-style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{det.users}}" as="d"><button type="button" class="detail-chip" data-ev-click="{{d.pick}}">{{d.n}}</button></sc-for></div></div></sc-if>
               </div>
             </sc-if>
 </aside>
@@ -148,7 +148,7 @@
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
           <div class="heat" role="group" aria-label="Repository heatmap">
             <sc-for list="{{heat}}" as="t">
-              <button type="button" class="heat-tile" onClick="{{t.pick}}" aria-label="{{t.n}}, {{t.v}}" data-style="width: {{t.w}}%; background: {{t.c}}">
+              <button type="button" class="heat-tile" data-ev-click="{{t.pick}}" aria-label="{{t.n}}, {{t.v}}" data-style="width: {{t.w}}%; background: {{t.c}}">
                 <span class="heat-n">{{t.n}}</span><span class="heat-v">{{t.v}}</span>
               </button>
             </sc-for>
@@ -165,7 +165,7 @@
           <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
             <h3 class="ct">Proven attack paths · {{runId}}</h3>
             <div data-style="display: flex; flex-wrap: wrap; gap: 8px">
-              <sc-for list="{{paths}}" as="p"><button type="button" class="{{p.cls}}" onClick="{{p.pick}}">{{p.label}} · {{p.effect}}</button></sc-for>
+              <sc-for list="{{paths}}" as="p"><button type="button" class="{{p.cls}}" data-ev-click="{{p.pick}}">{{p.label}} · {{p.effect}}</button></sc-for>
             </div>
           </div>
         </sc-if>

@@ -6,7 +6,7 @@
    "h": 900,
    "scheme": "light",
    "overflow": 0,
-   "errors": 8
+   "errors": 0
   },
   {
    "page": "prs",
@@ -14,7 +14,7 @@
    "h": 900,
    "scheme": "light",
    "overflow": 0,
-   "errors": 14
+   "errors": 0
   },
   {
    "page": "pr",
@@ -22,7 +22,7 @@
    "h": 900,
    "scheme": "light",
    "overflow": 0,
-   "errors": 28
+   "errors": 0
   },
   {
    "page": "findings",
@@ -30,7 +30,7 @@
    "h": 900,
    "scheme": "light",
    "overflow": 0,
-   "errors": 12
+   "errors": 0
   },
   {
    "page": "finding",
@@ -38,7 +38,7 @@
    "h": 900,
    "scheme": "light",
    "overflow": 0,
-   "errors": 6
+   "errors": 0
   },
   {
    "page": "graph",
@@ -46,7 +46,7 @@
    "h": 900,
    "scheme": "light",
    "overflow": 0,
-   "errors": 26
+   "errors": 0
   },
   {
    "page": "benchmark",
@@ -54,7 +54,7 @@
    "h": 900,
    "scheme": "light",
    "overflow": 0,
-   "errors": 10
+   "errors": 0
   },
   {
    "page": "economics",
@@ -62,7 +62,7 @@
    "h": 900,
    "scheme": "light",
    "overflow": 0,
-   "errors": 20
+   "errors": 0
   },
   {
    "page": "index",
@@ -70,7 +70,7 @@
    "h": 1117,
    "scheme": "light",
    "overflow": 0,
-   "errors": 8
+   "errors": 0
   },
   {
    "page": "prs",
@@ -78,7 +78,7 @@
    "h": 1117,
    "scheme": "light",
    "overflow": 0,
-   "errors": 14
+   "errors": 0
   },
   {
    "page": "pr",
@@ -86,7 +86,7 @@
    "h": 1117,
    "scheme": "light",
    "overflow": 0,
-   "errors": 28
+   "errors": 0
   },
   {
    "page": "findings",
@@ -94,7 +94,7 @@
    "h": 1117,
    "scheme": "light",
    "overflow": 0,
-   "errors": 12
+   "errors": 0
   },
   {
    "page": "finding",
@@ -102,7 +102,7 @@
    "h": 1117,
    "scheme": "light",
    "overflow": 0,
-   "errors": 6
+   "errors": 0
   },
   {
    "page": "graph",
@@ -110,7 +110,7 @@
    "h": 1117,
    "scheme": "light",
    "overflow": 0,
-   "errors": 26
+   "errors": 0
   },
   {
    "page": "benchmark",
@@ -118,7 +118,7 @@
    "h": 1117,
    "scheme": "light",
    "overflow": 0,
-   "errors": 10
+   "errors": 0
   },
   {
    "page": "economics",
@@ -126,7 +126,7 @@
    "h": 1117,
    "scheme": "light",
    "overflow": 0,
-   "errors": 20
+   "errors": 0
   },
   {
    "page": "index",
@@ -134,7 +134,7 @@
    "h": 900,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 8
+   "errors": 0
   },
   {
    "page": "prs",
@@ -142,7 +142,7 @@
    "h": 900,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 14
+   "errors": 0
   },
   {
    "page": "pr",
@@ -150,7 +150,7 @@
    "h": 900,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 28
+   "errors": 0
   },
   {
    "page": "findings",
@@ -158,7 +158,7 @@
    "h": 900,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 12
+   "errors": 0
   },
   {
    "page": "finding",
@@ -166,7 +166,7 @@
    "h": 900,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 6
+   "errors": 0
   },
   {
    "page": "graph",
@@ -174,7 +174,7 @@
    "h": 900,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 26
+   "errors": 0
   },
   {
    "page": "benchmark",
@@ -182,7 +182,7 @@
    "h": 900,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 10
+   "errors": 0
   },
   {
    "page": "economics",
@@ -190,7 +190,7 @@
    "h": 900,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 20
+   "errors": 0
   },
   {
    "page": "index",
@@ -198,7 +198,7 @@
    "h": 1117,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 8
+   "errors": 0
   },
   {
    "page": "prs",
@@ -206,7 +206,7 @@
    "h": 1117,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 14
+   "errors": 0
   },
   {
    "page": "pr",
@@ -214,7 +214,7 @@
    "h": 1117,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 28
+   "errors": 0
   },
   {
    "page": "findings",
@@ -222,7 +222,7 @@
    "h": 1117,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 12
+   "errors": 0
   },
   {
    "page": "finding",
@@ -230,7 +230,7 @@
    "h": 1117,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 6
+   "errors": 0
   },
   {
    "page": "graph",
@@ -238,7 +238,7 @@
    "h": 1117,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 26
+   "errors": 0
   },
   {
    "page": "benchmark",
@@ -246,7 +246,7 @@
    "h": 1117,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 10
+   "errors": 0
   },
   {
    "page": "economics",
@@ -254,12 +254,9 @@
    "h": 1117,
    "scheme": "dark",
    "overflow": 0,
-   "errors": 20
+   "errors": 0
   }
  ],
  "bad": [],
- "kinds": {
-  "Executing inline event handler violates the ": 488,
-  "Failed to load resource: the server responde": 8
- }
+ "kinds": {}
 }
