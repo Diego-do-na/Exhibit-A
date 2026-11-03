@@ -234,6 +234,9 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[t
 .pal-side-lbl{color:rgba(232,238,251,.88)}
 .pal-trigger{background:transparent!important;border:1px solid rgba(255,255,255,.28)!important;color:#eef2fb!important;width:auto;min-width:52px;padding:0 10px;box-shadow:none}
 .pal-trigger:hover{border-color:rgba(255,255,255,.55)!important;color:#ffffff!important}
+.pal-open{justify-content:flex-start}
+.pal-kbd{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(238,242,251,.85);border:1px solid rgba(255,255,255,.25);border-radius:4px;padding:1px 6px}
+:root[data-theme=dark] .pal-kbd{color:#dbe6ff;border-color:rgba(160,185,255,.4)}
 :root[data-theme=dark] .pal-trigger{color:#eef2fb!important}
 
 /* ---- Visual polish: one protagonist per page ---- */

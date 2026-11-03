@@ -200,23 +200,17 @@
     root.addEventListener('click', (e) => { if (e.target === root) close(); });
     document.body.appendChild(root);
 
-    const trigger = el('button', 'ib pal-trigger', '⌘K');
-    trigger.type = 'button';
-    trigger.title = 'Command palette (⌘K)';
-    trigger.setAttribute('aria-label', 'Open command palette');
-    trigger.addEventListener('click', open);
+    // The Search button is static HTML in every sidebar ([data-open-palette]);
+    // delegate at document level so re-renders never remove the handler.
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '');
+    document.querySelectorAll('.pal-kbd').forEach((n) => { n.textContent = isMac ? '⌘K' : 'Ctrl K'; });
+    document.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('[data-open-palette]')) open();
+    });
     document.addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); root.style.display === 'none' ? open() : close(); }
       else if (e.key === 'Escape' && root && root.style.display !== 'none') close();
     });
-    const side = document.querySelector('nav.side');
-    if (side) {
-      const wrap = el('div', 'pal-side');
-      wrap.appendChild(trigger);
-      const lbl = el('span', 'pal-side-lbl', 'Command palette');
-      wrap.appendChild(lbl);
-      side.appendChild(wrap);
-    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);

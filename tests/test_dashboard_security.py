@@ -109,6 +109,17 @@ def test_zoom_dialog_exit_animation_overrides_entrance_fill():
     assert "setTimeout(done, 200)" in viz
 
 
+def test_every_sidebar_has_a_static_search_button_and_palette_does_not_inject_one():
+    for path in sorted(WEB_DIR.glob("*.html")):
+        html = path.read_text(encoding="utf-8")
+        if "data-theme-toggle" in html:
+            assert 'data-open-palette' in html, path.name
+            assert 'class="pal-kbd"' in html, path.name
+    palette = (WEB_DIR / "views/palette.js").read_text(encoding="utf-8")
+    assert "pal-trigger" not in palette and "nav.side" not in palette
+    assert "[data-open-palette]" in palette
+
+
 def test_pr_report_follows_the_selected_pull_request():
     prs_js = (WEB_DIR / "views/prs.js").read_text(encoding="utf-8")
     prs_html = (WEB_DIR / "prs.html").read_text(encoding="utf-8")
