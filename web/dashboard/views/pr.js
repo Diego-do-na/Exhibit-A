@@ -16,7 +16,7 @@ window.Component = class Component extends DCLogic {
     if (!id) return null;
     const row = (window.XA_PRS || []).find((r) => r[0] === id);
     if (!row) return { id, missing: true };
-    return { id: row[0], title: row[1], when: row[2], author: row[3], commits: row[4], files: row[5], added: row[6], removed: row[7], area: row[9] };
+    return { id: row[0], title: row[1], when: row[2], author: row[3], commits: row[4], files: row[5], added: row[6], removed: row[7], tests: !!row[8], area: row[9], cycle: row[10] };
   }
   async loadRun() {
     const id = this.runParam();
@@ -135,6 +135,7 @@ window.Component = class Component extends DCLogic {
   }
   renderVals() {
     const s = this.state;
+    const runId = this.runParam();
     const status = s.status ?? (this.props.startStatus ?? 'pending');
     const evtRows = s.evts ? s.evts.map((e) => [(e.stage || e.type || 'event').toUpperCase(), e.summary || e.type, e.role || 'engine', e.summary || e.type, (e.ts || '').slice(11, 19)]) : null;
     const S = evtRows || [
@@ -196,6 +197,11 @@ window.Component = class Component extends DCLogic {
       : status === 'committing'
         ? { l: 'Updating', s: 'Bot commit in progress', cls: 'state-busy', isBusy: true, bg: 'rgba(13,27,62,.07)', fg: '#26365a', bd: 'rgba(13,27,62,.18)' }
         : { l: 'Open', s: 'Not merged', cls: 'state-open', isOpen: true, bg: 'rgba(165,112,63,.14)', fg: '#7d5229', bd: 'rgba(165,112,63,.4)' };
+    const selPrEarly = this.prRow();
+    const st = selPrEarly && !runId
+      ? { l: 'MERGED', s: selPrEarly.when || 'Merged into main', cls: 'state-done', isDone: true, bg: 'rgba(44,79,196,.12)', fg: '#16307a', bd: 'rgba(44,79,196,.3)' }
+      : stt;
+    const mergeOut = selPrEarly && !runId ? { l: 'Merged', d: 'This pull request is already merged into main.' } : merge;
 
     const TAGS = {
       T1190: { cat: 'ATT&CK · Initial access', name: 'Exploit Public-Facing Application',
@@ -286,15 +292,16 @@ window.Component = class Component extends DCLogic {
     const selPr = this.prRow();
     const pr = selPr && !selPr.missing
       ? { crumb: selPr.id, title: selPr.title, meta: selPr.id + ' · ' + selPr.author + ' · ' + selPr.when + ' · ' + selPr.files + ' files · ' + selPr.area,
-          lead: 'Security analysis requested for ' + selPr.id + ' (' + selPr.title + '). The proof-loop timeline below is the recorded action-demo analysis; this pull request has no separate oracle run in the demo data, so its header and blast focus follow the selection, not a fixed report.' }
+          lead: 'Merged pull request ' + selPr.id + '. Its recorded metadata is below; no proof analysis is attached to it.', author: selPr.author, authorType: window.XA_authorType ? window.XA_authorType(selPr.author) : 'unattributed', when: selPr.when, files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: selPr.area.replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'no test files', cycle: selPr.cycle }
       : selPr
         ? { crumb: selPr.id, title: selPr.id, meta: selPr.id + ' · not in the merged pull request list', lead: 'No merged pull request with this id exists in the demo data.' }
         : { crumb: 'nested-pamphlets', title: 'Allow nested folders in pamphlet names', meta: 'examples/action-demo · nested-pamphlets → main · patch 01-path-traversal',
             lead: 'Removes the check that kept requested names inside the shelf. Exhibit A tested what that allows, live, in a sandbox.' };
     const bv = s.bv;
-    return { pr, bPath: bv === 'path' ? 'block' : 'none', bNet: bv === 'net' ? 'block' : 'none',
+    const mode = { isAnalysis: !!runId || !selPr, isPr: !!selPr && !runId, isDemo: !runId && !selPr, isRun: !!runId };
+    return { mode, pr, bPath: bv === 'path' ? 'block' : 'none', bNet: bv === 'net' ? 'block' : 'none',
       bvOpts: [['path', 'Path'], ['net', 'Graph']].map(([k, l]) => ({ l, cls: 'sb' + (bv === k ? ' sb-on' : ''), pick: () => this.setState({ bv: k }) })),
-      st: stt, risk, verdict, merge, attack, weak, tag, stop: (e) => e.stopPropagation(), live, dec, proof, prDiff, fixDiff, expect, path, safe: s.safe,
+      st, risk, verdict, merge: mergeOut, attack, weak, tag, stop: (e) => e.stopPropagation(), live, dec, proof, prDiff, fixDiff, expect, path, safe: s.safe,
       fx, commitSteps, after, confirm: s.confirm, askApprove: () => this.setState({ confirm: true }), cancel: () => this.setState({ confirm: false }), doCommit,
       reset: () => this.setState({ status: 'pending', cstep: 0 }) };
   }

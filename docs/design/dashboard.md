@@ -283,3 +283,24 @@ verdicts, and history for the trends chart.
    columns for local runs.
 5. **Ignoring generated samples.** If users generate sample runs inside the checkout
    (`runs-sample/`), consider ignoring that path.
+
+## Pull request reports: association rule (never mixed)
+
+Evidence from this checkout: `runs/` holds run folders (`first-cve`,
+`demo-live`, `demo-offline`, `case`) and the sample generator writes
+`synthetic-*` runs whose ledgers name cases (Starlette, archive, billing).
+`views/prdata.js` (`window.XA_PRS`) lists merged Exhibit A pull requests by
+task id (T127, T106, ...). No run id, ledger title, or result field names a
+task id or a pull request number, so **there is no evidence-based
+association between a listed merged PR and any recorded run**, and none is
+invented.
+
+- `pr.html?run=<run_id>` is the only real analysis view: every fact comes
+  from that run's ledger through `/api/runs/<id>`.
+- `pr.html?pr=<T-id>` is a merged-PR metadata view (title, author and
+  author type, date, commits, files, lines +/-, tests, area, cycle,
+  MERGED). Without an associated run it shows the honest empty state
+  ("No Exhibit A run was recorded for this pull request") and the command
+  to record one. No demo timeline, diff, fix, or blast radius is shown.
+- The pamphlets.py example survives only as the unparameterised
+  `pr.html`, labelled "Recorded demo", never attached to a listed PR.

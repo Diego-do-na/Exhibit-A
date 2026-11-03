@@ -120,6 +120,31 @@ def test_every_sidebar_has_a_static_search_button_and_palette_does_not_inject_on
     assert "[data-open-palette]" in palette
 
 
+def test_two_real_runs_have_different_detail_content(tmp_path: Path):
+    from exhibit_a.dashboard.model import run_detail
+    from exhibit_a.dashboard.sources import LocalRunsSource
+
+    source = LocalRunsSource(make_samples(tmp_path))
+    refs = source.list_runs()
+    details = [run_detail(source.load_run(ref.run_id)) for ref in refs[:6]]
+    keys = {
+        (tuple(sorted((p.get("file", ""), p.get("class", ""), p.get("verdict", "")) for p in d["proven"])),
+         tuple(sorted((x.get("file", ""), x.get("verdict", "")) for x in d["discarded"])))
+        for d in details
+    }
+    assert len(keys) > 1, "distinct runs must not collapse into one report"
+
+
+def test_merged_pr_without_run_shows_empty_state_not_demo():
+    pr_html = (WEB_DIR / "pr.html").read_text(encoding="utf-8")
+    pr_js = (WEB_DIR / "views/pr.js").read_text(encoding="utf-8")
+    assert "No Exhibit A run was recorded for this pull request" in pr_html
+    assert "exhibit-a run --pr-diff BASE..HEAD" in pr_html
+    assert 'value="{{mode.isAnalysis}}"' in pr_html and 'value="{{mode.isPr}}"' in pr_html
+    assert "Recorded demo" in pr_html
+    assert "'MERGED'" in pr_js
+
+
 def test_pr_report_follows_the_selected_pull_request():
     prs_js = (WEB_DIR / "views/prs.js").read_text(encoding="utf-8")
     prs_html = (WEB_DIR / "prs.html").read_text(encoding="utf-8")
