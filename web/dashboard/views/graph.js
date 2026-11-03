@@ -231,7 +231,7 @@ window.Component = class Component extends DCLogic {
       nDisp: 'block', gDisp: 'none', fnDisp: st.lv === 'net' ? 'inline-flex' : 'none',
       fnOpts: [[true, 'Functions on'], [false, 'Files only']].map(([k, l]) => ({ l, cls: 'sb' + (st.fn === k ? ' sb-on' : ''), pick: () => this.setState({ fn: k }) })),
       gfull: st.full ? 'gfull' : '', full: String(st.full), fullL: st.full ? 'Close expanded view' : 'Expand', toggleFull: () => this.setState({ full: !st.full }),
-      tot: [{ l: 'Packages', v: '19', u: 'top-level folders' }, { l: 'Modules', v: '120', u: 'Python files' }, { l: 'Imports', v: '317', u: 'internal dependencies' }, { l: 'Lines', v: '29.9k', u: '1,052 functions · 173 classes' }],
+      tot: [{ i: 'M21 8 12 3 3 8v8l9 5 9-5V8ZM3 8l9 5 9-5M12 13v8', l: 'Packages', v: '19', u: 'top-level folders' }, { i: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5ZM14 3v5h5M9 13h6M9 17h4', l: 'Modules', v: '120', u: 'Python files' }, { i: 'M5 12h14M13 6l6 6-6 6M5 5v14', l: 'Imports', v: '317', u: 'internal dependencies' }, { i: 'M4 6h16M4 12h16M4 18h10', l: 'Lines', v: '29.9k', u: '1,052 functions · 173 classes' }],
       layers, hot, pk,
       lvOpts: [['net', 'Network'], ['pkg', 'Packages'], ['mod', 'Modules']].map(([k, l]) => ({ l, cls: 'sb' + (st.lv === k ? ' sb-on' : ''), pick: () => this.setState({ lv: k, mod: null }) })),
       lyOpts: opt([['all', 'All'], ['core', 'Core'], ['analysis', 'Analysis'], ['surface', 'Surfaces']], 'ly')
