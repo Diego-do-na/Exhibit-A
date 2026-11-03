@@ -99,6 +99,16 @@ def test_dashboard_route_transition_waits_for_exit_and_cancels_stale_clicks():
     assert "prefers-reduced-motion: reduce" in js
 
 
+def test_zoom_dialog_exit_animation_overrides_entrance_fill():
+    css = (WEB_DIR / "dashboard.css").read_text(encoding="utf-8")
+    # .zm-ovl keeps fadein with fill both, so opacity:0 alone never shows;
+    # the exit must be an animation on the stronger .zm-ovl.zm-out selector.
+    assert ".zm-ovl.zm-out" in css and "zmFadeOut" in css
+    assert ".zm-out .zm" in css and "zmExit" in css
+    viz = (WEB_DIR / "views/viz.js").read_text(encoding="utf-8")
+    assert "setTimeout(done, 200)" in viz
+
+
 def test_dashboard_visual_protagonists_and_contrast_hooks():
     css = (WEB_DIR / "dashboard.css").read_text(encoding="utf-8")
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")

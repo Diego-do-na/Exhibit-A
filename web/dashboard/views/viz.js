@@ -450,7 +450,7 @@
       cancelAnimationFrame(raf);
       const done = () => { ovl.remove(); if (lastFocus && lastFocus.isConnected) lastFocus.focus(); };
       if (REDUCE) { done(); return; }
-      ovl.classList.add('zm-out'); setTimeout(done, 180);
+      ovl.classList.add('zm-out'); setTimeout(done, 200);
     }
     document.addEventListener('keydown', onKey);
     document.body.appendChild(ovl);

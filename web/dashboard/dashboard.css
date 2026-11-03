@@ -125,6 +125,10 @@ main.content>*.anim-exit{animation:cardExit .22s cubic-bezier(.32,.72,0,1) both}
 /* ---- Chart zoom dialog ---- */
 .zm-ovl{position:fixed;inset:0;z-index:80;background:rgba(10,24,64,.42);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:3vh 2vw;animation:fadein .2s ease both}
 .zm-out{opacity:0;transition:opacity .18s}
+@keyframes zmFadeOut{to{opacity:0}}
+@keyframes zmExit{from{opacity:1;transform:none}to{opacity:0;transform:scale(.96) translateY(8px)}}
+.zm-ovl.zm-out{animation:zmFadeOut .2s cubic-bezier(.32,.72,0,1) both}
+.zm-out .zm{animation:zmExit .2s cubic-bezier(.32,.72,0,1) both}
 .zm{width:min(1320px,96vw);height:min(860px,92vh);display:flex;flex-direction:column;background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(240,244,253,.9));border:1px solid rgba(255,255,255,.9);border-radius:6px;box-shadow:0 40px 100px rgba(10,24,64,.45);color:#0d1b3e;font-family:'IBM Plex Sans',system-ui,sans-serif;animation:popin .35s cubic-bezier(.16,1,.3,1) both}
 .zm *{box-sizing:border-box}
 .zm-h{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid rgba(13,27,62,.1)}
