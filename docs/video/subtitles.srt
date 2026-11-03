@@ -1,0 +1,107 @@
+1
+00:00:00,000 --> 00:00:04,000
+Most scanners give you a backlog of alerts.
+
+2
+00:00:04,000 --> 00:00:09,000
+Exhibit A takes a narrower position:
+
+3
+00:00:09,000 --> 00:00:15,000
+one finding is worth more than a wall of suspicions
+when it comes with reproducible proof.
+
+4
+00:00:20,000 --> 00:00:27,000
+A model can raise a suspicion,
+but it cannot declare a vulnerability.
+
+5
+00:00:27,000 --> 00:00:36,000
+Exhibit A writes an exploit and runs it
+in an isolated and resource-limited sandbox.
+
+6
+00:00:36,000 --> 00:00:42,000
+It checks the oracle effect and provenance,
+verifies the fix, and tests bypasses.
+
+7
+00:00:42,000 --> 00:00:48,000
+A green result means nothing could be proven—
+not safe.
+
+8
+00:00:48,000 --> 00:00:57,000
+Here is a real pull request that removes containment
+from a memo lookup.
+
+9
+00:00:57,000 --> 00:01:07,000
+The required check is red because the exploit reaches
+the application entry point.
+
+10
+00:01:07,000 --> 00:01:16,000
+It reads the canary outside the allowed directory.
+
+11
+00:01:16,000 --> 00:01:26,000
+The comment shows the observed effect and provenance,
+not just a pattern match.
+
+12
+00:01:26,000 --> 00:01:35,000
+Exhibit A proposes a small fix.
+The maintainer still owns the review.
+
+13
+00:01:35,000 --> 00:01:43,000
+The control PR is green and does not accuse.
+
+14
+00:01:43,000 --> 00:01:51,000
+Prompt-injection text in a diff does not mint a finding.
+
+15
+00:01:51,000 --> 00:01:58,000
+A test-frame open is not application provenance.
+
+16
+00:01:58,000 --> 00:02:06,000
+The local dashboard is a read-only viewer of the ledger.
+
+17
+00:02:06,000 --> 00:02:17,000
+This is the real GitHub source:
+PR runs, the proof trace, the finding,
+and Economics with recorded model spend.
+
+18
+00:02:17,000 --> 00:02:28,000
+It does not invent a provider or budget
+when the ledger did not record one.
+
+19
+00:02:28,000 --> 00:02:37,000
+In the live chain, fourteen PRs produced
+one proven path traversal.
+
+20
+00:02:37,000 --> 00:02:44,000
+There were zero control accusations
+and zero adversarial false proven results.
+
+21
+00:02:44,000 --> 00:02:47,000
+API spend was US$0.0685.
+
+22
+00:02:47,000 --> 00:02:54,000
+The other four vulnerable testbed PRs were green misses
+because this compact run was sliced for canary_read.
+
+23
+00:02:54,000 --> 00:03:00,000
+That is a documented limitation, not a safety claim.
+Exhibit A: proof before accusation.
