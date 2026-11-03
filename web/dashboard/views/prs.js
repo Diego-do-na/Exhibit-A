@@ -27,10 +27,10 @@ window.Component = class Component extends DCLogic {
     const cs = B.map((r) => r.cy).sort((a, b) => a - b);
     const n = Math.max(B.length, 1);
     const tot = [
-      { l: 'Pull requests', v: String(B.length), u: 'merged into main' },
-      { l: 'Commits', v: String(sum('cm')), u: (sum('cm') / n).toFixed(1) + ' per pull request' },
-      { l: 'Lines changed', v: short(sum('add') + sum('del')), u: '+' + short(sum('add')) + ' added · −' + short(sum('del')) + ' removed' },
-      { l: 'Median cycle', v: B.length ? cyc(cs[Math.floor(cs.length / 2)]) : '—', u: '90th percentile ' + (B.length ? cyc(cs[Math.floor(cs.length * 0.9)]) : '—') }
+      { i: 'M6 3v12M18 9a3 3 0 0 0-3-3h-4M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z', l: 'Pull requests', v: String(B.length), u: 'merged into main' },
+      { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 8a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z', l: 'Commits', v: String(sum('cm')), u: (sum('cm') / n).toFixed(1) + ' per pull request' },
+      { i: 'M4 6h16M4 12h10M4 18h13', l: 'Lines changed', v: short(sum('add') + sum('del')), u: '+' + short(sum('add')) + ' added · −' + short(sum('del')) + ' removed' },
+      { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2', l: 'Median cycle', v: B.length ? cyc(cs[Math.floor(cs.length / 2)]) : '—', u: '90th percentile ' + (B.length ? cyc(cs[Math.floor(cs.length * 0.9)]) : '—') }
     ];
     const withT = B.filter((r) => r.ts > 0).length;
     const days = {}; B.forEach((r) => { const d = Math.floor(r.min / 1440); days[d] = (days[d] || 0) + 1; });
