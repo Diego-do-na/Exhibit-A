@@ -96,6 +96,18 @@ def test_dashboard_route_transition_waits_for_exit_and_cancels_stale_clicks():
     assert "prefers-reduced-motion: reduce" in js
 
 
+def test_dashboard_visual_protagonists_and_contrast_hooks():
+    css = (WEB_DIR / "dashboard.css").read_text(encoding="utf-8")
+    index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    assert "proof-strip" in index and "Exploit fails on the vulnerable code" in index
+    assert "proofIn" in css and ".proof-strip" in css
+    assert (WEB_DIR / "graph.html").read_text(encoding="utf-8").count("g-hero") >= 1
+    assert "hero-bar" in (WEB_DIR / "findings.html").read_text(encoding="utf-8")
+    assert "5" in (WEB_DIR / "findings.html").read_text(encoding="utf-8")
+    dark = css.split(":root[data-theme=dark] .proof-step b", 1)[1]
+    assert "color" in dark
+
+
 def test_dashboard_api_responses_also_carry_strict_csp(tmp_path: Path):
     state = local_state(make_samples(tmp_path))
     status, headers, _ = request(state, "/api/info")

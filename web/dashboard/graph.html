@@ -39,13 +39,13 @@
     </nav>
 
     <div class="scroll"><main class="content">
-      <header data-style="padding: 12px 4px 0">
+      <header class="g-head" data-style="padding: 12px 4px 0">
         <span class="lbl">src/exhibit_a · ast only</span>
         <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Code graph</h1>
         <p class="lead" data-style="font-size: 19px">Which packages exist, how big each is, and what depends on what.</p>
       </header>
 
-      <section data-style="display: flex; flex-direction: column; gap: 22px">
+      <section class="g-stats" data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Architecture</h2><p class="lead">Three layers: proof core, analysis and surfaces.</p></div></div>
         <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
           <sc-for list="{{tot}}" as="k" hint-placeholder-count="4">
@@ -72,7 +72,7 @@
         </div>
       </section>
 
-      <section data-style="display: flex; flex-direction: column; gap: 22px">
+      <section class="g-hero" data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">The graph</h2><p class="lead">Each file is a node and its functions orbit it. Hover or select to trace connections.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
           <div class="card {{gfull}}" data-style="flex: 3 1 620px; min-width: 0; display: flex; flex-direction: column; overflow: hidden">
@@ -127,7 +127,7 @@
         </div>
       </section>
 
-      <section data-style="display: flex; flex-direction: column; gap: 22px">
+      <section class="g-after" data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Hotspots</h2><p class="lead">The schemas are the backbone; the oracle is both the largest module and among the most depended on.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <sc-for list="{{hot}}" as="h">
@@ -141,7 +141,7 @@
           </sc-for>
         </div>
       </section>
-      <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
+      <section class="g-after" data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
         <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Heatmap and attack paths</h2><p class="lead">{{heatNote}} Select a tile to focus its file in the graph above; select a proven path to highlight every step the oracle observed.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
           <div class="heat" role="group" aria-label="Repository heatmap">

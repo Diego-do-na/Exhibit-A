@@ -205,6 +205,28 @@ pre{margin:0}
 main,.main{animation:rise .45s cubic-bezier(.2,.7,.2,1) both}
 @media (prefers-reduced-motion:reduce){main,.main{animation:none}}
 
+/* ---- Visual polish: one protagonist per page ---- */
+.proof-strip{display:flex;align-items:stretch;gap:0;overflow:hidden}
+.proof-step{flex:1 1 0;min-width:0;display:flex;gap:12px;align-items:flex-start;padding:20px 18px;animation:proofIn .7s cubic-bezier(.16,1,.3,1) both}
+.proof-step:nth-child(2){animation-delay:.12s}.proof-step:nth-child(3){animation-delay:.24s}.proof-step:nth-child(4){animation-delay:.36s}
+.proof-step+.proof-step{border-left:1px solid rgba(13,27,62,.1)}
+.proof-step svg{flex:none;margin-top:2px;color:#2c4fc4}
+.proof-step b{display:block;font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:600;color:#0d1b3e}
+.proof-step span{display:block;margin-top:4px;font-size:13px;line-height:1.45;color:#33436b}
+.proof-arrow{align-self:center;flex:none;color:#5a6c8f;padding:0 2px}
+@keyframes proofIn{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+.g-head{order:1}.g-hero{order:2}.g-stats{order:3}.g-after{order:4}
+.g-stats .card{padding:14px 16px!important;gap:4px!important}
+.g-stats .card .dsp{font-size:30px!important}
+.hero-bar{order:1}.secondary-grid{order:2}
+.bench-hero{order:1}.bench-cards{order:2}
+:root[data-theme=dark] .proof-step+.proof-step{border-left-color:rgba(160,185,255,.14)}
+:root[data-theme=dark] .proof-step b{color:#e6ecfa}
+:root[data-theme=dark] .proof-step span{color:#a9b8d8}
+:root[data-theme=dark] .proof-step svg{color:#8fb4ff}
+:root[data-theme=dark] .proof-arrow{color:#7f8fb3}
+@media (prefers-reduced-motion:reduce){.proof-step{animation:none!important}}
+
 /* ---- Night mode ---- */
 .theme-t{font:inherit;display:flex;align-items:center;gap:10px;margin:0 2px;padding:10px 12px;border-radius:5px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);color:#eef2fb;cursor:pointer;font-size:13px;transition:background-color .2s,transform .2s}
 .theme-t:hover{background:rgba(255,255,255,.14)}.theme-t:active{transform:scale(.97)}

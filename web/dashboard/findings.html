@@ -46,7 +46,7 @@
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">The verdicts</h2><p class="lead">Of 44 suspicions: 30 proven, 9 invalid tests, 5 discarded. Refusing is a feature.</p></div></div>
-        <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
+        <div class="secondary-grid" data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
           <sc-for list="{{tot}}" as="k" hint-placeholder-count="4">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
               <span class="lbl">{{k.l}}</span>
@@ -55,12 +55,12 @@
             </div>
           </sc-for>
         </div>
-        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
+        <div class="card hero-bar" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
           <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">All 44 suspicions</h3><button type="button" class="ib" data-zoom data-zoom-id="sus" data-zoom-desc="Every suspicion the adversary raised, colored by what the oracle decided: 30 proven, 9 thrown out because the test itself was invalid, 5 discarded because nothing could be proven or no fix held." data-zoom-points="Refusing is a feature: it is how the engine avoids accusing safe code.|Only proven suspicions become findings, and each ships an exploit test and a verified fix." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
           <div data-style="display: flex; height: 56px; gap: 3px">
             <div data-style="width: 68.2%; background: #0f2557; color: #ffffff; display: flex; align-items: center; padding: 0 18px; gap: 10px"><span class="dsp" data-style="font-size: 24px; font-weight: 500">30</span><span data-style="font-size: 14px">proven</span></div>
             <div data-style="width: 20.5%; background: #9aa3e0; color: #0d1b3e; display: flex; align-items: center; padding: 0 14px; gap: 8px"><span class="dsp" data-style="font-size: 24px; font-weight: 500">9</span><span data-style="font-size: 14px">invalid</span></div>
-            <div data-style="width: 11.3%; background: #c3cbd8; color: #0d1b3e; display: flex; align-items: center; padding: 0 12px"><span class="dsp" data-style="font-size: 24px; font-weight: 500">5</span></div>
+            <div data-style="width: 11.3%; background: #c3cbd8; color: #0d1b3e; display: flex; align-items: center; padding: 0 12px; gap: 6px"><span class="dsp" data-style="font-size: 24px; font-weight: 500">5</span><span data-style="font-size: 13px">discarded</span></div>
           </div>
           <div data-style="display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: #3d4b68"><span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #0f2557"></span>Proven</span><span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #9aa3e0"></span>Invalid test</span><span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #c3cbd8"></span>Discarded</span></div>
         </div>

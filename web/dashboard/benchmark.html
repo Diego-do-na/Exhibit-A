@@ -46,7 +46,7 @@
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Proof loop versus a naive model</h2><p class="lead">Same corpus, same model: only the naive baseline accused a patched release.</p></div></div>
-        <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+        <div class="bench-cards" data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
           <sc-for list="{{ek}}" as="k">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
               <span class="lbl">{{k.l}}</span>
@@ -58,7 +58,7 @@
             </div>
           </sc-for>
         </div>
-        <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
+        <div class="bench-hero" data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <div class="card" data-style="flex: 3 1 520px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 18px">
             <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
               <h3 class="ct">Systems compared</h3>

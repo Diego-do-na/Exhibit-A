@@ -44,6 +44,13 @@
         <p class="lead" data-style="font-size: 19px">A vulnerability is reported only when an exploit is proven and its fix verified.</p>
       </header>
 
+      <section class="card proof-strip" aria-label="How a proof works">
+        <div class="proof-step"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><div><b>Suspicion</b><span>The adversary proposes what might be wrong.</span></div></div><span class="proof-arrow" aria-hidden="true">→</span>
+        <div class="proof-step"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m9 12 2 2 4-4"></path></svg><div><b>Exploit fails on the vulnerable code</b><span>The oracle observes the intended effect, through a real entry point.</span></div></div><span class="proof-arrow" aria-hidden="true">→</span>
+        <div class="proof-step"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5L3 17.6V21h3.4l6.3-6.3a4 4 0 0 0 5-5.4l-2.6 2.6-2.1-2.1 2.7-2.5Z"></path></svg><div><b>Fix verified</b><span>The patch is proposed and re-run against the same exploit.</span></div></div><span class="proof-arrow" aria-hidden="true">→</span>
+        <div class="proof-step"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><div><b>Exploit passes, bypass blocked</b><span>Only then is the finding reported, with its evidence.</span></div></div>
+      </section>
+
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">The state of the proof</h2><p class="lead">32 applications, 44 suspicions: 30 proven with a verified fix, none accusing safe code.</p></div></div>
         <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
