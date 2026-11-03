@@ -180,7 +180,7 @@ window.Component = class Component extends DCLogic {
     };
     const proven = s.evts ? (s.provenCount || 0) > 0 : done >= 8;
     const dec = status === 'approved'
-      ? { t: 'Fixed · nothing could be proven on the new head', d: 'The bot commit restored the containment check. On the new head the exploit gets a 404, the project tests still pass and every bypass variant is blocked. Nothing could be proven against it, which is not the same as safe.', c: '#2c4fc4', bg: 'rgba(44,79,196,.07)', bd: 'rgba(44,79,196,.25)' }
+      ? { t: 'Fixed · nothing could be proven on the new head', d: 'The applied suggestion restored the containment check. On the new head the exploit gets a 404, the project tests still pass and every bypass variant is blocked. Nothing could be proven against it, which is not the same as safe.', c: '#2c4fc4', bg: 'rgba(44,79,196,.07)', bd: 'rgba(44,79,196,.25)' }
       : proven
         ? { t: 'Vulnerability confirmed', d: 'A pamphlet name can now reach any readable file on the host. The exploit read the canary file through the public endpoint in 3 of 3 runs, from application code. Merge is blocked until a fix is applied.', c: '#a5703f', bg: 'rgba(165,112,63,.08)', bd: 'rgba(165,112,63,.3)' }
         : { t: 'Analyzing', d: 'The proof loop is running. Nothing is reported until the oracle observes the effect itself; a model suspicion alone never blocks a merge.', c: '#4a5873', bg: 'rgba(13,27,62,.04)', bd: 'rgba(13,27,62,.1)' };
@@ -295,7 +295,7 @@ window.Component = class Component extends DCLogic {
       ['Sink', 'open()', 'pamphlets.py:20', '#a5703f', 'rgba(165,112,63,.5)'], ['Effect', 'Any readable file', 'outside the shelf', '#a5703f', 'rgba(165,112,63,.5)']]
       .map(([k, n, d, lc, bd], i, a) => ({ k, n, d, lc, bd, arrow: i < a.length - 1 }));
 
-    const CS = ['Commit pushed to nested-pamphlets by exhibit-a[bot]', 'Proof loop re-run on the new head: exploit gets 404, nothing proven', 'Baseline 5 / 5 and bypass variants 3 / 3 blocked', 'Checks green · merge unblocked'];
+    const CS = ['Suggestion applied by the author with Commit suggestion (GitHub creates the commit)', 'Proof loop re-run on the new head: exploit gets 404, nothing proven', 'Baseline 5 / 5 and bypass variants 3 / 3 blocked', 'Checks green · merge unblocked'];
     const commitSteps = CS.map((l, i) => ({ l, done: i < s.cstep, cls: i === s.cstep ? 'pulse' : '', op: i <= s.cstep ? 1 : 0.45,
       bg: i < s.cstep ? '#2c4fc4' : 'transparent', bd: i <= s.cstep ? '#2c4fc4' : 'rgba(13,27,62,.25)' }));
     const doCommit = () => {
@@ -304,7 +304,7 @@ window.Component = class Component extends DCLogic {
       this.timers.push(setTimeout(() => this.setState({ status: 'approved' }), 900 * CS.length + 500));
     };
     const fx = status === 'approved'
-      ? { title: 'Corrected', lead: 'The verified fix is on the branch. These are the measured differences between the pull request as opened and the pull request after the bot commit.', approved: true }
+      ? { title: 'Corrected', lead: 'The verified fix was posted as a review suggestion and the author applied it. These are the measured differences between the pull request as opened and after the suggestion.', approved: true }
       : status === 'committing' ? { title: 'Applying the fix', lead: 'The bot is pushing the commit and the proof loop is checking the new head.', committing: true }
         : { title: 'Proposed fix', lead: 'The fixer restored the containment check while keeping the feature: nested folders still work, they just cannot leave the shelf. The fix was verified before it was offered to you.', pending: true };
     const after = [

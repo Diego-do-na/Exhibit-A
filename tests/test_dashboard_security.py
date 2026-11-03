@@ -189,6 +189,17 @@ def test_no_literal_unicode_escapes_in_visible_text():
     assert "Runs that exist →" in (WEB_DIR / "pr.html").read_text(encoding="utf-8")
 
 
+def test_demo_copy_matches_the_real_action_no_push():
+    html = (WEB_DIR / "pr.html").read_text(encoding="utf-8")
+    js = (WEB_DIR / "views/pr.js").read_text(encoding="utf-8")
+    for stale in ("pushes one commit", "will push one commit", "Approve and commit fix", "bot commit"):
+        assert stale not in html and stale not in js
+    assert "Apply suggested fix (simulated)" in html
+    assert "Recorded demo · simulated" in html
+    assert "suggest-fixes" in html and "Commit suggestion" in html
+    assert "Reset demo" in js or "Reset demo" in html
+
+
 def test_templates_have_no_inline_event_handler_attributes():
     import re
 
