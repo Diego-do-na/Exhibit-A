@@ -1,4 +1,4 @@
-# Chain validation (T150)
+# Chain validation (T150 / T151)
 
 Live GitHub Action runs on the private throwaway repository
 [`Diego-do-na/exhibit-a-testbed`](https://github.com/Diego-do-na/exhibit-a-testbed).
@@ -7,11 +7,41 @@ safe. The sandbox used by the Action is isolated and resource-limited; it
 is not "100% safe".
 
 This document records the **second, live** pass after the Action was
-pinned to a real Exhibit A SHA. The first pass (every job dead on a
-non-existent `codeql-action` pin, API spend US$0.00) is summarised at
-the end; it is not a proof-loop result.
+pinned to a real Exhibit A SHA (T139/T150, pin `76e1a78`, table below).
+T151 then changed the engine so a sliced PR run that omits `--effect`
+derives oracle effects from reachable sinks. The four green misses were
+re-evaluated against that engine on the real testbed trees. The earlier
+live table is kept. Nothing is hidden.
 
-## Setup
+## T151 re-evaluation of the four misses
+
+Compact PR runs still pass `--slice` and still do not pass `--effect`.
+They no longer force `canary_read`. Effects come from sinks the diff
+reaches (read, write, exec, SQL, connect, dos), each inside the existing
+`--budget-usd` cap, fail-closed. **IDOR (`canary_access`) is not derived
+and is not supported on this surface yet**: the catalog has no
+oracle-provable sink call for broken access control.
+
+Re-evaluation method: HEAD of each remaining vulnerable branch versus
+`origin/main` on `exhibit-a-testbed`, graph and slice only, this branch,
+no model call, API spend **US$0.00**. A live muse Action re-run of the
+four PRs was not started: this session has no `EXHIBIT_A_API_KEY` /
+`META_API_KEY`, and the task must not push the pin. Remaining budget
+under the US$1 cap is **US$1.00**.
+
+| PR | T139 (pin `76e1a78`) | T151 engine on the same trees | Still a miss? |
+|---|---|---|---|
+| [#2](https://github.com/Diego-do-na/exhibit-a-testbed/pull/2) SQLi | `nothing_reachable` for `canary_read`; `paths_to_other_sinks=1`; no model call | Path kept: `App.handle_request` → `App._search` → `sqlite3.connect.execute` (`canary_sql`). Effect is then **skipped**: the app opens sqlite as `:memory:`; `canary_sql` seeds a file database. No model call. | Yes. The drop-by-wrong-effect bug is gone. Proof still cannot run on an in-memory database. |
+| [#3](https://github.com/Diego-do-na/exhibit-a-testbed/pull/3) SSRF | `nothing_reachable` for `canary_read`; `paths_to_other_sinks=1` | Path kept: `App.handle_request` → `urllib.request.urlopen` (`canary_connect`). A model call would run. | Open until a live muse run. Not dropped. |
+| [#4](https://github.com/Diego-do-na/exhibit-a-testbed/pull/4) IDOR | `nothing_reachable`; `paths_to_other_sinks=0` | Still `nothing_reachable`: `folders:App.handle_request` reaches no sink. `canary_access` is not derived. | Yes, and documented as not supported (no oracle-provable sink). Not faked. |
+| [#5](https://github.com/Diego-do-na/exhibit-a-testbed/pull/5) ReDoS | `nothing_reachable`; `changed=[]`; `changed_outside_functions=["names.py:13"]` | Path kept: module-level `PATTERN` is in the slice; `matches` uses `re.compile.fullmatch` (`canary_dos`); entry `App.handle_request`. A model call would run. | Open until a live muse run. The module-level regex is no longer invisible. |
+
+The four-PR graph re-evaluation spent **US$0.00**. It does not replace a
+muse Action run and does not claim proven findings.
+
+## Live pass (T139, pin 76e1a78)
+
+### Setup
 
 | Item | Value |
 |---|---|
@@ -24,13 +54,13 @@ the end; it is not a proof-loop result.
 | Action pin | `diego-do-na/Exhibit-A@76e1a780758858667b8cf60c3b78b3018aa7ccd4` (`origin/main`, includes packaging and T147 `--slice`) |
 | Workflow | compact profile, `--slice`, `budget-usd: "0.20"`, `comment: true`, `suggest-fixes: true`, `sarif: false` |
 | Model | `meta` / `muse-wonder-1.0` |
-| Default `--effect` | `canary_read` (Action does not pass `--effect`; CLI default) |
+| Default `--effect` | T139: `canary_read` (Action does not pass `--effect`; CLI default). T151: omitted `--effect` on a sliced PR run derives effects from reachable sinks. |
 
 PR branches 2–14 were merged with testbed `main` so the workflow pin
 matches `76e1a78` and the GitHub diff versus `main` is the intended
 application change only. PR #1 was already on that pin.
 
-## Pull requests
+### Pull requests
 
 Check name: `exhibit-a / verify`. `exhibit-a / fork-guard` skipped
 (same-repository PRs). **Time** is the GitHub check duration. **Cost**
@@ -57,17 +87,19 @@ suggestions on the PR diff.
 | [#13](https://github.com/Diego-do-na/exhibit-a-testbed/pull/13) `adv/huge-diff` | adversarial: 111 helper files | red, `PR_MAX_FILES=100` or budget stop | red, engine exit 2, no verdict | $0.0000 | 28s | red | yes | no | no | Match. Log: `run: invalid PR diff: PR changes too many files`, then `the engine reported a usage or input error`. No comment (summary never ran). [run](https://github.com/Diego-do-na/exhibit-a-testbed/actions/runs/41656849012) |
 | [#14](https://github.com/Diego-do-na/exhibit-a-testbed/pull/14) `adv/empty` | adversarial: empty commit | green, risk-gate skip (empty diff is low) | green, `status=skipped`, proven 0 | $0.0000 | 30s | green | no | yes | no | Match. Risk `low`, `should_run_exploits=false`. Skip reason text is the generic low-risk template ("only documentation or tests changed"); the classified path list was empty. [run](https://github.com/Diego-do-na/exhibit-a-testbed/actions/runs/41656853405) |
 
-## Misses (not hidden)
+## Misses (not hidden) — T139 as pinned
 
 No control accused, and no adversarial PR produced a false `proven`.
 The four vulnerable PRs that are not path traversal were **green misses**.
 They are recorded here with the ledger line, not explained away and not
 "fixed" by changing `--effect`, slice, or asserts.
 
-Compact PR runs always pass `--slice` and never pass `--effect`, so the
-engine only keeps reach paths whose sink effect is `canary_read`. A path
-to any other oracle effect is counted as `paths_to_other_sinks` and then
-discarded with **no model call**.
+On pin `76e1a78`, compact PR runs always passed `--slice` and never
+passed `--effect`, so the engine only kept reach paths whose sink effect
+was `canary_read`. A path to any other oracle effect was counted as
+`paths_to_other_sinks` and then discarded with **no model call**. T151
+changes that default (see the re-evaluation above). It does not rewrite
+these live rows.
 
 ### PR #2 SQL injection — `nothing_reachable`
 
@@ -160,10 +192,11 @@ Per-PR `budget-usd` was $0.20. Spend stayed well under the US$3 cap.
   did not mint a `proven` finding.
 - An empty PR is skipped by the risk gate (green, nothing verified).
 - A 111-file PR is rejected with `PR_MAX_FILES=100` (red, no verdict).
-- Compact sliced PR runs, as pinned, only pursue `canary_read`. SQL,
-  SSRF, IDOR and ReDoS in this app were therefore green misses. That is
-  a product limitation observed live, not a reason to weaken the gate
-  or the tests.
+- Compact sliced PR runs, as pinned in T139, only pursued `canary_read`.
+  SQL, SSRF, IDOR and ReDoS in this app were therefore green misses.
+  That is a product limitation observed live, not a reason to weaken
+  the gate or the tests. T151 records how the engine treats those four
+  diffs now, without changing these live rows.
 
 ## First pass (not a proof-loop result)
 

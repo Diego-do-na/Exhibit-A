@@ -133,9 +133,13 @@ options:
   --recording RECORDING
                         Replay recording for a PR-diff run (also read from
                         EXHIBIT_A_REPLAY_RECORDING).
-  --effect {canary_read,canary_write,canary_exec,canary_sql}
-                        Oracle effect to prove in PR-diff mode (default:
-                        canary_read).
+  --effect {canary_read,canary_write,canary_exec,canary_sql,
+            canary_connect,canary_dos,canary_redirect,canary_access}
+                        Oracle effect to prove in PR-diff mode. When omitted on
+                        a sliced PR run, effects are taken from sinks reachable
+                        in the diff (read, write, exec, SQL, connect, dos).
+                        canary_access (IDOR) is not derived: the graph has no
+                        oracle-provable sink for it.
   --replay              Replay recorded model calls instead of calling a
                         provider.
   --provider PROVIDER   Model provider to use for every role (overrides
