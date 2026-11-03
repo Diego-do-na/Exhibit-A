@@ -21,7 +21,7 @@ window.Component = class Component extends DCLogic {
   async loadRun() {
     const id = this.runParam();
     if (!id) return;
-    this.setState({ runId: id });
+    this.setState({ runId: id, detail: null });
     try {
       const res = await fetch('/api/runs/' + encodeURIComponent(id) + '/events?limit=500', { headers: { Accept: 'application/json' } });
       if (res.ok) {
@@ -34,6 +34,7 @@ window.Component = class Component extends DCLogic {
       const res = await fetch('/api/runs/' + encodeURIComponent(id), { headers: { Accept: 'application/json' } });
       if (res.ok) {
         const detail = await res.json();
+        this.setState({ detail: detail || null });
         const run = (detail && detail.run) || {};
         const discarded = (detail && detail.discarded) || [];
         const provenItems = (detail && detail.proven) || [];
@@ -137,12 +138,67 @@ window.Component = class Component extends DCLogic {
     }
     else this.setState({ acc, el });
   }
+  money(v) {
+    if (v == null || v === '') return 'not recorded';
+    const n = Number(v);
+    if (!isFinite(n)) return 'not recorded';
+    return '$' + n.toFixed(n !== 0 && Math.abs(n) < 0.01 ? 6 : 4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+  int(v) {
+    if (v == null || v === '') return 'not recorded';
+    return Number(v).toLocaleString('en-US');
+  }
+  text(v, fb) {
+    const t = (v == null ? '' : String(v)).trim();
+    return t || fb || 'not recorded';
+  }
+  // Unified-diff text (untrusted run artifact) -> display rows. Rendered as
+  // text only, never executed; hunk headers and counts are derived, not parsed.
+  diffRows(patch) {
+    const rows = [];
+    let o = 0, n = 0;
+    for (const line of String(patch || '').split('\n').slice(0, 400)) {
+      if (line.startsWith('+++') || line.startsWith('---')) {
+        rows.push({ bg: 'transparent', sc: '#7a86a1', tc: '#26365a', s: ' ', o: '', n: '', t: line.slice(0, 200) });
+      } else if (line.startsWith('@@')) {
+        rows.push({ bg: 'transparent', sc: '#7a86a1', tc: '#26365a', s: ' ', o: '', n: '', t: line.slice(0, 200) });
+        o = 0; n = 0;
+      } else if (line.startsWith('+')) {
+        n += 1;
+        rows.push({ bg: 'rgba(34,139,84,.11)', sc: '#1f7a4d', tc: '#0f3d26', s: '+', o: '', n: String(n), t: line.slice(1, 201) });
+      } else if (line.startsWith('-')) {
+        o += 1;
+        rows.push({ bg: 'rgba(190,60,60,.11)', sc: '#b23a3a', tc: '#5a1c1c', s: '−', o: String(o), n: '', t: line.slice(1, 201) });
+      } else {
+        o += 1; n += 1;
+        rows.push({ bg: 'transparent', sc: '#7a86a1', tc: '#26365a', s: ' ', o: String(o), n: String(n), t: line.slice(0, 200) });
+      }
+    }
+    return rows;
+  }
+  // Recorded loop stages (from /api/runs/<id>) -> timeline rows for a run
+  // whose event stream could not be loaded. Anything missing stays 'not recorded'.
+  stageRows(detail) {
+    const stages = (detail && detail.stages) || [];
+    const desc = { BASELINE: 'project tests on a clean clone', SUSPECT: 'adversary proposes suspicions', EXPLOIT: 'test writer turns one into a test',
+      RUN: 'exploit runs in the isolated sandbox', VERDICT: 'oracle judges the intended effect', FIX: 'fixer proposes a patch',
+      VERIFY: 'exploit re-run on the fix, bypass variants tried', PACKAGE: 'proof bundle signed and stored' };
+    const rows = stages.filter((st) => st && st.reached).map((st) => [
+      String(st.name || 'stage'), String(st.name || 'stage'),
+      'ledger', (st.count || 0) + ' events' + (st.duration_s != null ? ' · ' + st.duration_s + 's' : '') + ' · ' + (desc[st.name] || 'recorded stage'),
+      String(st.first_ts || '').slice(11, 19),
+    ]);
+    return rows.length ? rows : [['LEDGER', 'No ledger stages recorded', 'ledger', 'the run recorded no reachable loop stage', '']];
+  }
   renderVals() {
     const s = this.state;
     const runId = this.runParam();
+    const isRun = !!runId;
+    const D = s.detail || null;
+    const R = (D && D.run) || {};
     const status = s.status ?? (this.props.startStatus ?? 'pending');
     const evtRows = s.evts ? s.evts.map((e) => [(e.stage || e.type || 'event').toUpperCase(), e.summary || e.type, e.role || 'engine', e.summary || e.type, (e.ts || '').slice(11, 19)]) : null;
-    const S = evtRows || [
+    const S = evtRows || (isRun ? this.stageRows(D) : [
       ['PR', 'Pull request opened', 'github', '1 file changed · pamphlets.py · +2 −6'],
       ['GATE', 'Risk triage', 'ci.gate', 'pamphlets.py matches "application code" → risk HIGH, exploits will run'],
       ['SCAN', 'Reachability', 'graph', 'App.handle_request → App._resolve → read_text → open() · 3 hops'],
@@ -154,7 +210,7 @@ window.Component = class Component extends DCLogic {
       ['FIX', 'Fix proposed', 'fixer', 'restore realpath + commonpath containment in _resolve'],
       ['VER', 'Fix verified', 'defender', 'exploit passes on fixed code · baseline 5 / 5 · 3 / 3 bypasses blocked'],
       ['PKG', 'Proof packaged', 'attest', 'exploit test, fix.patch, verdict and evidence signed into a bundle']
-    ];
+    ]);
     const N = S.length, rawDone = status === 'pending' ? s.step : N;
     const done = s.pos != null && evtRows ? Math.max(0, Math.min(N, s.pos)) : Math.min(rawDone, N);
     const RC = { github: '#c3cbd8', 'ci.gate': '#d9b98f', graph: '#9aa3e0', sandbox: '#8fb4ff', adversary: '#e8b07a', test_writer: '#8fb4ff', oracle: '#ffffff', fixer: '#a7c0ff', defender: '#a7c0ff', attest: '#c3cbd8' };
@@ -168,7 +224,7 @@ window.Component = class Component extends DCLogic {
       title: done >= N ? 'Analysis complete' : 'Analyzing · ' + String(S[done][1]).toLowerCase().slice(0, 90),
       dot: done >= N ? '#2c4fc4' : '#a5703f', dotCls: done >= N ? '' : 'pulse',
       next: done < N ? S[done][2] + ' …' : '',
-      src: evtRows ? 'ledger.jsonl · event ' + done + ' of ' + N : 'ledger.jsonl · live demo (open with ?run= for the real ledger)',
+      src: evtRows ? 'ledger.jsonl · event ' + done + ' of ' + N : (isRun ? 'ledger.jsonl · recorded stages (event stream unavailable)' : 'ledger.jsonl · live demo (open with ?run= for the real ledger)'),
       stages: S.map((x, i) => ({ k: x[0], n: String(x[1]).slice(0, 80), done: i < done, cls: i === done ? 'pulse' : '',
         bg: i < done ? (i === 7 ? '#a5703f' : '#2c4fc4') : 'transparent', bd: i < done ? (i === 7 ? '#a5703f' : '#2c4fc4') : i === done ? '#2c4fc4' : 'rgba(13,27,62,.25)',
         op: i <= done ? 1 : 0.45, fw: i === done ? 600 : 400 })),
@@ -178,14 +234,14 @@ window.Component = class Component extends DCLogic {
         onScrub: (e) => this.setState({ pos: parseInt(e.target.value, 10), step: parseInt(e.target.value, 10), playing: false }),
       } : null,
     };
-    const proven = s.evts ? (s.provenCount || 0) > 0 : done >= 8;
-    const dec = status === 'approved'
+    let proven = s.evts ? (s.provenCount || 0) > 0 : done >= 8;
+    let dec = status === 'approved'
       ? { t: 'Fixed · nothing could be proven on the new head', d: 'The applied suggestion restored the containment check. On the new head the exploit gets a 404, the project tests still pass and every bypass variant is blocked. Nothing could be proven against it, which is not the same as safe.', c: '#2c4fc4', bg: 'rgba(44,79,196,.07)', bd: 'rgba(44,79,196,.25)' }
       : proven
         ? { t: 'Vulnerability confirmed', d: 'A pamphlet name can now reach any readable file on the host. The exploit read the canary file through the public endpoint in 3 of 3 runs, from application code. Merge is blocked until a fix is applied.', c: '#a5703f', bg: 'rgba(165,112,63,.08)', bd: 'rgba(165,112,63,.3)' }
         : { t: 'Analyzing', d: 'The proof loop is running. Nothing is reported until the oracle observes the effect itself; a model suspicion alone never blocks a merge.', c: '#4a5873', bg: 'rgba(13,27,62,.04)', bd: 'rgba(13,27,62,.1)' };
     const ck = (ok, n, d, sOk) => ({ ok, n, d, s: ok ? sOk : 'waiting', sc: ok ? '#2c4fc4' : '#7a86a1', bg: ok ? '#2c4fc4' : 'transparent', bd: ok ? '#2c4fc4' : 'rgba(13,27,62,.25)' });
-    const proof = [
+    let proof = [
       ck(done >= 4, 'Baseline passes', 'The project’s own tests pass on a clean clone.', '5 / 5'),
       ck(done >= 8, 'Exploit fails on vulnerable code', 'For the reason the oracle observed: the canary was read.', 'canary_read'),
       ck(done >= 8, 'Valid provenance', 'The read came from application code through a real entry point.', 'handle_request'),
@@ -216,9 +272,59 @@ window.Component = class Component extends DCLogic {
       ? { title: VK[s.vkind] ? VK[s.vkind].t : 'Why it was not reported', reason: s.vreason || 'No reason was recorded for this verdict.', where: s.vwhere || '', kind: s.vkind }
       : null;
 
-    const risk = { l: 'High', c: '#a5703f', bars: [{ c: '#d9b98f' }, { c: '#c09060' }, { c: '#a5703f' }], d: 'Application code on a path reachable from a public entry point.' };
-    const verdict = proven || status === 'approved' ? { l: 'Proven', d: 'Path traversal · CWE-22 · canary_read observed by the oracle.' } : { l: 'Running', d: 'Waiting for the oracle to observe an effect.' };
-    const merge = status === 'approved' ? { l: 'Ready', d: 'Fix committed; checks green on the new head.' } : status === 'committing' ? { l: 'Updating', d: 'Bot commit in progress.' } : { l: 'Blocked', d: 'Not merged. Waiting for the fix to be approved.' };
+    let risk = { l: 'High', c: '#a5703f', bars: [{ c: '#d9b98f' }, { c: '#c09060' }, { c: '#a5703f' }], d: 'Application code on a path reachable from a public entry point.' };
+    let verdict = proven || status === 'approved' ? { l: 'Proven', d: 'Path traversal · CWE-22 · canary_read observed by the oracle.' } : { l: 'Running', d: 'Waiting for the oracle to observe an effect.' };
+    let merge = status === 'approved' ? { l: 'Ready', d: 'Fix committed; checks green on the new head.' } : status === 'committing' ? { l: 'Updating', d: 'Bot commit in progress.' } : { l: 'Blocked', d: 'Not merged. Waiting for the fix to be approved.' };
+    if (isRun) {
+      // Real-data mode: every card comes from the recorded run detail.
+      // Anything the ledger and artifacts do not record reads 'not recorded'.
+      const items = (D ? (D.proven || []) : []);
+      const firstP = items[0] || null;
+      proven = (R.proven || 0) > 0;
+      const ev0 = firstP ? (firstP.evidence || {}) : {};
+      const eff0 = ev0.effect || {};
+      const pv0 = ev0.provenance || {};
+      const pf0 = ev0.passes_on_fixed || {};
+      const by0 = ev0.bypass || {};
+      if (firstP) {
+        const where = (firstP.file || '') + (firstP.line ? ':' + firstP.line : '');
+        dec = { t: 'Vulnerability confirmed', d: (firstP.hypothesis || firstP.reason || (firstP.class + ' observed by the oracle')) + (where ? ' (' + where + ').' : '.') + ' Merge is blocked until a fix is applied.',
+          c: '#a5703f', bg: 'rgba(165,112,63,.08)', bd: 'rgba(165,112,63,.3)' };
+        const fr = ev0.fails_on_vulnerable || {};
+        const stable = (fr.runs != null && fr.of != null) ? fr.runs + ' / ' + fr.of : (fr.runs != null ? String(fr.runs) : 'recorded');
+        proof = [
+          ck(true, 'Baseline passes', 'The recorded run completed its baseline stage.', 'recorded'),
+          ck(true, 'Exploit fails on vulnerable code', 'For the reason the oracle observed.', this.text(eff0.type)),
+          ck(true, 'Valid provenance', 'The effect came from application code through a real entry point.', this.text(pv0.entry_point)),
+          ck(true, 'Stable', 'Same verdict in every repeated run.', stable),
+          ck(!!pf0.fix_verified, 'Fix verified, bypasses fail', 'Exploit passes on the fix, baseline still green, defender variants blocked.', (by0.tried || 0) + ' tried · ' + (by0.succeeded || 0) + ' got through'),
+        ];
+      } else if (vdec) {
+        dec = vdec;
+        proof = vproof || proof;
+      } else {
+        dec = { t: R.headline || 'Nothing could be proven', d: 'The recorded run ended with no proven finding. Nothing could be proven, which is not the same as safe.', c: '#4a5873', bg: 'rgba(13,27,62,.05)', bd: 'rgba(13,27,62,.14)' };
+        proof = vproof || [
+          ck(true, 'Baseline passes', 'The recorded run completed its baseline stage.', 'recorded'),
+          notReached('Exploit fails on vulnerable code', 'The oracle did not observe the intended effect for the recorded reason.'),
+        ];
+      }
+      const riskBars = { high: [{ c: '#d9b98f' }, { c: '#c09060' }, { c: '#a5703f' }], medium: [{ c: '#d9b98f' }, { c: '#c09060' }, { c: 'rgba(13,27,62,.12)' }], low: [{ c: '#d9b98f' }, { c: 'rgba(13,27,62,.12)' }, { c: 'rgba(13,27,62,.12)' }] };
+      const rk = String(R.risk || '').toLowerCase();
+      const reasons = R.risk_reasons && typeof R.risk_reasons === 'object' ? Object.entries(R.risk_reasons).map(([k, v]) => k + ': ' + v).join('; ') : '';
+      risk = R.risk ? { l: R.risk[0].toUpperCase() + R.risk.slice(1), c: rk === 'high' ? '#a5703f' : '#2c4fc4', bars: riskBars[rk] || riskBars.low, d: reasons || 'Recorded by the CI risk gate.' }
+        : { l: 'Not recorded', c: '#4a5873', bars: [{ c: 'rgba(13,27,62,.12)' }, { c: 'rgba(13,27,62,.12)' }, { c: 'rgba(13,27,62,.12)' }], d: 'The run recorded no risk classification.' };
+      if (firstP) {
+        verdict = { l: 'Proven', d: [firstP.class, ev0.cwe, eff0.type].filter((x) => x && x !== 'unknown').join(' · ') + ' observed by the oracle.' };
+      } else {
+        const v = R.verdicts || {};
+        const parts = ['proven', 'discarded_unproven', 'invalid_test', 'flaky', 'env_failure'].filter((k) => (v[k] || 0) > 0).map((k) => v[k] + ' ' + k.replace(/_/g, ' '));
+        verdict = { l: (R.proven || 0) > 0 ? 'Proven' : (R.headline || 'Nothing could be proven'), d: parts.length ? parts.join(' · ') : 'The run recorded no verdicts.' };
+      }
+      const toks = (R.tokens_in != null && R.tokens_out != null) ? this.int(R.tokens_in + R.tokens_out) + ' tokens' : 'tokens not recorded';
+      const models = (R.models && R.models.length) ? R.models.join(', ') : 'model not recorded';
+      merge = { l: this.text(R.status, 'recorded'), d: this.money(R.cost_usd) + ' · ' + toks + ' · ' + models };
+    }
     const stt = status === 'approved'
       ? { l: 'Ready', s: 'Fix committed', cls: 'state-done', isDone: true, bg: 'rgba(44,79,196,.12)', fg: '#16307a', bd: 'rgba(44,79,196,.3)' }
       : status === 'committing'
@@ -263,15 +369,39 @@ window.Component = class Component extends DCLogic {
         mitL: 'Defences', mit: [['Deny', 'Deny by default and enforce access checks on the server side.']], world: [] }
     };
     const mk = (id, name) => ({ id, name, aria: id + ' ' + name + ', open details', open: () => this.setState({ tag: id }) });
-    const attack = [mk('T1190', 'Exploit Public-Facing Application'), mk('T1083', 'File and Directory Discovery'), mk('T1005', 'Data from Local System')];
-    const weak = [mk('CWE-22', 'Path Traversal'), mk('CWE-23', 'Relative Path Traversal'), mk('CAPEC-126', 'Path Traversal'), mk('A01:2021', 'Broken Access Control')];
-    const T = s.tag ? TAGS[s.tag] : null;
+    let attack = [mk('T1190', 'Exploit Public-Facing Application'), mk('T1083', 'File and Directory Discovery'), mk('T1005', 'Data from Local System')];
+    let weak = [mk('CWE-22', 'Path Traversal'), mk('CWE-23', 'Relative Path Traversal'), mk('CAPEC-126', 'Path Traversal'), mk('A01:2021', 'Broken Access Control')];
+    let hasAttack = true, hasWeak = true, mitNote = '';
+    let rtags = null;
+    if (isRun) {
+      // No ATT&CK mapping is recorded in the ledger: never invent one.
+      attack = []; hasAttack = false;
+      mitNote = 'ATT&CK mapping not recorded for this run.';
+      rtags = {};
+      const seen = new Set();
+      for (const it of ((D && D.proven) || []).concat((D && D.discarded) || [])) {
+        const ev = it.evidence || {};
+        const cwe = ev.cwe || '';
+        const key = cwe || ('effect:' + ((ev.effect || {}).type || it.effect || it.class || 'recorded'));
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const where = (it.file || '') + (it.line ? ':' + it.line : '');
+        rtags[key] = { cat: cwe ? 'Weakness · recorded' : 'Recorded effect', name: (cwe ? cwe + ' · ' : '') + (it.class || 'recorded suspicion'),
+          desc: [it.hypothesis || it.reason || 'Recorded in the ledger.'],
+          here: [where, it.entry_point ? 'entry point ' + it.entry_point : '', ev.effect && ev.effect.type ? 'effect ' + ev.effect.type : ''].filter(Boolean).join(' · ') || 'not recorded',
+          mitL: 'Recorded evidence', mit: [], world: [] };
+      }
+      weak = Object.keys(rtags).map((id) => mk(id, (rtags[id].name || id).slice(0, 60)));
+      hasWeak = weak.length > 0;
+      if (!hasWeak) mitNote = 'Neither weakness nor effect data was recorded for this run.';
+    }
+    const T = s.tag ? ((isRun && rtags) ? (rtags[s.tag] || null) : TAGS[s.tag]) : null;
     const tag = T ? { open: true, id: s.tag, cat: T.cat, name: T.name, desc: T.desc, here: T.here, mitL: T.mitL, mit: T.mit.map(([id, t]) => ({ id, t })),
       world: T.world.map(([id, t]) => ({ id, t })), hasWorld: T.world.length > 0, close: () => this.setState({ tag: null }) } : { open: false, close: () => this.setState({ tag: null }) };
 
-    const D = { ctx: ['transparent', '#7a86a1', '#26365a', ' '], del: ['rgba(190,60,60,.11)', '#b23a3a', '#5a1c1c', '−'], add: ['rgba(34,139,84,.11)', '#1f7a4d', '#0f3d26', '+'] };
-    const row = ([k, o, n, t, v]) => ({ bg: v ? 'rgba(190,60,60,.2)' : D[k][0], sc: D[k][1], tc: D[k][2], s: D[k][3], o: o || '', n: n || '', t, vuln: !!v });
-    const prDiff = [
+    const DC = { ctx: ['transparent', '#7a86a1', '#26365a', ' '], del: ['rgba(190,60,60,.11)', '#b23a3a', '#5a1c1c', '−'], add: ['rgba(34,139,84,.11)', '#1f7a4d', '#0f3d26', '+'] };
+    const row = ([k, o, n, t, v]) => ({ bg: v ? 'rgba(190,60,60,.2)' : DC[k][0], sc: DC[k][1], tc: DC[k][2], s: DC[k][3], o: o || '', n: n || '', t, vuln: !!v });
+    let prDiff = [
       ['ctx', 28, 28, '        self.shelf_dir = shelf_dir'], ['ctx', 29, 29, ''], ['ctx', 30, 30, '    def _resolve(self, name):'],
       ['del', 31, 0, '        """Map a pamphlet name to a file inside the shelf, or None when it points outside."""'],
       ['del', 32, 0, '        root = os.path.realpath(self.shelf_dir)'], ['del', 33, 0, '        target = os.path.realpath(os.path.join(root, name))'],
@@ -280,7 +410,7 @@ window.Component = class Component extends DCLogic {
       ['add', 0, 32, '        return os.path.join(self.shelf_dir, name)', true],
       ['ctx', 37, 33, ''], ['ctx', 38, 34, '    def handle_request(self, method, path, query=None):']
     ].map(row);
-    const fixDiff = [
+    let fixDiff = [
       ['ctx', 30, 30, '    def _resolve(self, name):'],
       ['del', 31, 0, '        """Map a pamphlet name to a file in the shelf (nested folders are allowed)."""'], ['del', 32, 0, '        return os.path.join(self.shelf_dir, name)'],
       ['add', 0, 31, '        """Map a pamphlet name to a file in the shelf; nested folders stay inside it."""'],
@@ -288,12 +418,82 @@ window.Component = class Component extends DCLogic {
       ['add', 0, 34, '        if os.path.commonpath([root, target]) != root:'], ['add', 0, 35, '            return None'], ['add', 0, 36, '        return target'],
       ['ctx', 33, 37, ''], ['ctx', 34, 38, '    def handle_request(self, method, path, query=None):']
     ].map(row);
-    const expect = ['The exploit now gets 404 instead of the canary file.', 'Nested folders such as guides/intro.txt keep working.', 'All 5 project tests still pass.', 'Absolute paths, nested ../ and symlinked folders are blocked.'];
+    let expect = ['The exploit now gets 404 instead of the canary file.', 'Nested folders such as guides/intro.txt keep working.', 'All 5 project tests still pass.', 'Absolute paths, nested ../ and symlinked folders are blocked.'];
 
-    const path = [['Entry', 'GET /pamphlet', 'public request', '#2c4fc4', 'rgba(44,79,196,.4)'], ['Entry point', 'App.handle_request', 'pamphlets.py:34', '#2c4fc4', 'rgba(13,27,62,.12)'],
+    let path = [['Entry', 'GET /pamphlet', 'public request', '#2c4fc4', 'rgba(44,79,196,.4)'], ['Entry point', 'App.handle_request', 'pamphlets.py:34', '#2c4fc4', 'rgba(13,27,62,.12)'],
       ['Changed', 'App._resolve', 'pamphlets.py:32', '#a5703f', 'rgba(165,112,63,.5)'], ['Calls', 'read_text', 'pamphlets.py:18', '#4a5873', 'rgba(13,27,62,.12)'],
       ['Sink', 'open()', 'pamphlets.py:20', '#a5703f', 'rgba(165,112,63,.5)'], ['Effect', 'Any readable file', 'outside the shelf', '#a5703f', 'rgba(165,112,63,.5)']]
       .map(([k, n, d, lc, bd], i, a) => ({ k, n, d, lc, bd, arrow: i < a.length - 1 }));
+
+    // Run-mode artifacts: recorded files, fix patch, exploit test, suggestion link.
+    let chg = { l: '1 file', sub: 'pamphlets.py', counts: '+2 −6' };
+    let diffLead = 'Six lines of protection become one: a name like ../outside/canary.txt walks out of the shelf.';
+    let diffFile = 'examples/action-demo/pamphlets.py', diffCounts = '+2 −6';
+    let fixTitle = 'fix.patch · pamphlets.py', fixCounts = '+6 −2', fixMissing = false;
+    let xtest = null, xtestMissing = false, xtestTitle = 'test_exploit.py · recorded artifact';
+    let sugg = { show: false, hide: true, href: '' };
+    let suggNote = '';
+    let blastPaths = [], blastNote = '', hasBlast = false, noBlast = false;
+    if (isRun) {
+      const files = R.files_touched || [];
+      chg = { l: files.length ? files.length + (files.length === 1 ? ' file' : ' files') : 'not recorded',
+        sub: files.length ? files.slice(0, 6).join(', ') + (files.length > 6 ? ' (+' + (files.length - 6) + ' more)' : '') : 'The run recorded no touched files.',
+        counts: 'line counts not recorded' };
+      diffFile = files.length ? files[0] + (files.length > 1 ? ' (+' + (files.length - 1) + ' more)' : '') : 'not recorded';
+      diffCounts = 'not recorded';
+      diffLead = files.length ? 'The recorded run touches ' + files.length + (files.length === 1 ? ' file' : ' files') + '. Line-level diffs are not recorded, so only the file list is shown.'
+        : 'The run recorded no pull-request diff; only the touched files above (if any) are shown.';
+      prDiff = files.map((f) => ({ bg: 'transparent', sc: '#7a86a1', tc: '#26365a', s: ' ', o: '', n: '', t: String(f).slice(0, 200), vuln: false }));
+      const patch = D && D.artifacts ? D.artifacts.fix_patch : null;
+      if (patch) {
+        fixDiff = this.diffRows(patch);
+        fixTitle = 'fix.patch · recorded artifact';
+        const adds = fixDiff.filter((r) => r.s === '+').length, dels = fixDiff.filter((r) => r.s === '−').length;
+        fixCounts = '+' + adds + ' −' + dels;
+      } else {
+        fixDiff = []; fixMissing = true;
+        fixTitle = 'fix.patch · not recorded'; fixCounts = 'not recorded';
+      }
+      const xt = D && D.artifacts ? D.artifacts.exploit_test : null;
+      if (xt) {
+        xtest = String(xt).split('\n').slice(0, 200).map((t, i) => ({ n: String(i + 1), t: t.slice(0, 200) }));
+      } else {
+        xtestMissing = true;
+        xtestTitle = 'test_exploit.py · not recorded';
+      }
+      const evx = ((D && D.proven) || [])[0];
+      const evd = evx ? (evx.evidence || {}) : {};
+      const pfx = evd.passes_on_fixed || {};
+      const byx = evd.bypass || {};
+      expect = evx ? [
+        'Fix verified: ' + (pfx.fix_verified ? 'yes' : 'no') + ' (recorded).',
+        'Effect seen after fix: ' + (pfx.effect_seen_after_fix ? 'yes' : 'no') + ' (recorded).',
+        'Bypass variants: ' + (byx.tried || 0) + ' tried, ' + (byx.succeeded || 0) + ' got through (recorded).',
+        'Exploit test path: ' + this.text(evd.exploit_test),
+      ] : ['No fix is proposed when nothing was proven.'];
+      const g = (D && D.graph) || {};
+      const pps = g.proven_paths || g.paths || [];
+      if (g.available && pps.length) {
+        blastPaths = pps.slice(0, 8).map((p, i) => ({
+          n: String(i + 1), entry: this.text(p.entry), sink: this.text(p.sink),
+          effect: this.text(p.effect, ''), nodes: (p.nodes || []).map((x) => String(x)).slice(0, 12).join(' → '),
+        }));
+        const fp = pps[0] || {};
+        path = (fp.nodes || []).map((x, i, a) => ({ k: i === 0 ? 'Entry' : (i === a.length - 1 ? 'Sink' : 'Calls'), n: String(x).slice(0, 80), d: fp.effect ? String(fp.effect).slice(0, 80) : '', lc: '#a5703f', bd: 'rgba(165,112,63,.5)', arrow: i < a.length - 1 }));
+        blastNote = '';
+        hasBlast = true;
+      } else {
+        path = [];
+        blastPaths = [];
+        hasBlast = false;
+        noBlast = true;
+        blastNote = (g.reason || 'No code graph was recorded for this run') + '.';
+      }
+      const disc = R.discussion_url || '';
+      const sid = String((R && R.suggestion_id) || (D && D.suggestion_id) || '').replace(/[^0-9]/g, '');
+      sugg = disc ? { show: true, hide: false, href: disc + '/files' + (sid ? '#discussion_r' + sid : '') } : { show: false, hide: false, href: '' };
+      suggNote = disc ? '' : 'No pull-request link was recorded for this run, so there is no suggestion to open. Nothing is pushed from this page.';
+    }
 
     const CS = ['Suggestion applied by the author with Commit suggestion (GitHub creates the commit)', 'Proof loop re-run on the new head: exploit gets 404, nothing proven', 'Baseline 5 / 5 and bypass variants 3 / 3 blocked', 'Checks green · merge unblocked'];
     const commitSteps = CS.map((l, i) => ({ l, done: i < s.cstep, cls: i === s.cstep ? 'pulse' : '', op: i <= s.cstep ? 1 : 0.45,
@@ -303,10 +503,19 @@ window.Component = class Component extends DCLogic {
       CS.forEach((_, i) => { this.timers.push(setTimeout(() => this.setState({ cstep: i + 1 }), 900 * (i + 1))); });
       this.timers.push(setTimeout(() => this.setState({ status: 'approved' }), 900 * CS.length + 500));
     };
-    const fx = status === 'approved'
+    let fx = status === 'approved'
       ? { title: 'Corrected', lead: 'The verified fix was posted as a review suggestion and the author applied it. These are the measured differences between the pull request as opened and after the suggestion.', approved: true }
       : status === 'committing' ? { title: 'Applying the fix', lead: 'The bot is pushing the commit and the proof loop is checking the new head.', committing: true }
         : { title: 'Proposed fix', lead: 'The fixer restored the containment check while keeping the feature: nested folders still work, they just cannot leave the shelf. The fix was verified before it was offered to you.', pending: true };
+    if (isRun) {
+      // Recorded wording only: the demo's pamphlet story never appears here.
+      const evf = ((D && D.proven) || [])[0];
+      const fixed = evf && (evf.evidence || {}).passes_on_fixed;
+      fx = { title: 'Recorded fix', lead: evf
+        ? 'The recorded fix ' + (fixed && fixed.fix_verified ? 'was verified in the sandbox' : 'has no verified fix recorded') + '. The full patch is rendered above as text; nothing here is executed or pushed.'
+        : 'No fix was proposed: nothing was proven. The fix section is shown because the run recorded no verdict.',
+        pending: !!evf };
+    }
     const after = [
       { m: 'Request ../outside/canary.txt', b: '200 · canary text returned', a: '404 · not found' },
       { m: 'Request guides/intro.txt', b: '200', a: '200 · nested folders still work' },
@@ -349,18 +558,33 @@ window.Component = class Component extends DCLogic {
       nextPr: prIndex >= 0 && prIndex < byWhen.length - 1 ? relLink(byWhen[prIndex + 1]) : null,
       hasPrev: prIndex > 0, hasNext: prIndex >= 0 && prIndex < byWhen.length - 1
     } : null;
-    const pr = selPr && !selPr.missing
+    let pr = selPr && !selPr.missing
       ? { crumb: selPr.id, title: selPr.title, meta: selPr.id + ' · ' + selPr.author + ' · ' + selPr.when + ' · ' + selPr.files + ' files · ' + selPr.area,
           lead: 'Merged pull request ' + selPr.id + '. Its recorded metadata is below; no proof analysis is attached to it.', author: selPr.author, authorType: window.XA_authorType ? window.XA_authorType(selPr.author) : 'unattributed', when: selPr.when, files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: selPr.area.replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'no test files', cycle: selPr.cycle, ...enriched }
       : selPr
         ? { crumb: selPr.id, title: selPr.id, meta: selPr.id + ' · not in the merged pull request list', lead: 'No merged pull request with this id exists in the demo data.' }
         : { crumb: 'nested-pamphlets', title: 'Allow nested folders in pamphlet names', meta: 'examples/action-demo · nested-pamphlets → main · patch 01-path-traversal',
             lead: 'Removes the check that kept requested names inside the shelf. Exhibit A tested what that allows, live, in a sandbox.' };
+    if (isRun) {
+      // Header from the recorded run only: PR, repo, branch, commit, timing,
+      // cost and tokens. Nothing here is estimated.
+      const short = String(R.commit || '').slice(0, 12);
+      const metaBits = [R.repo || '', R.pr ? 'PR #' + String(R.pr).replace(/^#/, '') : '', R.branch || '', short || '', R.started_at || ''].filter(Boolean);
+      const firstP0 = ((D && D.proven) || [])[0] || null;
+      const toks0 = (R.tokens_in != null && R.tokens_out != null) ? this.int(R.tokens_in + R.tokens_out) + ' tokens' : 'tokens not recorded';
+      pr = { crumb: String(runId).slice(0, 40),
+        title: firstP0 ? (firstP0.class || 'proven finding') + ' in ' + (firstP0.file || 'recorded file') : (R.headline || 'Run ' + runId),
+        meta: metaBits.length ? metaBits.join(' · ') : 'not recorded',
+        lead: (R.headline || 'Recorded run') + ' · ' + this.money(R.cost_usd) + ' · ' + toks0 + ' · ' + (((R.models || []).length && R.models.join(', ')) || 'model not recorded') + '.' };
+    }
     const bv = s.bv;
     const mode = { isAnalysis: !!runId || !selPr, isPr: !!selPr && !runId, isDemo: !runId && !selPr, isRun: !!runId };
-    return { mode, pr, bPath: bv === 'path' ? 'block' : 'none', bNet: bv === 'net' ? 'block' : 'none',
+    return { mode, pr, bPath: (!isRun && bv === 'path') ? 'block' : 'none', bNet: (!isRun && bv === 'net') ? 'block' : 'none',
       bvOpts: [['path', 'Path'], ['net', 'Graph']].map(([k, l]) => ({ l, cls: 'sb' + (bv === k ? ' sb-on' : ''), pick: () => this.setState({ bv: k }) })),
-      st, risk, verdict, merge: mergeOut, attack, weak, tag, stop: (e) => e.stopPropagation(), live, dec: vdec || dec, proof: vproof || proof, showFixSection, whyPanel, prDiff, fixDiff, expect, path, safe: s.safe,
+      st: isRun ? { l: this.text(R.status, 'recorded'), s: R.headline || 'Recorded run', cls: 'state-open', isOpen: true, bg: 'rgba(165,112,63,.14)', fg: '#7d5229', bd: 'rgba(165,112,63,.4)' } : st,
+      risk, verdict, merge: mergeOut, attack, weak, hasAttack, hasWeak, mitNote, tag, stop: (e) => e.stopPropagation(), live, dec: vdec || dec, proof: vproof || proof, showFixSection, whyPanel,
+      prDiff, fixDiff, fixTitle, fixCounts, fixMissing, notFixMissing: !fixMissing,
+      xtest, xtestMissing, notXtestMissing: !xtestMissing, xtestTitle, expect, path, chg, diffLead, diffFile, diffCounts, sugg, suggNote, blastPaths, blastNote, hasBlast, noBlast, safe: s.safe,
       fx, commitSteps, after, confirm: s.confirm, askApprove: () => this.setState({ confirm: true }), cancel: () => this.setState({ confirm: false }), doCommit,
       reset: () => this.setState({ status: 'pending', cstep: 0 }) };
   }
