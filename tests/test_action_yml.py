@@ -293,3 +293,140 @@ def test_workflow_secret_is_referenced_by_name_only() -> None:
     text = WORKFLOW_YML.read_text(encoding="utf-8")
     assert "${{ secrets.EXHIBIT_A_API_KEY }}" in text
     assert _load_workflow()["jobs"]["verify"]["environment"] == "exhibit-a"
+
+
+# -- ledger artifact for the dashboard (docs/ci/artifact-schema.md) --------------------
+
+# Pins verified against GitHub commit pages (HTTP 200) on 2026-11-03.
+# The T150 typo (…7f3d7aab vs v3.28.10 …bf65d80d) must never come back.
+_PINNED_ACTIONS = {
+    "actions/setup-python": "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
+    "github/codeql-action/upload-sarif": "b56ba49b26e50535fa1e7f7db0f4f7b4bf65d80d",
+    "actions/upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+}
+_CODEQL_TYPO_SHA = "b56ba49b26e50535fa1e7f7db0f4f7b47f3d7aab"
+
+
+def test_fail_on_comment_suggest_fixes_sarif_budget_and_runtime_still_work() -> None:
+    action = _load_action()
+    inputs = action["inputs"]
+    assert inputs["fail-on"]["default"] == "proven"
+    assert inputs["comment"]["default"] == "false"
+    assert inputs["suggest-fixes"]["default"] == "true"
+    assert inputs["sarif"]["default"] == "true"
+    assert inputs["budget-usd"]["default"] == ""
+    assert inputs["max-runtime-minutes"]["default"] == "30"
+
+    setup = _step(action, "Validate inputs and install Exhibit A")
+    assert setup["env"]["IN_FAIL_ON"] == "${{ inputs.fail-on }}"
+    assert setup["env"]["IN_COMMENT"] == "${{ inputs.comment }}"
+    assert setup["env"]["IN_SUGGEST_FIXES"] == "${{ inputs.suggest-fixes }}"
+    assert setup["env"]["IN_SARIF"] == "${{ inputs.sarif }}"
+    assert setup["env"]["IN_BUDGET"] == "${{ inputs.budget-usd }}"
+    assert setup["env"]["IN_MAX_MINUTES"] == "${{ inputs.max-runtime-minutes }}"
+    assert "fail-on must be 'proven' or 'never'" in setup["run"]
+    assert "max-runtime-minutes must be an integer from 1 to 360" in setup["run"]
+    assert "budget-usd must be a number" in setup["run"]
+
+    engine = _step(action, "Run Exhibit A")
+    assert engine["env"]["IN_BUDGET"] == "${{ inputs.budget-usd }}"
+    assert engine["env"]["IN_MAX_MINUTES"] == "${{ inputs.max-runtime-minutes }}"
+    assert '--budget-usd "$IN_BUDGET"' in engine["run"]
+    assert 'timeout --signal=TERM --kill-after=30s "${IN_MAX_MINUTES}m"' in engine["run"]
+
+    summary = _step(action, "Write summary and result JSON")
+    assert summary["env"]["IN_FAIL_ON"] == "${{ inputs.fail-on }}"
+    assert '--fail-on "$IN_FAIL_ON"' in summary["run"]
+
+    comment = _step(action, "Post or update PR comment")
+    assert "inputs.comment == 'true'" in comment["if"]
+
+    suggest = _step(action, "Post verified fix suggestions")
+    assert "inputs.suggest-fixes == 'true'" in suggest["if"]
+
+    sarif_step = _step(action, "Generate SARIF report")
+    assert "inputs.sarif == 'true'" in sarif_step["if"]
+
+
+def test_artifact_upload_includes_dashboard_files() -> None:
+    upload = _step(_load_action(), "Upload ledger artifact")
+    paths = upload["with"]["path"]
+    for name in (
+        "ledger.jsonl",
+        "result.json",
+        "summary.md",
+        "results.sarif",
+        "fix.patch",
+        "test_exploit.py",
+        "test_exploit.js",
+        "test_exploit.ts",
+        "graph-summary.json",
+    ):
+        assert f"/report/{name}" in paths
+    assert upload["with"]["if-no-files-found"] == "warn"
+    uses = upload["uses"]
+    assert uses.startswith("actions/upload-artifact@")
+    assert uses.endswith(_PINNED_ACTIONS["actions/upload-artifact"])
+
+
+def test_assemble_step_copies_proof_files_and_dashboard_fields() -> None:
+    action = _load_action()
+    assemble = _step(action, "Assemble ledger artifact")
+    assert assemble["env"]["IN_PROVIDER"] == "${{ inputs.provider }}"
+    assert assemble["env"]["IN_MODEL"] == "${{ inputs.model }}"
+    run = assemble["run"]
+    assert "fix.patch" in run
+    assert "test_exploit.py" in run
+    assert "tokens_by_role" in run
+    assert 'result["provider"]' in run
+    assert 'result["model"]' in run
+    assert 'result["discussion_url"]' in run
+    assert "graph-summary.json" in run
+    assert "graph_summary" in run
+    assert "adversary" in run and "test_writer" in run and "fixer" in run and "defender" in run
+    assert "${{" not in run
+    names = [step.get("name") for step in action["runs"]["steps"]]
+    assert names.index("Post verified fix suggestions") < names.index("Assemble ledger artifact")
+    assert names.index("Assemble ledger artifact") < names.index("Upload ledger artifact")
+
+
+def test_suggest_fixes_records_review_discussion_url() -> None:
+    suggest = _step(_load_action(), "Post verified fix suggestions")
+    run = suggest["run"]
+    assert "html_url" in run
+    assert "discussion-url.txt" in run
+    assert "discussion_r" in run
+    assert "pullrequestreview-" in run
+    assert "issuecomment-" in run
+    assert "repos/$REPO/pulls/$PR_NUMBER/comments" in run
+    assert "${{" not in run
+
+
+def test_artifact_schema_doc_lists_dashboard_fields() -> None:
+    text = (REPO_ROOT / "docs" / "ci" / "artifact-schema.md").read_text(encoding="utf-8")
+    for needle in (
+        "fix.patch",
+        "test_exploit.py",
+        "tokens_by_role",
+        "provider",
+        "cost_usd",
+        "discussion_url",
+        "graph-summary.json",
+        "not recorded",
+        "isolated and resource-limited",
+    ):
+        assert needle in text
+
+
+def test_third_party_action_pins_are_known_existing_shas() -> None:
+    action = _load_action()
+    text = ACTION_YML.read_text(encoding="utf-8")
+    assert _CODEQL_TYPO_SHA not in text
+    for step in action["runs"]["steps"]:
+        uses = step.get("uses", "")
+        if not uses or "@" not in uses:
+            continue
+        image, ref = uses.split("@", 1)
+        assert SHA40.match(ref), f"{step.get('name')}: {uses} is not SHA-pinned"
+        if image in _PINNED_ACTIONS:
+            assert ref == _PINNED_ACTIONS[image], f"{image} pin is not the verified SHA"

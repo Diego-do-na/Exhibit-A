@@ -433,16 +433,45 @@ runs:
         json.dump(review, open(sys.argv[3], "w"), indent=2)
         json.dump(ordinary, open(sys.argv[3] + ".ordinary", "w"), indent=2)
         PY
+        write_discussion() {
+          local response="$1"
+          [[ -s "$OUT/report/discussion-url.txt" ]] && return 0
+          "$PY" - "$response" "$REPO" "$PR_NUMBER" "$OUT/report/discussion-url.txt" <<'PY'
+        import json, re, sys
+        from pathlib import Path
+        raw, repo, pr, dest = sys.argv[1:]
+        try:
+            data = json.loads(Path(raw).read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeDecodeError):
+            raise SystemExit(0)
+        url = data.get("html_url") if isinstance(data, dict) else None
+        if not isinstance(url, str) or len(url) > 500:
+            raise SystemExit(0)
+        owner_repo = re.escape(repo)
+        n = re.escape(pr)
+        pattern = (
+            rf"^https://github\.com/{owner_repo}/(pull|issues)/{n}"
+            rf"#(discussion_r|pullrequestreview-|issuecomment-)\d+$"
+        )
+        if re.match(pattern, url):
+            Path(dest).write_text(url + "\n", encoding="utf-8")
+        PY
+        }
         while IFS= read -r payload; do
           [[ -z "$payload" ]] && continue
           printf '%s\n' "$payload" > "$OUT/report/fix-comment.json"
-          gh api --method POST "repos/$REPO/pulls/$PR_NUMBER/comments" --input "$OUT/report/fix-comment.json" > /dev/null
+          gh api --method POST "repos/$REPO/pulls/$PR_NUMBER/comments" --input "$OUT/report/fix-comment.json" \
+            > "$OUT/report/fix-comment-response.json"
+          write_discussion "$OUT/report/fix-comment-response.json"
         done < <("$PY" -c 'import json,sys; [print(json.dumps(x)) for x in json.load(open(sys.argv[1]))]' "$OUT/report/fix-review.json")
         while IFS= read -r payload; do
           [[ -z "$payload" ]] && continue
           printf '%s\n' "$payload" > "$OUT/report/fix-comment.json"
-          gh api --method POST "repos/$REPO/issues/$PR_NUMBER/comments" --input "$OUT/report/fix-comment.json" > /dev/null
+          gh api --method POST "repos/$REPO/issues/$PR_NUMBER/comments" --input "$OUT/report/fix-comment.json" \
+            > "$OUT/report/fix-comment-response.json"
+          write_discussion "$OUT/report/fix-comment-response.json"
         done < <("$PY" -c 'import json,sys; [print(json.dumps({"body": x["body"]})) for x in json.load(open(sys.argv[1]))]' "$OUT/report/fix-review.json.ordinary")
+        rm -f "$OUT/report/fix-comment.json" "$OUT/report/fix-comment-response.json"
 
     - name: Open verified fix PR
       if: always() && inputs.open-fix-pr == 'true' && steps.summary.outcome == 'success' && github.event.pull_request.number && github.event.pull_request.head.repo.full_name == github.repository
@@ -498,6 +527,227 @@ runs:
         sarif_file: results.sarif
         category: exhibit-a
 
+    - name: Assemble ledger artifact
+      if: always() && steps.summary.outcome == 'success'
+      shell: bash
+      env:
+        OUT: ${{ steps.setup.outputs.out }}
+        PY: ${{ steps.setup.outputs.python }}
+        IN_PROVIDER: ${{ inputs.provider }}
+        IN_MODEL: ${{ inputs.model }}
+      run: |
+        set -euo pipefail
+        "$PY" - "$OUT/run" "$OUT/report" "$IN_PROVIDER" "$IN_MODEL" <<'PY'
+        import json
+        import shutil
+        import sys
+        from pathlib import Path
+
+        run_dir = Path(sys.argv[1])
+        report = Path(sys.argv[2])
+        provider = sys.argv[3]
+        model_input = sys.argv[4]
+        ROLES = ("adversary", "test_writer", "fixer", "defender")
+        EXPLOITS = ("test_exploit.py", "test_exploit.js", "test_exploit.ts")
+        GRAPH_STATUSES = ("sliced", "nothing_reachable", "not_applicable", "no_suspicions")
+
+        def as_int(value):
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                return 0
+            return number if number >= 0 else 0
+
+        def as_float(value):
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return 0.0
+            return number if number >= 0 else 0.0
+
+        def as_text(value, limit=300):
+            if not isinstance(value, str):
+                return ""
+            cleaned = " ".join(value.split())
+            return cleaned[:limit]
+
+        result_path = report / "result.json"
+        try:
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeDecodeError):
+            result = {}
+        if not isinstance(result, dict):
+            result = {}
+
+        packages = []
+        findings = result.get("findings") if isinstance(result.get("findings"), list) else []
+        if findings and isinstance(findings[0], dict):
+            rel = findings[0].get("package")
+            rel_path = Path(rel) if isinstance(rel, str) else None
+            if (
+                rel_path is not None
+                and rel
+                and not rel_path.is_absolute()
+                and ".." not in rel_path.parts
+            ):
+                first = run_dir / rel_path
+                try:
+                    first.resolve().relative_to(run_dir.resolve())
+                except (OSError, ValueError):
+                    first = None
+                if first is not None and first.is_dir():
+                    packages.append(first)
+        pkg_root = run_dir / "packages"
+        if pkg_root.is_dir():
+            packages.extend(sorted(p for p in pkg_root.iterdir() if p.is_dir() and p not in packages))
+
+        copied_patch = False
+        copied_tests = set()
+        for pkg in packages:
+            if not copied_patch:
+                src = pkg / "fix.patch"
+                if src.is_file() and not src.is_symlink():
+                    shutil.copyfile(src, report / "fix.patch")
+                    copied_patch = True
+            for name in EXPLOITS:
+                if name in copied_tests:
+                    continue
+                src = pkg / name
+                if src.is_file() and not src.is_symlink():
+                    shutil.copyfile(src, report / name)
+                    copied_tests.add(name)
+
+        by_role = {
+            role: {"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "events": 0, "models": []}
+            for role in ROLES
+        }
+        models = []
+        scan_payloads = []
+        ledger_path = report / "ledger.jsonl"
+        if not ledger_path.is_file():
+            ledger_path = run_dir / "ledger.jsonl"
+        if ledger_path.is_file():
+            try:
+                lines = ledger_path.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError):
+                lines = []
+            for raw in lines:
+                if not raw.strip():
+                    continue
+                try:
+                    event = json.loads(raw)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                role = event.get("role") if isinstance(event.get("role"), str) else ""
+                if role in by_role:
+                    bucket = by_role[role]
+                    bucket["tokens_in"] += as_int(event.get("tokens_in"))
+                    bucket["tokens_out"] += as_int(event.get("tokens_out"))
+                    bucket["cost_usd"] = round(bucket["cost_usd"] + as_float(event.get("cost_usd")), 6)
+                    bucket["events"] += 1
+                    name = as_text(event.get("model"), 120)
+                    if name and name not in bucket["models"]:
+                        bucket["models"].append(name)
+                    if name and name not in models:
+                        models.append(name)
+                if event.get("type") == "scan_done" and isinstance(event.get("payload"), dict):
+                    scan_payloads.append(event["payload"])
+
+        by_role = {role: bucket for role, bucket in by_role.items() if bucket["events"]}
+
+        def graph_score(payload):
+            status = payload.get("status") if isinstance(payload.get("status"), str) else ""
+            if status == "sliced" or isinstance(payload.get("paths"), list) and payload.get("paths"):
+                return 3
+            if status == "nothing_reachable" or isinstance(payload.get("graph"), dict):
+                return 2
+            if status in GRAPH_STATUSES:
+                return 1
+            return 0
+
+        graph_summary = None
+        usable = [p for p in scan_payloads if graph_score(p) > 0]
+        if usable:
+            payload = max(usable, key=graph_score)
+            graph_obj = payload.get("graph") if isinstance(payload.get("graph"), dict) else {}
+            stats = graph_obj.get("stats") if isinstance(graph_obj.get("stats"), dict) else graph_obj
+            if not isinstance(stats, dict):
+                stats = {}
+            stats = {
+                key: as_int(stats.get(key))
+                for key in ("files", "nodes", "edges", "resolved", "external", "unresolved")
+                if key in stats
+            }
+            paths = []
+            raw_paths = payload.get("paths") if isinstance(payload.get("paths"), list) else []
+            for item in raw_paths[:32]:
+                if not isinstance(item, dict):
+                    continue
+                paths.append({
+                    "path": as_text(item.get("path"), 500),
+                    "entry_point": as_text(item.get("entry_point"), 200),
+                    "entry_kind": as_text(item.get("entry_kind"), 64),
+                    "changed": as_text(item.get("changed"), 200),
+                    "vuln_class": as_text(item.get("vuln_class"), 120),
+                    "confidence": as_text(item.get("confidence"), 32),
+                })
+            entries = payload.get("entries") if isinstance(payload.get("entries"), list) else []
+            entry_names = []
+            for item in entries[:32]:
+                if isinstance(item, str):
+                    entry_names.append(as_text(item, 200))
+                elif isinstance(item, dict):
+                    name = as_text(item.get("name") or item.get("oracle_name"), 200)
+                    if name:
+                        entry_names.append(name)
+            if not entry_names:
+                for item in paths:
+                    name = item.get("entry_point") or ""
+                    if name and name not in entry_names:
+                        entry_names.append(name)
+            changed = []
+            for item in (payload.get("changed") if isinstance(payload.get("changed"), list) else [])[:32]:
+                if isinstance(item, str):
+                    changed.append(as_text(item, 200))
+            other_sinks = payload.get("paths_to_other_sinks")
+            graph_summary = {
+                "schema_version": "1",
+                "available": True,
+                "status": as_text(payload.get("status"), 64),
+                "effect": as_text(payload.get("effect"), 64),
+                "reason": as_text(payload.get("reason"), 500),
+                "stats": stats,
+                "build_seconds": as_float(payload["build_seconds"]) if "build_seconds" in payload else None,
+                "entries": entry_names,
+                "changed": changed,
+                "paths": paths,
+                "paths_to_other_sinks": as_int(other_sinks) if other_sinks is not None else None,
+                "source_file": as_text(payload.get("source_file"), 300),
+            }
+            (report / "graph-summary.json").write_text(
+                json.dumps(graph_summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+
+        discussion = ""
+        discussion_path = report / "discussion-url.txt"
+        if discussion_path.is_file():
+            try:
+                discussion = discussion_path.read_text(encoding="utf-8").strip().splitlines()[0]
+            except (OSError, UnicodeDecodeError, IndexError):
+                discussion = ""
+            if len(discussion) > 500:
+                discussion = ""
+
+        result["provider"] = as_text(provider, 120)
+        result["model"] = as_text(model_input, 120) or (models[0] if models else "")
+        result["tokens_by_role"] = by_role
+        result["discussion_url"] = discussion
+        result["graph_summary"] = graph_summary
+        result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        PY
+
     - name: Upload ledger artifact
       if: always() && steps.summary.outcome == 'success'
       # actions/upload-artifact v7.0.2
@@ -509,6 +759,11 @@ runs:
           ${{ steps.setup.outputs.out }}/report/result.json
           ${{ steps.setup.outputs.out }}/report/summary.md
           ${{ steps.setup.outputs.out }}/report/results.sarif
+          ${{ steps.setup.outputs.out }}/report/fix.patch
+          ${{ steps.setup.outputs.out }}/report/test_exploit.py
+          ${{ steps.setup.outputs.out }}/report/test_exploit.js
+          ${{ steps.setup.outputs.out }}/report/test_exploit.ts
+          ${{ steps.setup.outputs.out }}/report/graph-summary.json
         if-no-files-found: warn
         retention-days: ${{ inputs.artifact-retention-days }}
         include-hidden-files: false
