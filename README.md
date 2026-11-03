@@ -73,7 +73,7 @@ The offline path is covered by `test_offline_demo_ends_with_a_proven_finding_and
     api-key: ${{ secrets.EXHIBIT_A_API_KEY }}
 ```
 
-The check runs `exhibit-a run --pr-diff BASE..HEAD` in a timeout, posts one marker PR comment, uploads the ledger artifact, and turns red only on a proven finding; green means nothing could be proven. Fork PRs get no run (fork guard), and the key is materialised in one step only. Details: [action.yml](action.yml), [docs/ci/github-action.md](docs/ci/github-action.md), [docs/ci/github-action-security.md](docs/ci/github-action-security.md).
+The check runs `exhibit-a run --pr-diff BASE..HEAD --profile compact --slice` in a timeout, posts one marker PR comment, uploads the ledger artifact, and turns red only on a proven finding; green means nothing could be proven. A small rule-based risk gate classifies changed paths only: documentation/tests can skip exploits, while application, dependency, container, CI, and sensitive-directory changes run them. Fork PRs get no run (fork guard), and the key is materialised in one step only. Details: [action.yml](action.yml), [docs/ci/github-action.md](docs/ci/github-action.md), [docs/ci/github-action-security.md](docs/ci/github-action-security.md).
 
 ## Results
 
@@ -100,7 +100,7 @@ Negative control, reported honestly: the first live compact run on **fixed** Sta
 
 ## SCAN / SLICE code graph
 
-`exhibit-a scan --graph` builds an AST-only call graph of a Python tree (parsed, never imported) and maps a diff to entry-point → changed-function → sink paths; `exhibit-a run --slice` (opt-in, off by default) gives the adversary only that slice and, crucially, the oracle judges against the graph's entry point — the model's text can never widen what the oracle accepts. No path means no model call and exit 0. Both corpus paths and entry points are found automatically. Not yet measured: live-model cost/recall with `--slice`. Details: [docs/design/code-graph.md](docs/design/code-graph.md).
+`exhibit-a scan --graph` builds an AST-only call graph of a Python tree (parsed, never imported) and maps a diff to entry-point → changed-function → sink paths; `exhibit-a run --slice` (on by default under `--profile compact`, off under `standard`; `--slice`/`--no-slice` override) gives the adversary only that slice and, crucially, the oracle judges against the graph's entry point — the model's text can never widen what the oracle accepts. No path means no model call and exit 0. Both corpus paths and entry points are found automatically. Not yet measured: live-model cost/recall with `--slice`. Details: [docs/design/code-graph.md](docs/design/code-graph.md).
 
 ## Security summary
 

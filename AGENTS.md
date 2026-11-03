@@ -13,7 +13,7 @@ Read `SPEC.md` first for the authoritative scope, contracts, proof standard, sec
 - `src/exhibit_a/models/`: Provides model-role interfaces and replay/provider plumbing for recorded, schema-validated model calls.
 - `src/exhibit_a/sandbox/`: Runs untrusted exploit and regression tests in an ephemeral, isolated, resource-limited container with no network or secrets.
 - `src/exhibit_a/oracle/`: Observes intended effects and provenance so execution failures count as proof only for the right reason and entry point.
-- `src/exhibit_a/loop/`: Currently implements BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY → PACKAGE; SCAN and SLICE exist since T084: `exhibit-a scan` (with `--graph` and `--pr-diff`) and the opt-in `exhibit-a run --slice`.
+- `src/exhibit_a/loop/`: Currently implements BASELINE → SUSPECT → EXPLOIT → RUN → VERDICT → FIX → VERIFY → PACKAGE; SCAN and SLICE exist since T084: `exhibit-a scan` (with `--graph` and `--pr-diff`) and `exhibit-a run --slice` (on by default with `--profile compact`).
 - `src/exhibit_a/graph/`: Builds an `ast`-only call graph and the reach paths entry point -> changed function -> sink that SCAN and SLICE use (docs/design/code-graph.md).
 - `src/exhibit_a/live/`: Serves the thin live view and replay stream backed by the ledger, not a separate dashboard product.
 - `bench/`: Holds benchmark harnesses, corpora, baselines, ablations, and evaluation data.

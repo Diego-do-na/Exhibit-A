@@ -279,7 +279,7 @@ Every module sits behind a flag so it can be ablated.
 - ledger: implemented (append-only JSONL).
 - benchmark with ablations: bench corpus and probe tooling present; replay-driven cases work.
 - minimal live view: minimal replay-backed live pieces implemented, plus local read-only dashboard (`exhibit-a dashboard`).
-- CLI: complete suite of subcommands (`scan`, `run`, `ledger`, `trace`, `report`, `runs`, `advisories`, `dashboard`, `audit`, `doctor`, `reproduce`, `sarif`, `verify`); every CLI mode runs baseline and exploit tests in the isolated, resource-limited sandbox (`SandboxRunner`).
+- CLI: complete suite of subcommands (`scan`, `run`, `ledger`, `trace`, `report`, `runs`, `advisories`, `dashboard`, `audit`, `deps`, `doctor`, `reproduce`, `sarif`, `sbom`, `variants`, `verify`, `init`, `version`); every CLI mode runs baseline and exploit tests in the isolated, resource-limited sandbox (`SandboxRunner`).
 - slicing: AST static call graph slicing (`--slice`), enabled by default with `--profile compact`.
 - proof bundles: signed `manifest.json`, offline `verify`, and sandbox `reproduce`.
 - findings grouping: deduplication collapses duplicate proofs sharing entry point and sink call chain.
