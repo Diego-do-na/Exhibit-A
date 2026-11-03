@@ -79,6 +79,23 @@ def test_dashboard_server_sends_strict_csp_headers(tmp_path: Path):
     assert headers["x-frame-options"] == ["DENY"]
 
 
+def test_dashboard_route_exit_animation_is_defined_and_reduced_motion_safe():
+    css = (WEB_DIR / "dashboard.css").read_text(encoding="utf-8")
+    assert "@keyframes cardExit" in css
+    assert ".anim-exit" in css and "cardExit .18s" in css
+    assert ".anim-enter" in css
+    reduced = css.split("@media (prefers-reduced-motion:reduce)", 1)[1].split("}", 1)[0]
+    assert ".anim-exit" in reduced
+
+
+def test_dashboard_route_transition_waits_for_exit_and_cancels_stale_clicks():
+    js = (WEB_DIR / "dc-lite.js").read_text(encoding="utf-8")
+    assert "anim-exit" in js and "cardExit" in js
+    assert "animationend" in js and "setTimeout(finish, EXIT_MS)" in js
+    assert "routeSeq" in js and "seq !== routeSeq" in js
+    assert "prefers-reduced-motion: reduce" in js
+
+
 def test_dashboard_api_responses_also_carry_strict_csp(tmp_path: Path):
     state = local_state(make_samples(tmp_path))
     status, headers, _ = request(state, "/api/info")

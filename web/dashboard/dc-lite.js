@@ -91,6 +91,50 @@
   })();
   window.DCTheme = DCTheme;
 
+  // ---- Route exit transition ---------------------------------------------------------
+  // Page navigation replaces the whole view; fade the current one out first so the
+  // swap is not abrupt. The incoming page plays its own entrance (.content>* rise,
+  // also exposed as .anim-enter). Rapid clicks bump routeSeq, so only the latest
+  // navigation is allowed to proceed and stale waits are cancelled.
+  const EXIT_MS = 190;
+  let routeSeq = 0;
+  const reducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  function waitForExit(view) {
+    return new Promise((resolve) => {
+      if (reducedMotion() || !view || !view.children.length) { resolve(); return; }
+      Array.from(view.children).forEach((el) => el.classList.add('anim-exit'));
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        view.removeEventListener('animationend', onEnd);
+        resolve();
+      };
+      const onEnd = (e) => { if (e.animationName === 'cardExit') finish(); };
+      const timer = setTimeout(finish, EXIT_MS);
+      view.addEventListener('animationend', onEnd);
+    });
+  }
+  async function show(url, seq) {
+    const view = document.querySelector('main.content');
+    if (view && view.children.length) await waitForExit(view);
+    if (seq !== routeSeq) return; // a newer click superseded this transition
+    window.location.href = url;
+  }
+  window.DCShow = show;
+  document.addEventListener('click', (ev) => {
+    if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    const link = ev.target.closest && ev.target.closest('a[href]');
+    if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+    let url;
+    try { url = new URL(link.href, window.location.href); } catch (e) { return; }
+    if (url.origin !== window.location.origin || !/\.html$/.test(url.pathname)) return;
+    if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+    ev.preventDefault();
+    show(url.href, ++routeSeq);
+  });
+
   const WHOLE = /^\s*\{\{\s*([^}]+?)\s*\}\}\s*$/;
   const PART = /\{\{\s*([^}]+?)\s*\}\}/g;
 
