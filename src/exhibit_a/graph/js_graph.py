@@ -63,7 +63,20 @@ def build_js_graph(root: str | Path, *, image: str | None = None, timeout: float
         raw = json.loads(proc.stdout)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("malformed JavaScript graph output") from exc
-    return _validate(raw)
+    graph = _validate(raw)
+    if not graph.files:
+        sources = [
+            p for p in root.rglob("*")
+            if p.is_file() and not p.is_symlink()
+            and p.suffix in {".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"}
+            and "node_modules" not in p.parts and not p.name.startswith(".")
+        ]
+        if sources:
+            raise ValueError(
+                "JavaScript graph builder returned no files for a tree "
+                f"with {len(sources)} source file(s); refusing an empty graph"
+            )
+    return graph
 
 
 build_graph = build_js_graph

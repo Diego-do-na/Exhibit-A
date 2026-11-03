@@ -5,12 +5,20 @@
 // with the TypeScript compiler API and emits data only; it never loads repository modules.
 const fs = require("fs");
 const path = require("path");
-const ts = require("typescript");
+let ts;
+try { ts = require("typescript"); }
+catch (e) {
+  // The builder runs as `node -` (stdin) in the sandbox, where module
+  // resolution starts at the working directory, not the image install
+  // dir. Fall back to the pinned image location before failing closed.
+  try { ts = require("/opt/sandbox/node_modules/typescript"); }
+  catch (e2) { console.error("builder failure: typescript module not found"); process.exit(1); }
+}
 
 const MAX_FILES = 5000;
 const MAX_FILE_BYTES = 1000000;
 const MAX_TOTAL_BYTES = 50000000;
-const EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts"]);
+const EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"]);
 const SKIP = new Set(["node_modules", ".git", ".venv", "venv", "dist", "build", "__pycache__"]);
 
 function text(node, source, limit = 120) {
@@ -70,7 +78,7 @@ function walkFiles(root) {
   return {files, skipped, truncated: files.length >= MAX_FILES || total >= MAX_TOTAL_BYTES};
 }
 function moduleName(rel) {
-  return rel.replace(/\.(mjs|cjs|js|ts)$/, "").replace(/\/index$/, "").replace(/\//g, ".") || "index";
+  return rel.replace(/\.(mjs|cjs|jsx|tsx|js|ts)$/, "").replace(/\/index$/, "").replace(/\//g, ".") || "index";
 }
 function resolveModule(from, spec, modules) {
   if (!spec.startsWith(".")) return spec;
@@ -88,7 +96,9 @@ function build(root) {
   const nodes = [], edges = [], nodeByName = new Map(), exports = new Map(), importsByFile = new Map();
   const sourceFiles = new Map();
   for (const file of discovered.files) {
-    const scriptKind = file.rel.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+    const scriptKind = file.rel.endsWith(".tsx") ? ts.ScriptKind.TSX
+      : file.rel.endsWith(".ts") ? ts.ScriptKind.TS
+      : file.rel.endsWith(".jsx") ? ts.ScriptKind.JSX : ts.ScriptKind.JS;
     const sf = ts.createSourceFile(file.rel, file.source, ts.ScriptTarget.Latest, true, scriptKind);
     sourceFiles.set(file.rel, sf);
     importsByFile.set(file.rel, new Map());

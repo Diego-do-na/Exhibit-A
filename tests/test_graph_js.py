@@ -43,6 +43,31 @@ def test_js_reach_keeps_route_to_sink():
     assert find_entries(graph)[0][0].oracle_name == "handler"
 
 
+def test_js_graph_refuses_empty_output_when_sources_exist(tmp_path, monkeypatch):
+    import subprocess as sp
+
+    import exhibit_a.graph.js_graph as js_graph
+
+    (tmp_path / "app.ts").write_text("export function handler() {}\n")
+    empty = json.dumps({
+        "schema_version": "1", "files": [], "nodes": [], "edges": [],
+        "skipped": [], "truncated": False,
+        "stats": {"files": 0, "nodes": 0, "edges": 0, "resolved": 0, "external": 0, "unresolved": 0},
+    }).encode()
+    monkeypatch.setattr(js_graph, "build_node_image", lambda packages: "fake:tag")
+    monkeypatch.setattr(sp, "run", lambda *a, **k: sp.CompletedProcess([], 0, empty, b""))
+    with pytest.raises(ValueError, match="refusing an empty graph"):
+        build_js_graph(tmp_path)
+
+
+def test_gradio_harness_disables_network_checks_before_import():
+    source = (
+        Path(__file__).resolve().parent.parent
+        / "bench/realcve/harnesses/gradio-cve-2023-51449/app.py"
+    ).read_text(encoding="utf-8")
+    assert source.index("GRADIO_ANALYTICS_ENABLED") < source.index("import gradio")
+
+
 def test_js_builder_output_rejects_malformed_and_oversized():
     with pytest.raises(ValueError, match="schema"):
         _validate({"schema_version": "2"})
