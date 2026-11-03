@@ -41,10 +41,21 @@
 
     <div class="scroll"><main class="content">
       <header data-style="padding: 12px 4px 0">
-        <span class="lbl">32 cases · muse-wonder-1.0 · compact profile</span>
+        <span class="lbl">{{subtitle}}</span>
         <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Economics</h1>
-        <p class="lead" data-style="font-size: 19px">What it costs to prove a vulnerability, and where the money goes.</p>
+        <p class="lead" data-style="font-size: 19px">What it costs to prove a vulnerability, and where the money goes. Every figure below is recomputed from the recorded ledgers of the current source; anything not recorded is labelled “not recorded”.</p>
       </header>
+      <sc-if value="{{err}}" hint-placeholder-val="{{ false }}">
+        <div class="card" data-style="padding: 22px; font-size: 16px">{{err}}</div>
+      </sc-if>
+      <sc-if value="{{empty}}" hint-placeholder-val="{{ false }}">
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+          <h2 class="sec-t">No recorded runs for this source</h2>
+          <p data-style="font-size: 15px">Economics needs at least one recorded run. Record one with:</p>
+          <div class="mono" data-style="font-size: 13px; background: rgba(13,27,62,.06); border: 1px solid rgba(13,27,62,.1); border-radius: 4px; padding: 12px 14px">exhibit-a run --pr-diff BASE..HEAD</div>
+          <p data-style="font-size: 13px; color: #3d4b68">Then reopen the dashboard with the same --source and come back here.</p>
+        </div>
+      </sc-if>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px" class="metric-grid">
@@ -58,10 +69,20 @@
         </div>
       </section>
 
+      <sc-if value="{{hasRepos}}" hint-placeholder-val="{{ false }}">
+        <section data-style="display: flex; flex-direction: column; gap: 22px">
+          <div class="card" data-style="padding: 22px; display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end">
+            <label data-style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Repository
+              <select class="sel" value="{{repoId}}" data-ev-change="{{onRepo}}" data-options="{{repoOpts}}"></select></label>
+          </div>
+        </section>
+      </sc-if>
+
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Spend by role</h2><p class="lead">How to read it: each bar is how many times that model role was called across the batch. Why it matters: calls are where the tokens, and therefore the money, go.</p></div></div>
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Spend by role</h2><p class="lead">How to read it: each bar is the recorded model spend (or tokens) for that role across the loaded runs. Why it matters: every model call costs tokens, so the role that is called most is where the money goes.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
-          <div data-style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px"><h3 class="ct">Calls by role</h3><div data-style="display: flex; gap: 8px"><button type="button" class="btn btn-s" data-ev-click="{{toggles.calls}}">Calls</button><button type="button" class="btn btn-s" data-ev-click="{{toggles.share}}">Share</button></div><button type="button" class="ib" data-zoom data-zoom-id="econroles" data-zoom-desc="Model calls per role over the recorded batch." data-zoom-points="The test writer is called most, because every suspicion needs an exploit." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+          <div data-style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px"><h3 class="ct">Spend by role</h3><div data-style="display: flex; gap: 8px"><button type="button" class="btn btn-s" data-ev-click="{{toggles.cost}}">Cost</button><button type="button" class="btn btn-s" data-ev-click="{{toggles.tokens}}">Tokens</button><button type="button" class="btn btn-s" data-ev-click="{{toggles.share}}">Share</button></div><button type="button" class="ib" data-zoom data-zoom-id="econroles" data-zoom-desc="Recorded model spend per role for this source." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+          <sc-if value="{{hasRoles}}" hint-placeholder-val="{{ false }}">
           <sc-for list="{{roles}}" as="r">
             <div title="{{r.tip}}" data-ev-mouseenter="{{r.onHover}}" data-ev-mouseleave="{{r.onLeave}}" data-style="display: grid; grid-template-columns: 140px minmax(0, 1fr) 90px; gap: 14px; align-items: center; opacity: {{r.op}}">
               <div><div data-style="font-size: 15px">{{r.n}}</div><div data-style="font-size: 12px; color: #3d4b68">{{r.d}}</div></div>
@@ -69,38 +90,52 @@
               <span class="mono" data-style="font-size: 13px; text-align: right">{{r.disp}}</span>
             </div>
           </sc-for>
-          <p data-style="font-size: 13px; color: #3d4b68">Token split per role is not recorded in the existing data, so this chart shows calls, not tokens, per role.</p>
+          </sc-if>
+          <sc-if value="{{ready}}" hint-placeholder-val="{{ false }}">
+          <p data-style="font-size: 13px; color: #3d4b68">Providers are not recorded in the ledger, so spend cannot be split by provider. Model names come from the recorded ledger events.</p>
+          </sc-if>
         </div>
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">What each dollar buys</h2><p class="lead">How to read it: per $1 spent, what each approach produces. Why it matters: the naive report is cheaper per report and still costs more, because humans must triage what it cannot prove.</p></div></div>
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">Cost per model</h2><p class="lead">How to read it: one row per model name recorded in the ledgers, with its spend, tokens and the roles it served. Why it matters: swapping the model is the fastest way to change what each proof costs.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
-          <div data-style="display: flex; gap: 8px"><button type="button" class="btn btn-s" data-ev-click="{{toggles.both}}">Both</button><button type="button" class="btn btn-s" data-ev-click="{{toggles.exhibit}}">Exhibit A</button><button type="button" class="btn btn-s" data-ev-click="{{toggles.naive}}">Naive LLM</button></div>
-          <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 90px 90px; gap: 10px; font-size: 12px; font-weight: 600; color: #26365a"><span></span><span data-style="text-align: right">Exhibit A</span><span data-style="text-align: right">Naive LLM</span></div>
-          <sc-for list="{{buy}}" as="b">
-            <div title="{{b.tip}}" data-style="display: grid; grid-template-columns: minmax(0, 1fr) 90px 90px; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(13,27,62,.08)">
-              <span data-style="font-size: 15px">{{b.l}}</span>
-              <span class="mono" data-style="font-size: 14px; text-align: right; opacity: {{b.opA}}">{{b.a}}</span>
-              <span class="mono" data-style="font-size: 14px; text-align: right; color: #45587c; opacity: {{b.opB}}">{{b.b}}</span>
+          <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 110px 110px 70px 140px; gap: 10px; font-size: 12px; font-weight: 600; color: #26365a"><span>Model</span><span data-style="text-align: right">Spend</span><span data-style="text-align: right">Tokens</span><span data-style="text-align: right">Events</span><span data-style="text-align: right">Roles</span></div>
+          <sc-for list="{{models}}" as="m">
+            <div title="{{m.tip}}" data-style="display: grid; grid-template-columns: minmax(0, 1fr) 110px 110px 70px 140px; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(13,27,62,.08)">
+              <span data-style="font-size: 15px">{{m.n}}</span>
+              <span class="mono" data-style="font-size: 14px; text-align: right">{{m.cost}}</span>
+              <span class="mono" data-style="font-size: 14px; text-align: right">{{m.tok}}</span>
+              <span class="mono" data-style="font-size: 14px; text-align: right">{{m.ev}}</span>
+              <span class="mono" data-style="font-size: 13px; text-align: right">{{m.roles}}</span>
             </div>
           </sc-for>
-          <p data-style="font-size: 13px; color: #3d4b68">Cost per report: Exhibit A $0.15 · naive LLM $0.02 · extra spend per proven target $0.08 (recorded batch figures).</p>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Spend over time</h2><p class="lead">How to read it: one bar per recorded run in chronological order, either what that run spent or the cumulative total. Why it matters: a rising cumulative line against flat proven findings means each new proof is getting more expensive.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
+          <div data-style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px"><h3 class="ct">Spend over time</h3><div data-style="display: flex; gap: 8px"><button type="button" class="btn btn-s" data-ev-click="{{toggles.perRun}}">Per run</button><button type="button" class="btn btn-s" data-ev-click="{{toggles.cumulative}}">Cumulative</button></div></div>
+          <sc-for list="{{trend}}" as="t">
+            <div title="{{t.tip}}" data-style="display: grid; grid-template-columns: 140px minmax(0, 1fr) 90px; gap: 14px; align-items: center">
+              <div data-style="font-size: 14px">{{t.label}}</div>
+              <div data-style="height: 22px; background: rgba(13,27,62,.06)"><div data-style="height: 100%; width: {{t.pct}}%; background: #2c4fc4"></div></div>
+              <span class="mono" data-style="font-size: 13px; text-align: right">{{t.disp}}</span>
+            </div>
+          </sc-for>
         </div>
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
-        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">What-if calculator</h2><p class="lead">How to read it: the estimate moves only with the prices and profile you choose. Why it matters: it shows how sensitive the cost per proof is to model pricing before you spend anything. Simulation, not a measurement: change the token prices or the profile scale and the estimate is recomputed from the recorded 223k tokens.</p></div></div>
+        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Budget</h2><p class="lead">How to read it: recorded spend against the cap for this source. Why it matters: the cap is the only guardrail between a runaway loop and the invoice.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 16px">
-          <div data-style="display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end">
-            <label data-style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Input $ / million tokens<input class="inp mono" type="number" min="0" step="0.5" value="{{calc.inP}}" data-ev-change="{{calc.onIn}}"></label>
-            <label data-style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Output $ / million tokens<input class="inp mono" type="number" min="0" step="1" value="{{calc.outP}}" data-ev-change="{{calc.onOut}}"></label>
-            <label data-style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Profile
-              <select class="sel" value="{{calc.profile}}" data-ev-change="{{calc.onProfile}}" data-options="{{calc.opts}}"></select></label>
-            <div><span class="lbl">Estimated batch cost</span><div class="dsp" data-style="font-size: 36px; font-weight: 500">{{calc.est}}</div></div>
-            <div><span class="lbl">Per proven finding</span><div class="dsp" data-style="font-size: 36px; font-weight: 500">{{calc.per}}</div></div>
-          </div>
-          <p data-style="font-size: 13px; color: #3d4b68">Simulation basis: 223k recorded tokens with the input/output split implied by the recorded $2.42 at $4/$20; the standard profile scales tokens by the recorded calls-per-case ratio. Treat the result as an estimate to explore prices, not as a bill.</p>
+          <sc-if value="{{budgetKnown}}" hint-placeholder-val="{{ false }}">
+            <div><span class="lbl">Spent of cap</span><div class="dsp" data-style="font-size: 36px; font-weight: 500">{{budgetSpend}} of {{budgetCap}}</div></div>
+          </sc-if>
+          <sc-if value="{{budgetNote}}" hint-placeholder-val="{{ false }}">
+            <p data-style="font-size: 13px; color: #3d4b68">{{budgetNote}}</p>
+          </sc-if>
         </div>
       </section>
     </main></div>

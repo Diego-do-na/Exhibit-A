@@ -21,7 +21,8 @@ Endpoints (GET):
   ``/fonts/<name>.woff2``: the UI in ``web/dashboard/`` (fonts are self-hosted; the CSP allows
   ``font-src 'self'`` only).
 - ``/auth?token=``: one-time bootstrap; redirects to ``/``.
-- ``/api/info``: source label and caps.
+- ``/api/info``: source label and kind, artifact name (GitHub source), budget cap
+  (``null``: no budget is recorded in any ledger or artifact) and caps.
 - ``/api/runs?page=&per_page=``: runs list rows, newest first.
 - ``/api/runs/<id>``: run detail (timeline stages, proven evidence, discarded).
 - ``/api/runs/<id>/events?from=&limit=``: bounded event views, in ledger order.
@@ -362,6 +363,11 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
             if route == "/api/info":
                 self._json({
                     "source": state.source.label,
+                    "source_kind": state.source.label.split(":", 1)[0],
+                    "artifact": getattr(state.source, "artifact", None),
+                    # No budget cap is stored in any ledger or artifact:
+                    # None means "not recorded".
+                    "budget_usd": None,
                     "stages_note": "nothing could be proven is not safe",
                     "effect_schema": list(EFFECT_SCHEMA),
                 })

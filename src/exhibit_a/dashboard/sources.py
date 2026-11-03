@@ -49,6 +49,12 @@ MAX_EVENTS = 20_000
 MAX_RESULT_BYTES = 256 * 1024
 #: Largest pull request diff (pr.diff) accepted, in bytes; a larger one is ignored.
 MAX_DIFF_BYTES = 1024 * 1024
+#: Largest proof-artifact text accepted (fix.patch, exploit test), in bytes.
+MAX_ARTIFACT_TEXT = 64 * 1024
+#: Proof-artifact file names read as text (never executed) alongside the ledger.
+PROOF_TEXT_NAMES = ("fix.patch", "test_exploit.py")
+#: Optional report files read as text when the run folder or artifact has them.
+REPORT_TEXT_NAMES = ("summary.md",)
 #: Largest runs.jsonl index accepted, in bytes.
 MAX_INDEX_BYTES = 2 * 1024 * 1024
 #: Most runs a source lists.
@@ -116,6 +122,10 @@ class RunData:
     #: The pull request's unified diff, when the run folder carries one (untrusted text:
     #: only parsed for changed line numbers, never applied or executed).
     diff: str = ""
+    #: Proof-artifact texts by file name (``fix.patch``, ``test_exploit.py``), when the
+    #: run folder or artifact carries them. Read as capped text only, never executed;
+    #: absent names simply have no entry ("not recorded").
+    artifacts: dict[str, str] = field(default_factory=dict)
 
 
 class RunSource(Protocol):
@@ -410,6 +420,7 @@ class LocalRunsSource:
                     raw_diff = None  # a symlinked or oversized diff is ignored, never followed
                 if raw_diff:
                     data.diff = raw_diff.decode("utf-8", errors="replace")
+                data.artifacts = read_proof_texts(folder)
         self._cache.put(stamp, data)
         return data
 
@@ -557,6 +568,79 @@ def read_artifact_zip(data: bytes) -> tuple[bytes | None, bytes | None]:
     return found.get(LEDGER_NAME), found.get(RESULT_NAME)
 
 
+def read_artifact_texts(data: bytes) -> dict[str, str]:
+    """Pull optional text files out of artifact zip bytes, in memory.
+
+    Reads only top-level entries named in ``PROOF_TEXT_NAMES``, ``DIFF_NAME``
+    or ``REPORT_TEXT_NAMES``; everything else is ignored. Each entry is capped
+    at ``MAX_ARTIFACT_TEXT`` (or ``MAX_DIFF_BYTES`` for the diff) on the actual
+    bytes read and decoded as text (never executed). Missing or unreadable
+    entries are skipped: extras never make a run unreadable.
+    """
+    caps = {name: MAX_ARTIFACT_TEXT for name in (*PROOF_TEXT_NAMES, *REPORT_TEXT_NAMES)}
+    caps[DIFF_NAME] = MAX_DIFF_BYTES
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        return {}
+    found: dict[str, str] = {}
+    try:
+        with archive:
+            infos = archive.infolist()
+            if len(infos) > MAX_ZIP_ENTRIES:
+                return {}
+            for info in infos:
+                cap = caps.get(info.filename)
+                if cap is None or info.is_dir() or info.flag_bits & 0x1:
+                    continue
+                if info.file_size > cap:
+                    continue
+                try:
+                    with archive.open(info) as handle:
+                        body = handle.read(cap + 1)
+                except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError):
+                    continue
+                if len(body) > cap:
+                    continue
+                found[info.filename] = body.decode("utf-8", errors="replace")
+    except (zipfile.BadZipFile, OSError, RuntimeError):
+        return {}
+    return found
+
+
+def read_proof_texts(folder: Path) -> dict[str, str]:
+    """Read proof-artifact texts from a local run folder, without following symlinks.
+
+    Looks for each name in ``PROOF_TEXT_NAMES`` at the folder top level first,
+    then under ``packages/*/`` (first sorted match wins). Every file is capped
+    at ``MAX_ARTIFACT_TEXT``; anything missing, symlinked, non-regular or
+    oversized is skipped (never an error, never executed).
+    """
+    found: dict[str, str] = {}
+    pkg_dirs: list[Path] = []
+    try:
+        with os.scandir(folder / "packages") as entries:
+            for entry in entries:
+                if len(pkg_dirs) >= 64:
+                    break
+                if entry.is_dir(follow_symlinks=False):
+                    pkg_dirs.append(Path(entry.path))
+    except OSError:
+        pkg_dirs = []
+    pkg_dirs.sort(key=lambda p: p.name)
+    for name in PROOF_TEXT_NAMES:
+        candidates = [folder / name, *(pkg / name for pkg in pkg_dirs)]
+        for candidate in candidates:
+            try:
+                raw = _read_capped(candidate, MAX_ARTIFACT_TEXT)
+            except SourceError:
+                continue
+            if raw is not None:
+                found[name] = raw.decode("utf-8", errors="replace")
+                break
+    return found
+
+
 class GitHubSource:
     """Runs whose ledger artifact lives in GitHub Actions, read through ``gh``.
 
@@ -665,10 +749,15 @@ class GitHubSource:
                 MAX_GH_OUTPUT,
             )
             ledger, result = read_artifact_zip(blob)
+            texts = read_artifact_texts(blob)
         except SourceError as exc:
             # Not cached: a transient gh failure should be retried on the next view.
             return RunData(ref=ref, error=str(exc))
         data = _build_run(ref, ledger, result)
+        if not data.error:
+            if texts.get(DIFF_NAME):
+                data.diff = texts[DIFF_NAME]
+            data.artifacts = {name: texts[name] for name in PROOF_TEXT_NAMES if name in texts}
         self._cache.put(run_id, data)
         return data
 
