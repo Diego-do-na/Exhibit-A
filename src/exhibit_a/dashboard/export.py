@@ -134,7 +134,12 @@ def export_dashboard(
 
     root = Path(destination).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    ui = Path(web_dir) if web_dir else Path(__file__).resolve().parents[3] / "web" / "dashboard"
+    if web_dir:
+        ui = Path(web_dir)
+    else:
+        from .server import default_web_dir
+
+        ui = default_web_dir()
     if not ui.is_dir():
         raise SourceError(f"dashboard UI directory not found: {ui}")
     _copy_tree(ui, root)

@@ -1,0 +1,2 @@
+graft web/dashboard
+global-exclude __pycache__ *.py[cod] .DS_Store
