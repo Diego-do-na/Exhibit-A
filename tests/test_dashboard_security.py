@@ -174,6 +174,21 @@ def test_pr_page_has_a_view_per_verdict():
     assert "'not reached'" in js
 
 
+def test_no_literal_unicode_escapes_in_visible_text():
+    import re
+
+    # HTML has no \uXXXX escapes: one in template text prints literally
+    # (the escaped-arrow bug). In JS, '\uXXXX' inside a string is a valid
+    # escape, but a double-escaped '\\uXXXX' would print literally too.
+    for path in sorted(WEB_DIR.glob("*.html")):
+        html = path.read_text(encoding="utf-8")
+        assert not re.search(r"\\u[0-9a-fA-F]{4}", html), path.name
+    for path in sorted((WEB_DIR / "views").glob("*.js")):
+        js = path.read_text(encoding="utf-8")
+        assert not re.search(r"\\\\u[0-9a-fA-F]{4}", js), path.name
+    assert "Runs that exist →" in (WEB_DIR / "pr.html").read_text(encoding="utf-8")
+
+
 def test_templates_have_no_inline_event_handler_attributes():
     import re
 
