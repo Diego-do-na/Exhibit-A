@@ -57,6 +57,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="More detail (repeat for more). With run: per-phase loop output.")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Only essential output; results are implied by the exit code.")
+    parser.add_argument(
+        "--no-banner",
+        action="store_true",
+        help="Do not print the ASCII banner.",
+    )
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     scan = sub.add_parser(
@@ -237,7 +242,15 @@ def build_parser() -> argparse.ArgumentParser:
     advisories.set_defaults(func=cmd_advisories)
 
     dashboard = sub.add_parser("dashboard", parents=[COMMON], help="Serve the optional local dashboard.")
-    dashboard.add_argument("--source", default=None, help="Dashboard source, such as local:RUNS (default: local:runs when it exists).")
+    dashboard.add_argument(
+        "--source",
+        default=None,
+        help=(
+            "Dashboard source, such as local:RUNS or github:owner/repo "
+            "(default: local:runs when it exists, else github:<owner/repo> from a "
+            "GitHub git remote). Always binds 127.0.0.1; never hosted."
+        ),
+    )
     dashboard.add_argument("--port", type=int, default=0, help="Port on 127.0.0.1 (default: a free port).")
     dashboard.add_argument("--export", default=None, metavar="DIR", help="Export a self-contained static dashboard to DIR.")
     dashboard.add_argument("--run", default=None, metavar="RUN_ID", help="Run to include in a static export (default: all runs, for static hosting).")
@@ -248,12 +261,19 @@ def build_parser() -> argparse.ArgumentParser:
     register_extensions(sub)
     # Every command accepts the same global verbosity flags, wherever it lives.
     for sub_parser in sub.choices.values():
-        for action in list(sub_parser._actions):
-            if "-v" in getattr(action, "option_strings", []):
-                break
-        else:
+        opts = {flag for action in sub_parser._actions for flag in getattr(action, "option_strings", [])}
+        if "-v" not in opts:
             sub_parser.add_argument("-v", "--verbose", action="count", default=0,
                                     help="More detail (repeat for more).")
             sub_parser.add_argument("-q", "--quiet", action="store_true",
                                     help="Only essential output.")
+        if "--no-banner" not in opts:
+            # SUPPRESS so `exhibit-a --no-banner COMMAND` is not overwritten
+            # by the subparser default.
+            sub_parser.add_argument(
+                "--no-banner",
+                action="store_true",
+                default=argparse.SUPPRESS,
+                help="Do not print the ASCII banner.",
+            )
     return parser

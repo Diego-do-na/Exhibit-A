@@ -19,6 +19,7 @@ RUNTIME_DATA_FILES = (
     "exhibit_a/advisory/symbols.json",
     "exhibit_a/schemas/run_index.schema.json",
     "exhibit_a/schemas/advisory_match.schema.json",
+    "exhibit_a/cli/logo.txt",
 )
 
 

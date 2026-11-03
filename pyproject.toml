@@ -26,6 +26,7 @@ exhibit_a = [
     "oracle/js/*",
     "advisory/symbols.json",
     "schemas/*.json",
+    "cli/logo.txt",
 ]
 
 [tool.pytest.ini_options]
