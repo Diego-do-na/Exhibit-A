@@ -244,7 +244,7 @@
         if (n.kind === 'func' && !n.vuln) a *= detail;
         if (a <= 0.05) continue;
         const near = (hover >= 0 && (n.i === hover || adj[hover].indexOf(n.i) >= 0)) || sel.has(n.id) || (query && a > 0.5);
-        const show = opts.labelAll || (n.kind === 'file' ? ((k > 0.55 && (n.r > 8 || n.deg > 9)) || k > 1.1 || near) : ((k > 1.9 && detail > 0.6) || near && k > 0.9));
+        const show = opts.labelAll || (n.kind === 'file' ? ((k > 0.55 && (n.r > 11 || n.deg > 14)) || k > 1.1 || near) : ((k > 2.2 && detail > 0.75) || near && k > 0.9));
         if (!show) continue;
         cand.push({ n, a, near, pr: (near ? 1e6 : 0) + (n.kind === 'file' ? 1e3 : 0) + n.r * 10 + n.deg });
       }

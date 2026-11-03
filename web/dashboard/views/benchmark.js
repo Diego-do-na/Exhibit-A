@@ -2,7 +2,7 @@
 window.Component = class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { sm: 'prec', ab: 'fp', m: 'prs', agent: 'claude' };
+    this.state = { sm: 'cost', ab: 'fp', m: 'prs', agent: 'claude' };
   }
   renderVals() {
     const st = this.state;
