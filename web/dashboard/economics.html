@@ -61,12 +61,12 @@
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Spend by role</h2><p class="lead">How to read it: each bar is how many times that model role was called across the batch. Why it matters: calls are where the tokens, and therefore the money, go.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
-          <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Calls by role</h3><button type="button" class="ib" data-zoom data-zoom-id="econroles" data-zoom-desc="Model calls per role over the recorded batch." data-zoom-points="The test writer is called most, because every suspicion needs an exploit." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+          <div data-style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px"><h3 class="ct">Calls by role</h3><div data-style="display: flex; gap: 8px"><button type="button" class="btn btn-s" onClick="{{toggles.calls}}">Calls</button><button type="button" class="btn btn-s" onClick="{{toggles.share}}">Share</button></div><button type="button" class="ib" data-zoom data-zoom-id="econroles" data-zoom-desc="Model calls per role over the recorded batch." data-zoom-points="The test writer is called most, because every suspicion needs an exploit." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
           <sc-for list="{{roles}}" as="r">
-            <div data-style="display: grid; grid-template-columns: 140px minmax(0, 1fr) 90px; gap: 14px; align-items: center">
+            <div title="{{r.tip}}" onMouseEnter="{{r.onHover}}" onMouseLeave="{{r.onLeave}}" data-style="display: grid; grid-template-columns: 140px minmax(0, 1fr) 90px; gap: 14px; align-items: center; opacity: {{r.op}}">
               <div><div data-style="font-size: 15px">{{r.n}}</div><div data-style="font-size: 12px; color: #3d4b68">{{r.d}}</div></div>
               <div data-style="height: 22px; background: rgba(13,27,62,.06)"><div data-style="height: 100%; width: {{r.pct}}%; background: {{r.c}}"></div></div>
-              <span class="mono" data-style="font-size: 13px; text-align: right">{{r.v}} calls</span>
+              <span class="mono" data-style="font-size: 13px; text-align: right">{{r.disp}}</span>
             </div>
           </sc-for>
           <p data-style="font-size: 13px; color: #3d4b68">Token split per role is not recorded in the existing data, so this chart shows calls, not tokens, per role.</p>
@@ -76,12 +76,13 @@
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">What each dollar buys</h2><p class="lead">How to read it: per $1 spent, what each approach produces. Why it matters: the naive report is cheaper per report and still costs more, because humans must triage what it cannot prove.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+          <div data-style="display: flex; gap: 8px"><button type="button" class="btn btn-s" onClick="{{toggles.both}}">Both</button><button type="button" class="btn btn-s" onClick="{{toggles.exhibit}}">Exhibit A</button><button type="button" class="btn btn-s" onClick="{{toggles.naive}}">Naive LLM</button></div>
           <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 90px 90px; gap: 10px; font-size: 12px; font-weight: 600; color: #26365a"><span></span><span data-style="text-align: right">Exhibit A</span><span data-style="text-align: right">Naive LLM</span></div>
           <sc-for list="{{buy}}" as="b">
-            <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 90px 90px; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(13,27,62,.08)">
+            <div title="{{b.tip}}" data-style="display: grid; grid-template-columns: minmax(0, 1fr) 90px 90px; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(13,27,62,.08)">
               <span data-style="font-size: 15px">{{b.l}}</span>
-              <span class="mono" data-style="font-size: 14px; text-align: right">{{b.a}}</span>
-              <span class="mono" data-style="font-size: 14px; text-align: right; color: #45587c">{{b.b}}</span>
+              <span class="mono" data-style="font-size: 14px; text-align: right; opacity: {{b.opA}}">{{b.a}}</span>
+              <span class="mono" data-style="font-size: 14px; text-align: right; color: #45587c; opacity: {{b.opB}}">{{b.b}}</span>
             </div>
           </sc-for>
           <p data-style="font-size: 13px; color: #3d4b68">Cost per report: Exhibit A $0.15 · naive LLM $0.02 · extra spend per proven target $0.08 (recorded batch figures).</p>
@@ -89,7 +90,7 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
-        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">What-if calculator</h2><p class="lead">Simulation, not a measurement: change the token prices or the profile scale and the estimate is recomputed from the recorded 223k tokens.</p></div></div>
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">What-if calculator</h2><p class="lead">How to read it: the estimate moves only with the prices and profile you choose. Why it matters: it shows how sensitive the cost per proof is to model pricing before you spend anything. Simulation, not a measurement: change the token prices or the profile scale and the estimate is recomputed from the recorded 223k tokens.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 16px">
           <div data-style="display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end">
             <label data-style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Input $ / million tokens<input class="inp mono" type="number" min="0" step="0.5" value="{{calc.inP}}" onChange="{{calc.onIn}}"></label>

@@ -10,7 +10,7 @@ window.Component = class extends DCLogic {
     const rows = roles.map((r) => ({ key: r.n, label: r.n, sub: r.d, v: r.v, color: r.c, value: r.v + ' calls \u00b7 ' + Math.round(r.v / total * 100) + '%' }));
     return { type: 'hbars', title: 'Calls by role', aria: 'Model calls for each of the four roles', rowH: 48, labelW: 220, groups: [{ rows, max: roles[0].v }], rows };
   }
-  getInitialState() { return { inP: 4, outP: 20, profile: 'compact' }; }
+  getInitialState() { return { inP: 4, outP: 20, profile: 'compact', view: 'calls', focus: 'both', hover: '' }; }
   renderVals() {
     const s = this.state;
     const cards = [
@@ -20,13 +20,18 @@ window.Component = class extends DCLogic {
       { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2', l: 'Budget left', v: '$1.58', u: '$4.00 budget minus $2.42 spent' }
     ];
     const roleRows = [['Test writer', 44, '#0f2557', 'writes exploits'], ['Fixer', 33, '#2c4fc4', 'proposes patches'], ['Defender', 33, '#6a8fd8', 'tries to bypass fixes'], ['Adversary', 32, '#9aa3e0', 'raises suspicions']];
-    const roles = roleRows.map(([n, v, c, d]) => ({ n, v, c, d, pct: (v / 44 * 100).toFixed(1) }));
+    const totalCalls = roleRows.reduce((a, r) => a + r[1], 0);
+    const roles = roleRows.map(([n, v, c, d]) => ({ n, v, c, d, pct: (v / 44 * 100).toFixed(1),
+      share: Math.round(v / totalCalls * 100) + '%', disp: s.view === 'share' ? Math.round(v / totalCalls * 100) + '%' : v + ' calls',
+      tip: n + ': ' + v + ' calls (' + Math.round(v / totalCalls * 100) + '% of ' + totalCalls + ') \u00b7 ' + d,
+      op: s.hover && s.hover !== n ? 0.45 : 1, onHover: () => this.setState({ hover: n }), onLeave: () => this.setState({ hover: '' }) }));
     const buy = [
       { l: 'Reports still to triage', a: '0', b: '3' },
       { l: 'Exploit tests written', a: '2', b: '0' },
       { l: 'Fixes verified', a: '2', b: '0' },
       { l: 'Proven findings', a: '2', b: '0' }
-    ];
+    ].map((r) => ({ ...r, opA: s.focus === 'naive' ? 0.4 : 1, opB: s.focus === 'exhibit' ? 0.4 : 1,
+      tip: r.l + ': Exhibit A ' + r.a + ' \u00b7 naive LLM ' + r.b + ' per $1' }));
     // Simulation: output share implied by $2.42 over 223k tokens at $4/$20.
     const tokens = 223000, outShare = 0.428, scale = s.profile === 'standard' ? 1.6 : 1;
     const est = tokens * scale * (((1 - outShare) * (Number(s.inP) || 0)) + outShare * (Number(s.outP) || 0)) / 1e6;
@@ -39,6 +44,11 @@ window.Component = class extends DCLogic {
       est: '$' + est.toFixed(2), per: '$' + (est / 30).toFixed(3)
     };
     this.__econ = { roles };
-    return { cards, roles, buy, calc };
+    const toggles = {
+      view: s.view, focus: s.focus,
+      calls: () => this.setState({ view: 'calls' }), share: () => this.setState({ view: 'share' }),
+      both: () => this.setState({ focus: 'both' }), exhibit: () => this.setState({ focus: 'exhibit' }), naive: () => this.setState({ focus: 'naive' })
+    };
+    return { cards, roles, buy, calc, toggles };
   }
 };
