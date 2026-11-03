@@ -19,6 +19,11 @@ One line per document. Paths are relative to the repository root.
 - [oracle/oracle-observer-spike.md](oracle/oracle-observer-spike.md) — out-of-process observer spike (research, not product): ptrace and fanotify prototypes.
 - [oracle/second-class.md](oracle/second-class.md) — second vulnerability class decision: archive-extraction path traversal proven via `canary_write`.
 
+## plan/ — closure planning
+
+- [plan/closure-tasks.md](plan/closure-tasks.md) — Closure tasks T145-T152 with merge order and cut rule.
+- [plan/verification.md](plan/verification.md) — T145 evidence: every sandbox, SCAN, SLICE and CLI claim with its command and result.
+
 ## ci/ — continuous integration
 
 - [ci/github-action.md](ci/github-action.md) — GitHub Action usage: PR-diff runs, exit codes, result comments, ledger artifacts.
