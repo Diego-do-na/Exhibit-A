@@ -109,6 +109,24 @@ def test_zoom_dialog_exit_animation_overrides_entrance_fill():
     assert "setTimeout(done, 200)" in viz
 
 
+def test_pr_report_follows_the_selected_pull_request():
+    prs_js = (WEB_DIR / "views/prs.js").read_text(encoding="utf-8")
+    prs_html = (WEB_DIR / "prs.html").read_text(encoding="utf-8")
+    pr_js = (WEB_DIR / "views/pr.js").read_text(encoding="utf-8")
+    pr_html = (WEB_DIR / "pr.html").read_text(encoding="utf-8")
+    assert "pr.html?pr=" in prs_js and 'href="{{sel.href}}"' in prs_html
+    assert "views/prdata.js" in pr_html and "{{pr.title}}" in pr_html
+    assert "prRow()" in pr_js and "window.XA_PRS" in pr_js
+
+
+def test_pr_blast_graph_is_the_full_graph_with_damaged_route_in_red():
+    pr_js = (WEB_DIR / "views/pr.js").read_text(encoding="utf-8")
+    pr_html = (WEB_DIR / "pr.html").read_text(encoding="utf-8")
+    assert "views/graphdata.js" in pr_html
+    assert "window.DCGraphData" in pr_js and "vuln: hot" in pr_js
+    assert "f:pam" not in pr_js  # the old pamphlet-only mini graph is gone
+
+
 def test_dashboard_visual_protagonists_and_contrast_hooks():
     css = (WEB_DIR / "dashboard.css").read_text(encoding="utf-8")
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")

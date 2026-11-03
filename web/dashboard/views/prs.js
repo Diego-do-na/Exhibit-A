@@ -86,7 +86,7 @@ window.Component = class Component extends DCLogic {
     const rankSize = all.slice().sort((a, b) => b.ch - a.ch).findIndex((r) => r.id === s0.id) + 1;
     const sel = { id: s0.id, t: s0.t, a: s0.a, c: COL[s0.a], when: s0.whenL, cm: s0.cm, f: s0.f, cyc: cyc(s0.cy), add: fmt(s0.add), del: fmt(s0.del),
       addPct: (s0.add / t0 * 100).toFixed(1), delPct: (s0.del / t0 * 100).toFixed(1), size: 'Size ' + sizeOf(s0.ch),
-      story: 'Merged by ' + s0.a + ' after ' + s0.cm + (s0.cm === 1 ? ' commit' : ' commits') + ' across ' + s0.f + ' files, mostly in ' + s0.area + '. It is the #' + rankSize + ' largest change of the 134' + (s0.ts ? ', and touched ' + s0.ts + (s0.ts === 1 ? ' test file.' : ' test files.') : '.') };
+      href: 'pr.html?pr=' + encodeURIComponent(s0.id), story: 'Merged by ' + s0.a + ' after ' + s0.cm + (s0.cm === 1 ? ' commit' : ' commits') + ' across ' + s0.f + ' files, mostly in ' + s0.area + '. It is the #' + rankSize + ' largest change of the 134' + (s0.ts ? ', and touched ' + s0.ts + (s0.ts === 1 ? ' test file.' : ' test files.') : '.') };
 
     // Author to package map: where each author merged most, from the same rows.
     const byAuthor = {};

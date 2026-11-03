@@ -7,7 +7,9 @@
 <link rel="stylesheet" href="dashboard.css">
 <script src="views/viz.js"></script>
 <script src="views/netgraph.js"></script>
+<script src="views/graphdata.js"></script>
 <script src="dc-lite.js"></script>
+<script src="views/prdata.js"></script>
 <script src="views/pr.js"></script>
 <script src="views/palette.js"></script>
 </head>
@@ -39,15 +41,15 @@
     <div class="scroll"><main class="content">
 
       <header data-style="padding: 12px 4px 0; display: flex; flex-direction: column; gap: 14px">
-        <div data-style="display: flex; align-items: center; gap: 10px; font-size: 14px"><a href="prs.html" data-style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>Pull requests</a><span data-style="color: #45587c">/</span><span class="mono" data-style="font-size: 13px; color: #3d4b68">nested-pamphlets</span></div>
+        <div data-style="display: flex; align-items: center; gap: 10px; font-size: 14px"><a href="prs.html" data-style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>Pull requests</a><span data-style="color: #45587c">/</span><span class="mono" data-style="font-size: 13px; color: #3d4b68">{{pr.crumb}}</span></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; justify-content: space-between">
           <div data-style="min-width: 0">
-            <h1 class="dsp" data-style="margin: 0; font-size: 54px; font-weight: 500; line-height: 1.05; letter-spacing: -.035em">Allow nested folders in pamphlet names</h1>
-            <div class="mono" data-style="margin-top: 12px; font-size: 13px; color: #3d4b68">examples/action-demo · nested-pamphlets → main · patch 01-path-traversal</div>
+            <h1 class="dsp" data-style="margin: 0; font-size: 54px; font-weight: 500; line-height: 1.05; letter-spacing: -.035em">{{pr.title}}</h1>
+            <div class="mono" data-style="margin-top: 12px; font-size: 13px; color: #3d4b68">{{pr.meta}}</div>
           </div>
           <div class="state {{st.cls}}" role="status" data-style="background: {{st.bg}}; color: {{st.fg}}; border-color: {{st.bd}}"><span class="state-i"><sc-if value="{{st.isOpen}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.4"></circle><circle cx="6" cy="18" r="2.4"></circle><circle cx="18" cy="18" r="2.4"></circle><path d="M6 8.4v7.2M18 15.6V10a3 3 0 0 0-3-3h-3m0 0 2.2-2.2M12 7l2.2 2.2"></path></svg></sc-if><sc-if value="{{st.isDone}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12.5 2.7 2.7L16 9.5"></path></svg></sc-if><sc-if value="{{st.isBusy}}"><svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg></sc-if></span><span><span class="state-l">{{st.l}}</span><span class="state-s">{{st.s}}</span></span></div>
         </div>
-        <p class="lead" data-style="margin-top: 4px">Removes the check that kept requested names inside the shelf. Exhibit A tested what that allows, live, in a sandbox.</p>
+        <p class="lead" data-style="margin-top: 4px">{{pr.lead}}</p>
       </header>
 
       <section data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
@@ -161,7 +163,7 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Blast radius</h2><p class="lead">The path the attack follows, from the public entry point to the file read.</p></div></div>
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Blast radius</h2><p class="lead">The full code graph, with the possibly damaged route for this pull request marked in red so its impact is visible in context. Path view: the route itself, step by step.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 18px">
           <div data-style="display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; color: #3d4b68">
             <span data-style="display: inline-flex; align-items: center; gap: 8px"><svg width="34" height="8" aria-hidden="true"><path d="M0 4h34" stroke="#a5703f" stroke-width="2.4" stroke-dasharray="8 6"></path></svg>Path the exploit follows</span>

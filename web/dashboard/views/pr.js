@@ -8,6 +8,16 @@ window.Component = class Component extends DCLogic {
   runParam() {
     try { return new URLSearchParams(window.location.search).get('run') || ''; } catch (e) { return ''; }
   }
+  prParam() {
+    try { return new URLSearchParams(window.location.search).get('pr') || ''; } catch (e) { return ''; }
+  }
+  prRow() {
+    const id = this.prParam();
+    if (!id) return null;
+    const row = (window.XA_PRS || []).find((r) => r[0] === id);
+    if (!row) return { id, missing: true };
+    return { id: row[0], title: row[1], when: row[2], author: row[3], commits: row[4], files: row[5], added: row[6], removed: row[7], area: row[9] };
+  }
   async loadRun() {
     const id = this.runParam();
     if (!id) return;
@@ -70,27 +80,37 @@ window.Component = class Component extends DCLogic {
       this.blast.set({ key: 'blast', layout: 'fixed', nodes, edges, curve: false });
     }
     const nh = document.getElementById('blastnet');
-    if (nh && window.DCNet) {
-      const RED = '#ff6b6b', BLUE = '#7ea6ff', VIO = '#b4a4ff', BRZ = '#e2b98a';
-      const fn = (id, label, extra) => Object.assign({ id, label, kind: 'func', r: 9, color: BLUE, title: label }, extra);
-      const hit = (id, label, title) => fn(id, label, { color: RED, vuln: true, r: 11, title });
-      const nodes = [
-        { id: 'f:pam', label: 'pamphlets.py', kind: 'file', r: 22, color: VIO, title: 'pamphlets.py · the file this pull request changed' },
-        { id: 'f:test', label: 'test_pamphlets.py', kind: 'file', r: 13, color: VIO, title: 'test_pamphlets.py · baseline 5 / 5' },
-        hit('gp', 'GET /pamphlet', 'GET /pamphlet · public entry: the caller picks the name'),
-        hit('hr', 'handle_request', 'App.handle_request · passes the name straight to _resolve'),
-        hit('rs', '_resolve', 'App._resolve · changed by this pull request: no containment check'),
-        hit('rt', 'read_text', 'read_text · reads whatever path it is given'),
-        hit('op', 'open()', 'open() · the oracle saw a file outside the shelf opened here'),
-        hit('ef', 'file outside the shelf', 'Effect · the canary file was read in 3 of 3 runs'),
-        fn('gi', 'GET /index', { title: 'GET /index · not affected: lists names only' }),
-        fn('ls', 'os.listdir', { color: BRZ, title: 'os.listdir · not affected: reads the listing only' }),
-        fn('gh', 'any other caller', { color: '#6b7aa8', title: 'Not written yet: would inherit the missing check' })
-      ];
-      const v = (a, b) => ({ a, b, t: 'imp', vuln: true });
-      const edges = [v('gp', 'hr'), v('hr', 'rs'), v('rs', 'rt'), v('rt', 'op'), v('op', 'ef'),
-        ...['hr', 'rs', 'rt', 'op'].map((b) => ({ a: 'f:pam', b, t: 'own' })),
-        { a: 'f:test', b: 'f:pam', t: 'imp' }, { a: 'gi', b: 'f:pam', t: 'own' }, { a: 'hr', b: 'ls', t: 'imp' }, { a: 'gh', b: 'rs', t: 'use' }];
+    if (nh && window.DCNet && window.DCGraphData) {
+      // The whole code graph (every module and function, as on the Code graph
+      // page), not just the affected path: the possibly damaged route for the
+      // selected pull request is marked red so its blast radius is visible in
+      // context. Focus = the package the selected PR touched (its area), or
+      // the proof route itself for the recorded action-demo report.
+      const GD = window.DCGraphData, FN = GD.fn || {}, USES = GD.uses || [];
+      const selPr = this.prRow();
+      const areaPkg = selPr && selPr.area ? selPr.area.replace(/^src\//, '').split('/')[0] : '';
+      const focusPkg = FN[areaPkg] || FN[areaPkg + '.'] ? areaPkg : (Object.keys(FN).some((m) => m === areaPkg || m.startsWith(areaPkg + '.')) ? areaPkg : 'oracle');
+      const inFocus = (mod) => mod === focusPkg || mod.startsWith(focusPkg + '.');
+      const RED = '#ff6b6b', BLUE = '#7ea6ff';
+      const nodes = [], edges = [], have = new Set();
+      Object.entries(FN).forEach(([mod, fns]) => {
+        const hot = inFocus(mod);
+        nodes.push({ id: mod, label: mod.split('.').pop(), kind: 'file', pkg: mod.split('.')[0], loc: fns.reduce((s, f) => s + (f[2] || 0), 0),
+          r: hot ? 13 : 7, color: hot ? RED : BLUE, vuln: hot, title: mod + (hot ? ' · in the area this pull request touched (' + focusPkg + ')' : ' · full code graph') });
+        fns.forEach(([fname, kind, lines]) => {
+          const id = mod + '::' + fname;
+          have.add(id);
+          nodes.push({ id, label: fname, kind: 'func', cls: kind === 'c', parent: mod, pkg: mod.split('.')[0], loc: lines,
+            r: hot ? 5 : 3, color: hot ? RED : BLUE, vuln: hot, title: fname + ' · ' + mod + (hot ? ' · possibly damaged route' : '') });
+          edges.push({ a: mod, b: id, t: 'own', vuln: hot });
+        });
+      });
+      USES.forEach(([from, mod, fname]) => {
+        const id = mod + '::' + fname;
+        if (!have.has(id) || from === mod) return;
+        const hot = inFocus(from) || inFocus(mod);
+        edges.push({ a: from, b: id, t: 'use', vuln: hot });
+      });
       this.bnet = window.DCNet.create(nh, { labelAll: true, autoFit: true, onHover: (n, x, y) => {
         if (!this.btip) { this.btip = document.createElement('div'); this.btip.className = 'net-tip'; nh.appendChild(this.btip); }
         if (!n) { this.btip.classList.remove('net-tip-on'); return; }
@@ -263,8 +283,16 @@ window.Component = class Component extends DCLogic {
       { m: 'Merge gate', b: 'blocked', a: 'open' }
     ];
 
+    const selPr = this.prRow();
+    const pr = selPr && !selPr.missing
+      ? { crumb: selPr.id, title: selPr.title, meta: selPr.id + ' · ' + selPr.author + ' · ' + selPr.when + ' · ' + selPr.files + ' files · ' + selPr.area,
+          lead: 'Security analysis requested for ' + selPr.id + ' (' + selPr.title + '). The proof-loop timeline below is the recorded action-demo analysis; this pull request has no separate oracle run in the demo data, so its header and blast focus follow the selection, not a fixed report.' }
+      : selPr
+        ? { crumb: selPr.id, title: selPr.id, meta: selPr.id + ' · not in the merged pull request list', lead: 'No merged pull request with this id exists in the demo data.' }
+        : { crumb: 'nested-pamphlets', title: 'Allow nested folders in pamphlet names', meta: 'examples/action-demo · nested-pamphlets → main · patch 01-path-traversal',
+            lead: 'Removes the check that kept requested names inside the shelf. Exhibit A tested what that allows, live, in a sandbox.' };
     const bv = s.bv;
-    return { bPath: bv === 'path' ? 'block' : 'none', bNet: bv === 'net' ? 'block' : 'none',
+    return { pr, bPath: bv === 'path' ? 'block' : 'none', bNet: bv === 'net' ? 'block' : 'none',
       bvOpts: [['path', 'Path'], ['net', 'Graph']].map(([k, l]) => ({ l, cls: 'sb' + (bv === k ? ' sb-on' : ''), pick: () => this.setState({ bv: k }) })),
       st: stt, risk, verdict, merge, attack, weak, tag, stop: (e) => e.stopPropagation(), live, dec, proof, prDiff, fixDiff, expect, path, safe: s.safe,
       fx, commitSteps, after, confirm: s.confirm, askApprove: () => this.setState({ confirm: true }), cancel: () => this.setState({ confirm: false }), doCommit,
