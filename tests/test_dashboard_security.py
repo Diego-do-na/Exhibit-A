@@ -1,0 +1,87 @@
+"""Dashboard frontend security: no HTML-parsing sinks, strict CSP headers.
+
+Restores the XSS coverage deleted in the dashboard redesign. The static
+check scans every JavaScript file shipped under ``web/dashboard/``; the
+header check drives the real dashboard handler (no socket, no Docker).
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from exhibit_a.dashboard.server import CSP, SECURITY_HEADERS
+from test_dashboard_support import WEB_DIR, local_state, make_samples, request
+
+BANNED = ("innerHTML", "outerHTML", "document.write")
+
+
+def _js_files() -> list[Path]:
+    files = sorted(WEB_DIR.rglob("*.js"))
+    assert files, "no dashboard JavaScript files found"
+    return files
+
+
+def _strip_comments(code: str) -> str:
+    code = re.sub(r"/\*.*?\*/", "", code, flags=re.DOTALL)
+    return re.sub(r"(?m)^\s*//.*$", "", code)
+
+
+def test_dashboard_js_never_uses_html_parsing_sinks():
+    for path in _js_files():
+        code = _strip_comments(path.read_text(encoding="utf-8"))
+        for banned in BANNED:
+            assert banned not in code, f"{path.relative_to(WEB_DIR)} uses {banned}"
+
+
+def test_dashboard_js_never_uses_eval_or_function_constructor():
+    for path in _js_files():
+        code = _strip_comments(path.read_text(encoding="utf-8"))
+        assert "eval(" not in code, f"{path.relative_to(WEB_DIR)} uses eval"
+        assert "new Function" not in code, f"{path.relative_to(WEB_DIR)} uses new Function"
+
+
+def test_dashboard_html_has_no_inline_script_or_style_blocks():
+    for path in sorted(WEB_DIR.rglob("*.html")):
+        html = path.read_text(encoding="utf-8")
+        for tag in re.findall(r"<script\b[^>]*>", html):
+            if "src=" not in tag:
+                # Only the inert text/x-dc data block may be inline; it is
+                # never executed (CSP script-src 'self' also blocks it).
+                assert 'type="text/x-dc"' in tag, (path.name, tag)
+        assert "<style" not in html, path.name
+
+
+def test_dashboard_server_sends_strict_csp_headers(tmp_path: Path):
+    state = local_state(make_samples(tmp_path))
+    status, headers, _ = request(state, "/index.html")
+    assert status == 200
+    for key, value in SECURITY_HEADERS.items():
+        if key == "Cache-Control":
+            continue  # static files override with ETag revalidation (no-cache)
+        assert headers[key.lower()] == [value], key
+    assert headers["cache-control"] == ["no-cache"]
+    csp = headers["content-security-policy"][0]
+    assert csp == CSP
+    for directive in (
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'none'",
+    ):
+        assert directive in csp
+    assert "'unsafe-inline'" not in csp
+    assert "'unsafe-eval'" not in csp
+    assert headers["x-content-type-options"] == ["nosniff"]
+    assert headers["x-frame-options"] == ["DENY"]
+
+
+def test_dashboard_api_responses_also_carry_strict_csp(tmp_path: Path):
+    state = local_state(make_samples(tmp_path))
+    status, headers, _ = request(state, "/api/info")
+    # Unauthenticated API calls are refused, but must still carry the CSP.
+    assert status == 401
+    assert headers["content-security-policy"] == [CSP]

@@ -229,9 +229,10 @@
     const script = document.querySelector('script[data-dc-script]');
     if (!host || !script) return;
 
-    const tpl = document.createElement('template');
-    tpl.innerHTML = host.innerHTML;
-    const helmet = tpl.content.querySelector('helmet');
+    const tplContent = document.createDocumentFragment();
+    const source = host.tagName === 'TEMPLATE' ? host.content : host;
+    Array.from(source.childNodes).forEach((n) => tplContent.appendChild(n.cloneNode(true)));
+    const helmet = tplContent.querySelector('helmet');
     if (helmet) { Array.from(helmet.childNodes).forEach((n) => document.head.appendChild(n)); helmet.remove(); }
 
     let decl = {};
@@ -240,9 +241,9 @@
     for (const [k, v] of Object.entries(decl)) if (k !== '$preview' && v && 'default' in v) props[k] = v.default;
 
     // Pages load their logic from views/<page>.js, which sets window.Component, so the strict
-    // CSP (script-src 'self', no eval) holds. An inline component body is a fallback for
-    // pages opened outside the dashboard server.
-    const Component = window.Component || new Function('DCLogic', script.textContent + '\nreturn Component;')(DCLogic);
+    // CSP (script-src 'self', no eval) holds. There is no inline-eval fallback.
+    const Component = window.Component;
+    if (typeof Component !== 'function') return;
     const comp = new Component(props);
     comp.props = props;
     window.DCPage = comp;
@@ -255,7 +256,7 @@
     const render = () => {
       queued = false;
       const frag = document.createElement('div');
-      build(tpl.content, Object.assign(Object.create(null), comp.renderVals()), frag);
+      build(tplContent, Object.assign(Object.create(null), comp.renderVals()), frag);
       morphChildren(root, frag);
       if (typeof comp.componentDidRender === 'function') comp.componentDidRender(root);
     };
