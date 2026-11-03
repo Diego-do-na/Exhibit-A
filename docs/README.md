@@ -26,6 +26,7 @@ One line per document. Paths are relative to the repository root.
 - [ci/live-pr-demo.md](ci/live-pr-demo.md) — Runbook for the live pull-request demo: setup, the two demo PRs, expected checks, disabling, cost.
 - [ci/audit.md](ci/audit.md) — Repository audit: ranked graph reach paths, budget-capped loop, audit.json/audit.md, weekly workflow.
 - [ci/fix-pr.md](ci/fix-pr.md) — Verified fix pull requests: review suggestions and automated PR branches.
+- [ci/replay-determinism.md](ci/replay-determinism.md) — Why batch replay verdicts flipped under load, and the warm-up/sample and replay-timeout fixes.
 
 ## bench/ — benchmark and costs
 
