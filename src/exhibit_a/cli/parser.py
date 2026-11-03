@@ -62,12 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     scan = sub.add_parser(
         "scan",
         parents=[COMMON],
-        help="Print the RepoProfile of a repository (a placeholder without one), "
+        help="Scan a repository (the current directory by default) and print its RepoProfile, "
         "optionally with its call graph and reach paths.",
     )
     scan.add_argument(
         "repo", nargs="?", default=None,
-        help="Repository to scan. Without it, a RepoProfile placeholder is printed.",
+        help="Repository to scan (default: current working directory).",
     )
     scan.add_argument(
         "--graph", action="store_true",

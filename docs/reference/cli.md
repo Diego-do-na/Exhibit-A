@@ -24,9 +24,9 @@ Exhibit A skeleton CLI: proof before accusation.
 
 positional arguments:
   {scan,run,ledger,trace,report,runs,advisories,dashboard,audit,doctor,reproduce,sarif,verify}
-    scan                Print the RepoProfile of a repository (a placeholder
-                        without one), optionally with its call graph and reach
-                        paths.
+    scan                Scan a repository (the current directory by default)
+                        and print its RepoProfile, optionally with its call
+                        graph and reach paths.
     run                 Run the core loop (wired for benchmark cases via
                         --case).
     ledger              Print totals for one run id from a ledger file.
@@ -74,8 +74,8 @@ usage: exhibit-a scan [-h] [--graph] [--graph-out FILE]
                       [repo]
 
 positional arguments:
-  repo                  Repository to scan. Without it, a RepoProfile
-                        placeholder is printed.
+  repo                  Repository to scan (default: current working
+                        directory).
 
 options:
   -h, --help            show this help message and exit

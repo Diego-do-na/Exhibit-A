@@ -141,7 +141,7 @@ recorded key was made with a slice.
 ### `exhibit-a scan`
 
 ```bash
-exhibit-a scan                       # RepoProfile placeholder, unchanged
+exhibit-a scan                       # RepoProfile for the current directory
 exhibit-a scan REPO                  # RepoProfile from scan.detect()
 exhibit-a scan REPO --graph [--graph-out graph.json] [--entry-point Class.method ...]
 exhibit-a scan REPO --pr-diff BASE..HEAD   # adds the reach report, built on HEAD as committed

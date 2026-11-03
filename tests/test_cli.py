@@ -20,13 +20,13 @@ from exhibit_a.cli import run as run_mod
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_scan_prints_valid_repo_profile_placeholder(capsys) -> None:
+def test_scan_without_repository_scans_the_current_directory(capsys) -> None:
     assert main(["scan"]) == 0
     raw = capsys.readouterr().out
     profile = RepoProfile.model_validate(json.loads(raw))
-    assert profile.language == "unknown"
+    assert profile.language == "python"
     assert profile.dependencies == []
-    assert profile.baseline.passed == 0
+    assert profile.test_cmd == "pytest"
 
 
 def test_run_accepts_all_flags(capsys) -> None:
@@ -123,7 +123,7 @@ def test_unknown_subcommand_exits_with_usage_error() -> None:
     assert exc.value.code == 2
 
 
-def test_python_m_entry_point_reports_scan_placeholder() -> None:
+def test_python_m_entry_point_scans_the_current_directory() -> None:
     """The documented ``python -m exhibit_a.cli`` invocation must work."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
@@ -137,7 +137,7 @@ def test_python_m_entry_point_reports_scan_placeholder() -> None:
     )
     assert done.returncode == 0, done.stderr
     profile = RepoProfile.model_validate(json.loads(done.stdout))
-    assert profile.language == "unknown"
+    assert profile.language == "python"
 
 
 def _stage_case(root):

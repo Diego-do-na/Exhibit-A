@@ -50,6 +50,13 @@ def test_scan_of_a_repository_prints_the_detected_profile(repo, capsys):
     assert (profile.language, profile.framework, profile.test_cmd) == ("python", "pytest", "pytest")
 
 
+def test_scan_without_repository_scans_the_current_directory(repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    assert main(["scan"]) == 0
+    profile = RepoProfile.model_validate(json.loads(capsys.readouterr().out))
+    assert (profile.language, profile.framework, profile.test_cmd) == ("python", "pytest", "pytest")
+
+
 def test_scan_graph_adds_a_summary_and_can_write_the_graph(repo, tmp_path, capsys):
     out_file = tmp_path / "graph.json"
     assert main(["scan", str(repo), "--graph", "--graph-out", str(out_file)]) == 0

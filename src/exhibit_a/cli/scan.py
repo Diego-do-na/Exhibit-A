@@ -1,6 +1,6 @@
 """Implementation of the ``scan`` CLI subcommand.
 
-``exhibit-a scan`` with no repository prints the RepoProfile placeholder, as it always did.
+``exhibit-a scan`` with no repository scans the current working directory.
 ``exhibit-a scan REPO`` prints the RepoProfile the rule-based scanner detects. ``--graph``
 adds a summary of the static call graph, and ``--pr-diff BASE..HEAD`` the reach paths of the
 functions the diff changes (built on HEAD as committed, not on the worktree). The graph only
@@ -20,25 +20,10 @@ from typing import Any
 
 from ..graph import build_graph, find_entries, reach_from_diff, render, sink_hits
 from ..scan import detect
-from ..schemas import Baseline, RepoProfile
 from ..schemas.graph import CodeGraph
 
 #: Bytes of `git diff` output a scan reads at most.
 MAX_DIFF_BYTES = 20_000_000
-
-
-def _placeholder() -> RepoProfile:
-    return RepoProfile(
-        commit="unknown",
-        language="unknown",
-        interpreter="unknown",
-        dependency_manager="unknown",
-        install_cmd="unknown",
-        test_cmd="unknown",
-        framework="unknown",
-        dependencies=[],
-        baseline=Baseline(passed=0, failed=0, seconds=0.0),
-    )
 
 
 def graph_summary(
@@ -123,11 +108,10 @@ def _scan_pr_diff(
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
-    """Print the RepoProfile (a placeholder without a repository), plus graph and reach."""
+    """Print the detected RepoProfile, plus optional graph and reach data."""
     repo_arg = getattr(args, "repo", None)
     if not repo_arg:
-        print(_placeholder().model_dump_json(indent=2))
-        return 0
+        repo_arg = "."
     repo = Path(repo_arg)
     if not repo.is_dir():
         print(f"scan: repository does not exist: {repo}", file=sys.stderr)
