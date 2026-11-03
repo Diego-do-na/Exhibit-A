@@ -1,11 +1,11 @@
 """Rule-based PR risk gate: decide from changed paths whether to run exploits.
 
-This is a deliberately small placeholder. It classifies a pull request as
-low, medium or high risk from the paths ``git diff --name-only`` reports,
-using the data-driven tables below, and exposes ``should_run_exploits``.
-It never reads file contents and never calls a model. The richer triage
-module (owned by a separate task, future ``exhibit_a.triage``) is expected to
-replace ``classify`` behind the same ``Classification`` shape.
+It classifies a pull request as low, medium or high risk from the paths
+``git diff --name-only`` reports, using the data-driven tables below, and
+exposes ``should_run_exploits``. It never reads file contents, inspects the
+diff, proves a vulnerability, or calls a model. Documentation and test-only
+changes are low risk; ordinary application changes are medium risk; and
+security-sensitive, dependency, container, or CI changes are high risk.
 
 Rules, first match wins per path, highest risk wins per PR:
 
