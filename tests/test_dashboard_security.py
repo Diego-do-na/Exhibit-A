@@ -161,6 +161,7 @@ def test_pr_blast_graph_is_the_full_graph_with_damaged_route_in_red():
     assert "views/graphdata.js" in pr_html
     assert "window.DCGraphData" in pr_js and "vuln: hot" in pr_js
     assert "f:pam" not in pr_js  # the old pamphlet-only mini graph is gone
+    assert "kind: 'func'" not in pr_js.split("blastnet")[1]  # blast radius is files only
 
 
 def test_pr_page_has_a_view_per_verdict():

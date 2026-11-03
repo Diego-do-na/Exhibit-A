@@ -99,24 +99,21 @@ window.Component = class Component extends DCLogic {
       const focusPkg = FN[areaPkg] || FN[areaPkg + '.'] ? areaPkg : (Object.keys(FN).some((m) => m === areaPkg || m.startsWith(areaPkg + '.')) ? areaPkg : 'oracle');
       const inFocus = (mod) => mod === focusPkg || mod.startsWith(focusPkg + '.');
       const RED = '#ff6b6b', BLUE = '#7ea6ff';
-      const nodes = [], edges = [], have = new Set();
+      // Files only in the blast radius: every function node overpopulated the
+      // view until nothing was readable, so module-to-module impact is enough.
+      const nodes = [], edges = [], seen = new Set();
       Object.entries(FN).forEach(([mod, fns]) => {
         const hot = inFocus(mod);
         nodes.push({ id: mod, label: mod.split('.').pop(), kind: 'file', pkg: mod.split('.')[0], loc: fns.reduce((s, f) => s + (f[2] || 0), 0),
           r: hot ? 13 : 7, color: hot ? RED : BLUE, vuln: hot, title: mod + (hot ? ' · in the area this pull request touched (' + focusPkg + ')' : ' · full code graph') });
-        fns.forEach(([fname, kind, lines]) => {
-          const id = mod + '::' + fname;
-          have.add(id);
-          nodes.push({ id, label: fname, kind: 'func', cls: kind === 'c', parent: mod, pkg: mod.split('.')[0], loc: lines,
-            r: hot ? 5 : 3, color: hot ? RED : BLUE, vuln: hot, title: fname + ' · ' + mod + (hot ? ' · possibly damaged route' : '') });
-          edges.push({ a: mod, b: id, t: 'own', vuln: hot });
-        });
       });
-      USES.forEach(([from, mod, fname]) => {
-        const id = mod + '::' + fname;
-        if (!have.has(id) || from === mod) return;
+      USES.forEach(([from, mod]) => {
+        if (!FN[from] || !FN[mod] || from === mod) return;
+        const key = from + '>' + mod;
+        if (seen.has(key)) return;
+        seen.add(key);
         const hot = inFocus(from) || inFocus(mod);
-        edges.push({ a: from, b: id, t: 'use', vuln: hot });
+        edges.push({ a: from, b: mod, t: 'use', vuln: hot });
       });
       this.bnet = window.DCNet.create(nh, { labelAll: true, autoFit: true, onHover: (n, x, y) => {
         if (!this.btip) { this.btip = document.createElement('div'); this.btip.className = 'net-tip'; nh.appendChild(this.btip); }
