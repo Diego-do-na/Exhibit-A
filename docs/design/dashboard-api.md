@@ -194,6 +194,24 @@ One summary per repository (`id`, `name`, `runs`, `proven`, `last_run`,
 run-order `trend`, `severity_mix`), most recently active first, plus
 `runs_considered` / `runs_total`.
 
+## `GET /api/benchmark`
+
+Aggregates of `bench/results/*.json` (newest file) for the Exhibit-A repo
+only: per-system counts and sums over measured `per_target` rows plus the
+capped target list. Any other source gets `available: false` with reason
+`"no benchmark data for this source"`; the corpus evaluation describes the
+Exhibit-A benchmark, not that source.
+
+```json
+{
+  "available": true, "file": "2026-11-01.json",
+  "systems": [{"system": "Exhibit A, compact profile", "targets": 32,
+    "reported": 29, "true_positives": 25, "false_positives": 4,
+    "precision": 0.8621, "recall": 0.68, "cost_usd": 2.27}],
+  "targets": [{"target": "starlette-cve-2023-29159", "reported": 1, "cost_usd": 0.11}]
+}
+```
+
 ## `GET /api/repos/<id>`
 
 One repository's headline metrics across its runs, its recent pull requests
