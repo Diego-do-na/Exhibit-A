@@ -138,7 +138,9 @@ def test_two_real_runs_have_different_detail_content(tmp_path: Path):
 def test_merged_pr_without_run_shows_empty_state_not_demo():
     pr_html = (WEB_DIR / "pr.html").read_text(encoding="utf-8")
     pr_js = (WEB_DIR / "views/pr.js").read_text(encoding="utf-8")
-    assert "No Exhibit A run was recorded for this pull request" in pr_html
+    assert "Exhibit A check: not evaluated" in pr_html
+    assert "This pull request predates the Action or no run was recorded for it" in pr_html
+    assert "Not evaluated for this pull request" in pr_js
     assert "exhibit-a run --pr-diff BASE..HEAD" in pr_html
     assert 'value="{{mode.isAnalysis}}"' in pr_html and 'value="{{mode.isPr}}"' in pr_html
     assert "Recorded demo" in pr_html
@@ -187,6 +189,18 @@ def test_no_literal_unicode_escapes_in_visible_text():
         js = path.read_text(encoding="utf-8")
         assert not re.search(r"\\\\u[0-9a-fA-F]{4}", js), path.name
     assert "Runs that exist →" in (WEB_DIR / "pr.html").read_text(encoding="utf-8")
+
+
+def test_merged_pr_view_is_rich_and_never_claims_a_check():
+    html = (WEB_DIR / "pr.html").read_text(encoding="utf-8")
+    js = (WEB_DIR / "views/pr.js").read_text(encoding="utf-8")
+    assert "Not evaluated for this pull request" in js
+    assert "{{pr.life}}" in html and "{{pr.ctx}}" in html and "{{pr.days}}" in html
+    assert "{{pr.sameArea}}" in html and "{{pr.sameAuthor}}" in html
+    assert "{{pr.prevPr.href}}" in html and "{{pr.nextPr.href}}" in html
+    # The neutral check step must never be phrased as a pass without a run.
+    neutral = js.split("'Exhibit A check'")[1].split("}")[0]
+    assert "neutral" in neutral and "passed" not in neutral and "approved" not in neutral
 
 
 def test_demo_copy_matches_the_real_action_no_push():

@@ -280,9 +280,54 @@
             <div class="card" data-style="padding: 20px 22px"><span class="lbl">Change</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.files}} files</div><span class="mono" data-style="font-size: 13px; color: #3d4b68">+{{pr.added}} / −{{pr.removed}} · {{pr.commits}} commits</span></div>
             <div class="card" data-style="padding: 20px 22px"><span class="lbl">Area</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.areaShort}}</div><span data-style="font-size: 14px; color: #3d4b68">{{pr.testsLabel}} · cycle {{pr.cycle}} min</span></div>
           </div>
+          <div class="card" data-style="padding: 22px">
+            <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 18px">
+              <sc-for list="{{pr.life}}" as="s">
+                <div data-style="display: flex; gap: 12px; align-items: flex-start">
+                  <span data-style="flex: none; width: 26px; height: 26px; border-radius: 50%; background: {{s.bg}}; color: #ffffff; display: flex; align-items: center; justify-content: center"><sc-if value="{{s.done}}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></sc-if><sc-if value="{{s.neutral}}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14"></path></svg></sc-if></span>
+                  <span><b data-style="display: block; font-size: 15px">{{s.l}}</b><span data-style="font-size: 13px; color: #3d4b68">{{s.d}}</span></span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
+            <sc-for list="{{pr.ctx}}" as="c">
+              <div class="card" data-style="padding: 20px 22px; display: flex; flex-direction: column; gap: 8px">
+                <span class="lbl">{{c.l}}</span>
+                <span class="dsp" data-style="font-size: 28px; font-weight: 500">{{c.v}}</span>
+                <span data-style="height: 8px; background: rgba(13,27,62,.08)"><span data-style="display: block; height: 8px; width: {{c.pct}}%; background: #2c4fc4"></span></span>
+                <span data-style="font-size: 13px; color: #3d4b68">{{c.d}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div class="card" data-style="padding: 20px 22px; display: flex; flex-direction: column; gap: 12px">
+            <h3 class="ct">Merges per day</h3>
+            <div data-style="display: flex; gap: 10px; align-items: flex-end; min-height: 90px">
+              <sc-for list="{{pr.days}}" as="d">
+                <div data-style="flex: 1; display: flex; flex-direction: column; gap: 6px; align-items: center">
+                  <span data-style="width: 100%; max-width: 44px; height: 64px; background: rgba(13,27,62,.06); display: flex; align-items: flex-end"><span data-style="display: block; width: 100%; height: {{d.h}}%; background: {{d.bar}}"></span></span>
+                  <span class="mono" data-style="font-size: 12px; color: #3d4b68">{{d.d}} · {{d.n}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px">
+            <div class="card" data-style="padding: 20px 22px; display: flex; flex-direction: column; gap: 8px">
+              <h3 class="ct">Same area</h3>
+              <sc-for list="{{pr.sameArea}}" as="r"><a href="{{r.href}}" data-style="display: flex; gap: 8px; align-items: center; text-decoration: none; padding: 6px 0"><span data-style="flex: none; width: 8px; height: 8px; background: {{r.c}}"></span><span class="mono" data-style="font-size: 12px">{{r.id}}</span><span data-style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.title}}</span><span data-style="font-size: 11px; color: #45587c">{{r.ty}}</span></a></sc-for>
+            </div>
+            <div class="card" data-style="padding: 20px 22px; display: flex; flex-direction: column; gap: 8px">
+              <h3 class="ct">More from this author</h3>
+              <sc-for list="{{pr.sameAuthor}}" as="r"><a href="{{r.href}}" data-style="display: flex; gap: 8px; align-items: center; text-decoration: none; padding: 6px 0"><span data-style="flex: none; width: 8px; height: 8px; background: {{r.c}}"></span><span class="mono" data-style="font-size: 12px">{{r.id}}</span><span data-style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.title}}</span><span data-style="font-size: 11px; color: #45587c">{{r.ty}}</span></a></sc-for>
+            </div>
+          </div>
+          <div data-style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+            <sc-if value="{{pr.hasPrev}}"><a href="{{pr.prevPr.href}}">← {{pr.prevPr.id}} · earlier merge</a></sc-if>
+            <sc-if value="{{pr.hasNext}}"><a href="{{pr.nextPr.href}}">{{pr.nextPr.id}} · later merge →</a></sc-if>
+          </div>
           <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
-            <h3 class="ct">No Exhibit A run was recorded for this pull request</h3>
-            <p data-style="font-size: 15px; line-height: 1.6; color: #26365a">There is no proof analysis to show for {{pr.crumb}}. Record one against the pull request diff, or open one of the runs that do exist.</p>
+            <h3 class="ct">Exhibit A check: not evaluated</h3>
+            <p data-style="font-size: 15px; line-height: 1.6; color: #26365a">This pull request predates the Action or no run was recorded for it. Record one against the pull request diff, or open one of the runs that do exist.</p>
             <div class="mono" data-style="font-size: 13px; background: rgba(13,27,62,.06); border: 1px solid rgba(13,27,62,.1); border-radius: 4px; padding: 12px 14px">exhibit-a run --pr-diff BASE..HEAD</div>
             <div><a href="index.html">Runs that exist →</a></div>
           </div>

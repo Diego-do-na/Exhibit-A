@@ -317,9 +317,41 @@ window.Component = class Component extends DCLogic {
     ];
 
     const selPr = this.prRow();
+    const allPrs = (window.XA_PRS || []).map((r) => ({ id: r[0], title: r[1], when: r[2], author: r[3], commits: r[4], files: r[5], added: r[6], removed: r[7], tests: !!r[8], area: r[9], cycle: r[10], lines: r[6] + r[7] }));
+    const median = (xs) => { const v = xs.slice().sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : 0; };
+    const mean = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+    const medLines = median(allPrs.map((r) => r.lines)), avgLines = Math.round(mean(allPrs.map((r) => r.lines)));
+    const medCycle = median(allPrs.map((r) => r.cycle)), avgFiles = mean(allPrs.map((r) => r.files));
+    const byWhen = allPrs.slice().sort((a, b) => (a.when < b.when ? -1 : a.when > b.when ? 1 : 0));
+    const prIndex = selPr ? byWhen.findIndex((r) => r.id === selPr.id) : -1;
+    const relLink = (r) => ({ id: r.id, title: r.title, href: 'pr.html?pr=' + encodeURIComponent(r.id), author: r.author,
+      ty: window.XA_authorType ? window.XA_authorType(r.author) : 'unattributed', c: (window.XA_AUTHOR_COLORS || {})[r.author] || '#4a5873', when: r.when });
+    const dayCounts = {};
+    allPrs.forEach((r) => { const d = r.when.slice(0, 5); dayCounts[d] = (dayCounts[d] || 0) + 1; });
+    const maxDay = Math.max(1, ...Object.values(dayCounts));
+    const enriched = selPr && !selPr.missing ? {
+      life: [
+        { l: 'Opened', d: selPr.when, state: 'done', done: true, bg: '#2c4fc4' },
+        { l: 'Tests green', d: 'Merged only with green tests (project rule)', state: 'done', done: true, bg: '#2c4fc4' },
+        { l: 'Exhibit A check', d: 'Not evaluated for this pull request', state: 'neutral', neutral: true, bg: '#8b98b3' },
+        { l: 'Merged', d: selPr.when + ' · into main', state: 'done', done: true, bg: '#2c4fc4' }
+      ],
+      ctx: [
+        { l: 'Change size', v: (selPr.added + selPr.removed) + ' lines', d: 'mean ' + avgLines + ' · median ' + medLines + ' across ' + allPrs.length + ' PRs', pct: Math.min(100, Math.round((selPr.added + selPr.removed) / Math.max(1, medLines * 2) * 100)) },
+        { l: 'Cycle', v: selPr.cycle + ' min', d: 'median ' + medCycle + ' min across all PRs', pct: Math.min(100, Math.round(selPr.cycle / Math.max(1, medCycle * 2) * 100)) },
+        { l: 'Files', v: selPr.files + ' files', d: 'mean ' + avgFiles.toFixed(1) + ' files per PR', pct: Math.min(100, Math.round(selPr.files / Math.max(1, avgFiles * 2) * 100)) },
+        { l: 'Tests', v: selPr.tests ? 'Touches tests' : 'No test files', d: selPr.tests ? 'At least one test file changed' : 'No test file in the change', pct: selPr.tests ? 100 : 8 }
+      ],
+      days: Object.entries(dayCounts).sort().map(([d, n]) => ({ d, n, h: Math.round(n / maxDay * 100), here: selPr.when.slice(0, 5) === d, bar: selPr.when.slice(0, 5) === d ? '#a5703f' : '#2c4fc4' })),
+      sameArea: allPrs.filter((r) => r.area === selPr.area && r.id !== selPr.id).slice(0, 5).map(relLink),
+      sameAuthor: allPrs.filter((r) => r.author === selPr.author && r.id !== selPr.id).slice(-4).map(relLink),
+      prevPr: prIndex > 0 ? relLink(byWhen[prIndex - 1]) : null,
+      nextPr: prIndex >= 0 && prIndex < byWhen.length - 1 ? relLink(byWhen[prIndex + 1]) : null,
+      hasPrev: prIndex > 0, hasNext: prIndex >= 0 && prIndex < byWhen.length - 1
+    } : null;
     const pr = selPr && !selPr.missing
       ? { crumb: selPr.id, title: selPr.title, meta: selPr.id + ' · ' + selPr.author + ' · ' + selPr.when + ' · ' + selPr.files + ' files · ' + selPr.area,
-          lead: 'Merged pull request ' + selPr.id + '. Its recorded metadata is below; no proof analysis is attached to it.', author: selPr.author, authorType: window.XA_authorType ? window.XA_authorType(selPr.author) : 'unattributed', when: selPr.when, files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: selPr.area.replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'no test files', cycle: selPr.cycle }
+          lead: 'Merged pull request ' + selPr.id + '. Its recorded metadata is below; no proof analysis is attached to it.', author: selPr.author, authorType: window.XA_authorType ? window.XA_authorType(selPr.author) : 'unattributed', when: selPr.when, files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: selPr.area.replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'no test files', cycle: selPr.cycle, ...enriched }
       : selPr
         ? { crumb: selPr.id, title: selPr.id, meta: selPr.id + ' · not in the merged pull request list', lead: 'No merged pull request with this id exists in the demo data.' }
         : { crumb: 'nested-pamphlets', title: 'Allow nested folders in pamphlet names', meta: 'examples/action-demo · nested-pamphlets → main · patch 01-path-traversal',
