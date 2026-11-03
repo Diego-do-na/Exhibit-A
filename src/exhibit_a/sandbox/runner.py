@@ -60,6 +60,7 @@ or any host directory other than a temporary copy of `clone_path`.
 from __future__ import annotations
 
 import json
+import math
 import re
 import secrets
 import shutil
@@ -1228,6 +1229,8 @@ def run(
             MEMORY_LIMIT,
             "--cpus",
             CPUS_LIMIT,
+            "--ulimit",
+            f"cpu={max(1, math.ceil(timeout))}",
             "-v",
             f"{workspace}:{_WORKSPACE}:rw",
             *extra_args,
@@ -1539,4 +1542,3 @@ def probe_isolation(
         "seccomp_profile_path": str(SECCOMP_PROFILE),
         "probe": probe_data,
     }
-

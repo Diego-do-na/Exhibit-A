@@ -24,6 +24,7 @@ TAG_REPOSITORY = "exhibit-a-sandbox-node"
 BUILD_TIMEOUT = 900
 INSTALL_DIR = "/opt/sandbox"
 TSX_VERSION = "tsx@4.19.2"
+TYPESCRIPT_VERSION = "typescript@5.7.2"
 # Salt so a Dockerfile change is not confused with a previously tagged image.
 # python3 runs T114's OS witness as a sibling of `node --test`.
 IMAGE_FEATURES = "python3-witness"
@@ -66,7 +67,7 @@ def _dockerfile(packages: list[str]) -> str:
         "ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_AUDIT=false",
         "RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*",
         f"WORKDIR {INSTALL_DIR}",
-        f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION}",
+        f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION} {TYPESCRIPT_VERSION}",
     ]
     if packages:
         quoted = " ".join(_shell_quote(p) for p in packages)
@@ -111,6 +112,7 @@ __all__ = [
     "INSTALL_DIR",
     "TAG_REPOSITORY",
     "TSX_VERSION",
+    "TYPESCRIPT_VERSION",
     "build_image",
     "build_node_image",
     "dockerfile",

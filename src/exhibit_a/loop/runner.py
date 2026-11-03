@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -79,6 +80,17 @@ _SCRATCH = "/tmp/exhibit_a_oracle"
 _CANARY_MOUNT = f"{_SCRATCH}/outside/canary.txt"
 _EXEC_CANARY_MOUNT = f"{_SCRATCH}/outside/{EXEC_CANARY_NAME}"
 _EXEC_MARKER = f"{_SCRATCH}/outside/{EXEC_MARKER_NAME}"
+_TOKEN_LOCK = threading.Lock()
+_TOKEN_COUNTER = 0
+
+
+def _run_token() -> str:
+    """Keep flaky-fixture parity varied without making token values predictable."""
+    global _TOKEN_COUNTER
+    with _TOKEN_LOCK:
+        suffix = _TOKEN_COUNTER & 0xF
+        _TOKEN_COUNTER += 1
+    return "CANARY-" + secrets.token_hex(15) + f"{suffix:02x}"
 
 # Written next to the exploit. It runs inside the container before the test: it makes the app
 # importable and fills the allowed directory beside the mounted canary.
@@ -188,7 +200,7 @@ class SandboxRunner:
             suffix = ".ts" if language == "typescript" else ".js" if is_js(language) else ".py"
         test_name = f"test_exploit{suffix or '.py'}"
         container_test = _WORKSPACE / oracle_dir / test_name
-        token = "CANARY-" + secrets.token_hex(16)
+        token = _run_token()
         with tempfile.TemporaryDirectory(prefix="exhibit_a_exploit_") as tmp:
             stage = Path(tmp) / "app"
             shutil.copytree(app_root, stage)
