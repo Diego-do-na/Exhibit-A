@@ -36,7 +36,7 @@ from ..report.cwe import get_cwe, severity_from_effect
 from ..schemas import Event, EventType, VerdictValue
 from ..schemas.graph import CodeGraph, ReachPath
 from ..ledger.trace import trace_events, trace_to_dict
-from .sources import RunData
+from .sources import RunData, valid_discussion_url
 
 #: The verdict loop stages shown on the run timeline, in order.
 STAGES = ("BASELINE", "SUSPECT", "EXPLOIT", "RUN", "VERDICT", "FIX", "VERIFY", "PACKAGE")
@@ -475,7 +475,14 @@ def run_row(data: RunData) -> dict[str, Any]:
     row["headline"] = _headline(row["status"], row["proven"])
     row["repo_id"] = repo_id(row["repo"])
     row["head_sha"] = row["commit"]
-    row["discussion_url"] = _discussion_url(row["repo"], row["pr"])
+    # The artifact's review-thread URL wins when it names this run's repo and
+    # PR; otherwise the synthesized PR page (or "" when nothing is recorded).
+    extra = data.result or {}
+    row["provider"] = _text(extra.get("provider"), 120)
+    row["discussion_url"] = (
+        valid_discussion_url(extra.get("discussion_url"), row["repo"], row["pr"])
+        or _discussion_url(row["repo"], row["pr"])
+    )
     if not data.error:
         row["models"] = _event_models(data.events)
     return row
@@ -836,7 +843,8 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
                 "trace": trace_to_dict(row["run_id"], []), "costs": _costs([]), "graph": graph,
                 # No provider or budget cap is recorded in the ledger or artifact.
                 "provider": "", "budget_usd": None,
-                "artifacts": {"fix_patch": None, "exploit_test": None}}
+                "artifacts": {"fix_patch": None, "exploit_test": None},
+                "graph_summary": None}
     events = data.events
     suspicions: dict[str, dict[str, Any]] = {}
     verdicts: dict[str, dict[str, Any]] = {}
@@ -921,9 +929,9 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
         "trace": trace_to_dict(row["run_id"], steps),
         "costs": _costs(events),
         "graph": graph,
-        # The ledger records model names but no provider, and no budget cap is
-        # stored in the ledger or artifact: "" / None mean "not recorded".
-        "provider": "",
+        # The result artifact may name the provider; no budget cap is stored in
+        # the ledger or artifact: "" / None mean "not recorded".
+        "provider": row.get("provider", ""),
         "budget_usd": None,
         # Proof artifacts, read as text only (never executed); None means
         # the run folder or artifact does not carry that file ("not recorded").
@@ -931,6 +939,9 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
             "fix_patch": artifacts.get("fix.patch"),
             "exploit_test": artifacts.get("test_exploit.py"),
         },
+        # Validated graph-summary.json (artifact-schema.md); None means the run
+        # folder or artifact does not carry one ("not recorded").
+        "graph_summary": data.graph_summary or None,
     }
 
 

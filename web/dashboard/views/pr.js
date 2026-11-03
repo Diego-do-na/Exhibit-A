@@ -489,9 +489,31 @@ window.Component = class Component extends DCLogic {
         noBlast = true;
         blastNote = (g.reason || 'No code graph was recorded for this run') + '.';
       }
+      // Recorded graph summary (artifact-schema.md): reachability proposals,
+      // shown only when no proven path exists and labeled as proposals.
+      const gs = (D && D.graph_summary) || null;
+      if (!hasBlast && gs && gs.available && (gs.paths || []).length) {
+        blastPaths = gs.paths.slice(0, 8).map((p, i) => ({
+          n: String(i + 1),
+          entry: this.text(p.entry_point),
+          sink: this.text(p.changed),
+          effect: this.text(p.vuln_class || gs.effect, ''),
+          nodes: String(p.path || '').split(' -> ').map((x) => x.slice(0, 80)).slice(0, 12).join(' → '),
+        }));
+        path = [];
+        hasBlast = true;
+        noBlast = false;
+        blastNote = 'Reachability proposal from the recorded graph summary, not a proven path.';
+      }
       const disc = R.discussion_url || '';
+      // A recorded review thread (…/pull/N#discussion_r<id>) opens on the PR
+      // files tab anchored at the suggestion; a bare PR page opens its files.
+      const hash = disc.indexOf('#');
+      const base = hash < 0 ? disc : disc.slice(0, hash);
+      const frag = hash < 0 ? '' : disc.slice(hash);
       const sid = String((R && R.suggestion_id) || (D && D.suggestion_id) || '').replace(/[^0-9]/g, '');
-      sugg = disc ? { show: true, hide: false, href: disc + '/files' + (sid ? '#discussion_r' + sid : '') } : { show: false, hide: false, href: '' };
+      const anchor = frag || (sid ? '#discussion_r' + sid : '');
+      sugg = disc ? { show: true, hide: false, href: base + '/files' + anchor } : { show: false, hide: false, href: '' };
       suggNote = disc ? '' : 'No pull-request link was recorded for this run, so there is no suggestion to open. Nothing is pushed from this page.';
     }
 

@@ -11,8 +11,8 @@ Data rule: a field the ledger and artifacts do not record is returned as
 `""` (strings) or `null` (numbers/objects) and the UI labels it
 **"not recorded"**. Nothing is estimated or invented. In particular:
 
-- `provider` is always `""`: ledger events record `role` and `model` but no
-  provider.
+- `provider` is the `result.json` artifact's provider, `""` when the artifact
+  is silent: ledger events record `role` and `model` but no provider.
 - `budget_usd` is always `null`: no budget cap is stored in any ledger or
   artifact (pass `--budget-usd` when running the engine; until the cap
   itself is recorded, the API will not invent one).
@@ -96,7 +96,10 @@ proven", never "safe").
 For the GitHub source the same run reports `repo`
 `"Diego-do-na/exhibit-a-testbed"`, `pr` `"1"`, `head_sha`
 `"b30106f658c37804bd29bfe9758c417ea7cda3e1"` and `discussion_url`
-`"https://github.com/Diego-do-na/exhibit-a-testbed/pull/1"`.
+`"https://github.com/Diego-do-na/exhibit-a-testbed/pull/1"`. When
+`result.json` carries a review-thread URL for that repo and PR
+(artifact-schema.md), `discussion_url` is the thread URL instead; `provider`
+is the artifact's provider (`""` when the artifact is silent).
 
 ## `GET /api/runs/<id>`
 
@@ -106,7 +109,9 @@ effect / provenance frames / fix / exploit test / passes-on-fixed / bypass /
 CWE / severity), `discarded` (each with `verdict`, the ledger's `reason`
 plus `reason_code` and `effect`, so `env_failure`, `flaky` and
 `invalid_test` keep the recorded explanation), `costs`, the `trace`,
-`provider` (`""`), `budget_usd` (`null`) and `artifacts`.
+`provider` (the artifact's, `""` when silent), `budget_usd` (`null`),
+`artifacts` and `graph_summary` (validated `graph-summary.json`, `null`
+when the run folder or artifact does not carry one).
 
 ```json
 {

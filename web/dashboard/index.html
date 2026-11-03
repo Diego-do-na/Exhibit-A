@@ -55,7 +55,7 @@
         <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">Exhibit A has not proven anything here yet, because nothing has been recorded. Three steps record your first run:</p>
         <ol data-style="margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font-size: 15px; line-height: 1.6; color: #26365a">
           <li>Initialise the Action workflow in your repository: <span class="mono" data-style="font-size: 14px">exhibit-a init</span></li>
-          <li>Add the model secret to the repository: <span class="mono" data-style="font-size: 14px">gh secret set META_API_KEY</span> (the dashboard never stores keys)</li>
+          <li>Add the model secret to the exhibit-a environment: <span class="mono" data-style="font-size: 14px">gh secret set EXHIBIT_A_API_KEY --env exhibit-a</span> (the dashboard never stores keys)</li>
           <li>Open a pull request — the Action runs Exhibit A on the diff, then open <span class="mono" data-style="font-size: 14px">exhibit-a dashboard --source github:owner/repo</span> to see it here.</li>
         </ol>
       </div>
