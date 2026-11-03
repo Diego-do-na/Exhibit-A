@@ -208,7 +208,10 @@ main,.main{animation:rise .45s cubic-bezier(.2,.7,.2,1) both}
 /* ---- Visual polish: consistency, focus, metric icons ---- */
 .kpi-l{display:inline-flex;align-items:center;gap:8px}
 .kpi-l svg{color:#2c4fc4;flex:none}
-.secondary-grid,.bench-cards{align-items:stretch}
+.secondary-grid,.bench-cards,.metric-grid{align-items:stretch}
+.metric-grid .card{height:100%}
+.sec-t{text-wrap:balance}
+.lead{text-wrap:pretty;max-width:68ch}
 .secondary-grid .card,.bench-cards .card{height:100%}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid #2c4fc4;outline-offset:2px}
 :root[data-theme=dark] .kpi-l svg{color:#8fb4ff}

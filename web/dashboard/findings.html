@@ -49,7 +49,7 @@
         <div class="secondary-grid" data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
           <sc-for list="{{tot}}" as="k" hint-placeholder-count="4">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
-              <span class="lbl">{{k.l}}</span>
+              <span class="lbl kpi-l"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="{{k.i}}"></path></svg>{{k.l}}</span>
               <span class="dsp" data-style="font-size: 56px; font-weight: 500; letter-spacing: -.04em; line-height: .9">{{k.v}}</span>
               <p data-style="margin: 0; font-size: 14px; line-height: 1.5; color: #3d4b68">{{k.d}}</p>
             </div>

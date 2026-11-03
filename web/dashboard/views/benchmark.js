@@ -10,9 +10,9 @@ window.Component = class Component extends DCLogic {
     const fmt = (n) => n.toLocaleString('en-US');
 
     const ek = [
-      { l: 'False accusations', a: '0', b: '1', d: 'Only the naive model reported the already-patched Starlette release.' },
-      { l: 'Precision', a: '0.86', b: '0.67', d: 'Share of reports that pointed at a real vulnerability.' },
-      { l: 'Cost per report', a: '$0.15', b: '$0.02', d: 'Each Exhibit A report includes an exploit test and a verified fix.' }
+      { i: 'M18.4 5.6 5.6 18.4M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', l: 'False accusations', a: '0', b: '1', d: 'Only the naive model reported the already-patched Starlette release.' },
+      { i: 'M12 12 19 5M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z', l: 'Precision', a: '0.86', b: '0.67', d: 'Share of reports that pointed at a real vulnerability.' },
+      { i: 'M12 2v20M16.5 6.5C15.8 5.4 14 4.5 12 4.5c-2.5 0-4.5 1.6-4.5 3.7 0 5 9 2.6 9 7.1 0 2.1-2 3.7-4.5 3.7-2 0-3.8-.9-4.5-2', l: 'Cost per report', a: '$0.15', b: '$0.02', d: 'Each Exhibit A report includes an exploit test and a verified fix.' }
     ];
     const SYS = [['Naive LLM', '#c3cbd8', 0.67, 1.0, 3, 0.0708], ['Exhibit A · compact', '#0f2557', 0.86, 0.68, 29, 2.2727], ['Exhibit A · standard', '#6a8fd8', 0, 0, 0, 4.7824]];
     const SM = { prec: [2, 1, (v) => v.toFixed(2), 'Precision is the share of reports that were real. The compact profile kept it high across 29 reports.'],
@@ -22,7 +22,7 @@ window.Component = class Component extends DCLogic {
     const [ix, mx, f, note] = SM[st.sm];
     const sm = SYS.map((s) => ({ n: s[0], c: s[1], v: s[0].endsWith('standard') && st.sm === 'prec' ? 'not run' : f(s[ix]), w: (s[ix] / mx * 100).toFixed(1) }));
     const buy = [{ l: 'Reports still to triage', a: '0', b: '3' }, { l: 'Exploit tests written', a: '2', b: '0' }, { l: 'Fixes verified', a: '2', b: '0' },
-      { l: 'Cost per report', a: '$0.15', b: '$0.02' }, { l: 'Extra spend per target', a: '$0.08', b: '—' }];
+      { i: 'M12 2v20M16.5 6.5C15.8 5.4 14 4.5 12 4.5c-2.5 0-4.5 1.6-4.5 3.7 0 5 9 2.6 9 7.1 0 2.1-2 3.7-4.5 3.7-2 0-3.8-.9-4.5-2', l: 'Cost per report', a: '$0.15', b: '$0.02' }, { l: 'Extra spend per target', a: '$0.08', b: '—' }];
 
     const AB = [['Full loop', 21, 49], ['No witness (L14)', 19, 49], ['No manifest (L1)', 20, 49], ['No admission (L2)', 18, 49], ['No app-tree check (L3)', 21, 49],
       ['No guard (L4)', 18, 49], ['No dir-fd check (L5)', 19, 48], ['No route access (L6)', 16, 49], ['No canary links (L7)', 22, 49], ['Failing test only', 104, 52], ['Bare baseline', 162, 53]];

@@ -53,10 +53,10 @@ window.Component = class Component extends DCLogic {
     const opt = (list, key) => list.map(([k, l]) => ({ l, cls: 'sb' + (st[key] === k ? ' sb-on' : ''), pick: () => this.setState({ [key]: k }) }));
 
     const tot = [
-      { l: 'Suspicions', v: '44', d: 'Raised by the adversary role across 32 applications.' },
-      { l: 'Proven', v: '30', d: 'Each with an exploit test and a fix verified in the sandbox.' },
-      { l: 'Refused', v: '14', d: 'Stopped by the oracle with a named reason.' },
-      { l: 'Fix incomplete', v: '4', d: 'Proven and fixed, but a defender variant still got through.' }
+      { i: 'M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12ZM21 21l-4.3-4.3', l: 'Suspicions', v: '44', d: 'Raised by the adversary role across 32 applications.' },
+      { i: 'M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3ZM8.8 12l2.2 2.2 4.3-4.4', l: 'Proven', v: '30', d: 'Each with an exploit test and a fix verified in the sandbox.' },
+      { i: 'M18.4 5.6 5.6 18.4M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', l: 'Refused', v: '14', d: 'Stopped by the oracle with a named reason.' },
+      { i: 'M14.7 6.3a4 4 0 0 0-5.4 5L3 17.6V21h3.4l6.3-6.3a4 4 0 0 0 5-5.4l-2.6 2.6-2.1-2.1 2.7-2.5Z', l: 'Fix incomplete', v: '4', d: 'Proven and fixed, but a defender variant still got through.' }
     ];
 
     const grp = {};
