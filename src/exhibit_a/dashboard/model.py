@@ -230,16 +230,45 @@ def _ledger_meta(events: Sequence[Event]) -> dict[str, Any]:
     for event in events:
         if event.type == EventType.PR_OPENED:
             p = event.payload
-            commit = _text(p.get("commit"), 64)
+            commit = _text(p.get("commit") or p.get("head_sha") or p.get("head"), 64)
+            base = _text(p.get("base") or p.get("base_sha"), 64)
             return {
                 "repo": _text(p.get("repo"), 140),
                 "pr": _text(p.get("pr"), 64),
                 "commit": commit if _SHA.match(commit) else "",
-                "branch": _text(p.get("branch"), 200),
+                "base_sha": base if _SHA.match(base) else "",
+                "branch": _text(p.get("branch") or p.get("head_branch"), 200),
                 "title": _text(p.get("title"), 200),
                 "synthetic": p.get("synthetic") is True,
             }
     return {}
+
+
+#: A repository name that can safely address a github.com pull request URL.
+_REPO_URL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}\Z")
+
+
+def _discussion_url(repo: str, pr: str) -> str:
+    """The pull request discussion URL, derived from recorded repo and PR number.
+
+    Empty unless the repo is a plain ``owner/name`` and the PR is a number:
+    nothing is invented from untrusted ledger text (a hostile or synthetic
+    repo name must never become a link).
+    """
+    pr_digits = pr.lstrip("#")
+    if pr_digits.isdigit() and _REPO_URL_RE.match(repo):
+        return f"https://github.com/{repo}/pull/{pr_digits}"
+    return ""
+
+
+def _event_models(events: Sequence[Event]) -> list[str]:
+    """Distinct non-empty model names recorded on the ledger, in first-seen order."""
+    seen: list[str] = []
+    for event in events:
+        name = _text(event.model, 120)
+        if name and name not in seen:
+            seen.append(name)
+    return seen[:20]
 
 
 def _headline(status: str, proven: int) -> str:
@@ -353,8 +382,14 @@ def run_row(data: RunData) -> dict[str, Any]:
         "repo": ref.repo or meta.get("repo", ""),
         "pr": ref.pr or meta.get("pr", ""),
         "commit": ref.commit or meta.get("commit", ""),
+        "head_sha": ref.commit or meta.get("commit", ""),
+        "base_sha": meta.get("base_sha", ""),
+        "discussion_url": "",
         "branch": ref.branch or meta.get("branch", ""),
         "title": meta.get("title", ""),
+        "models": [],
+        # The ledger records model names but no provider: always "" ("not recorded").
+        "provider": "",
         "repo_id": "",
         "url": ref.url,
         "synthetic": ref.synthetic or bool(meta.get("synthetic")),
@@ -438,6 +473,10 @@ def run_row(data: RunData) -> dict[str, Any]:
         )
     row["headline"] = _headline(row["status"], row["proven"])
     row["repo_id"] = repo_id(row["repo"])
+    row["head_sha"] = row["commit"]
+    row["discussion_url"] = _discussion_url(row["repo"], row["pr"])
+    if not data.error:
+        row["models"] = _event_models(data.events)
     return row
 
 
@@ -626,19 +665,38 @@ def _evidence(
 def _costs(events: Sequence[Event]) -> dict[str, Any]:
     roles: dict[str, dict[str, Any]] = {}
     stages: dict[str, dict[str, Any]] = {}
+    models: dict[str, dict[str, Any]] = {}
     for event in events:
         role = _text(event.role, 64) or "engine"
         stage = stage_of(event) or "INTAKE"
+        name = _text(event.model, 120)
         for bucket, key in ((roles, role), (stages, stage)):
             item = bucket.setdefault(key, {"cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0, "events": 0})
             item["cost_usd"] += event.cost_usd
             item["tokens_in"] += event.tokens_in
             item["tokens_out"] += event.tokens_out
             item["events"] += 1
-    for bucket in (roles, stages):
+        if name:
+            slot = models.setdefault(name, {"cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0,
+                                             "events": 0, "roles": []})
+            slot["cost_usd"] += event.cost_usd
+            slot["tokens_in"] += event.tokens_in
+            slot["tokens_out"] += event.tokens_out
+            slot["events"] += 1
+            if role not in slot["roles"]:
+                slot["roles"].append(role)
+    for bucket in (roles, stages, models):
         for item in bucket.values():
             item["cost_usd"] = round(item["cost_usd"], 8)
-    return {"by_role": roles, "by_stage": stages}
+    role_models: dict[str, list[str]] = {}
+    for event in events:
+        role = _text(event.role, 64) or "engine"
+        name = _text(event.model, 120)
+        if name and name not in role_models.setdefault(role, []):
+            role_models[role].append(name)
+    for role, item in roles.items():
+        item["models"] = sorted(role_models.get(role, []))
+    return {"by_role": roles, "by_stage": stages, "by_model": models}
 
 
 def _tree_key(tree: Path | None) -> str:
@@ -774,7 +832,10 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
     graph = build_graph_view(data) if with_graph else None
     if row["error"]:
         return {"run": row, "stages": _stages([]), "proven": [], "discarded": [], "latency_ms": 0,
-                "trace": trace_to_dict(row["run_id"], []), "costs": _costs([]), "graph": graph}
+                "trace": trace_to_dict(row["run_id"], []), "costs": _costs([]), "graph": graph,
+                # No provider or budget cap is recorded in the ledger or artifact.
+                "provider": "", "budget_usd": None,
+                "artifacts": {"fix_patch": None, "exploit_test": None}}
     events = data.events
     suspicions: dict[str, dict[str, Any]] = {}
     verdicts: dict[str, dict[str, Any]] = {}
@@ -804,6 +865,9 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
             **base,
             "verdict": label,
             "reason": _text(verdict.get("reason"), 600),
+            # Why a non-proven suspicion was not reported; "" when the ledger records none.
+            "reason_code": _text(verdict.get("reason_code"), 120),
+            "effect": _text(verdict.get("effect"), 64),
             "evidence": None,
             "duplicate_of": _text(verdict.get("duplicate_of"), 200),
         }
@@ -843,6 +907,7 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
     proven = [item for item in items if item["id"] in primary_ids]
     duplicate_ids = {item["id"] for item in items if item["verdict"] == VerdictValue.PROVEN.value} - primary_ids
     steps = trace_events(events)
+    artifacts = data.artifacts
     return {
         "run": row,
         "stages": _stages(events),
@@ -855,6 +920,16 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
         "trace": trace_to_dict(row["run_id"], steps),
         "costs": _costs(events),
         "graph": graph,
+        # The ledger records model names but no provider, and no budget cap is
+        # stored in the ledger or artifact: "" / None mean "not recorded".
+        "provider": "",
+        "budget_usd": None,
+        # Proof artifacts, read as text only (never executed); None means
+        # the run folder or artifact does not carry that file ("not recorded").
+        "artifacts": {
+            "fix_patch": artifacts.get("fix.patch"),
+            "exploit_test": artifacts.get("test_exploit.py"),
+        },
     }
 
 
@@ -1045,7 +1120,8 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
     )
     pull_requests = [
         {key: row.get(key) for key in ("run_id", "pr", "title", "status", "headline", "proven", "started_at",
-                                       "commit", "branch", "risk", "risk_reasons", "should_run_exploits",
+                                       "commit", "head_sha", "base_sha", "discussion_url", "models",
+                                       "branch", "risk", "risk_reasons", "should_run_exploits",
                                        "cost_usd", "duration_s", "synthetic", "highest_severity", "effects",
                                        "cwes", "exploits_written", "fixes_verified", "fixes_bypassed",
                                        "files_touched", "verdicts", "suspicions_raised", "dropped")}
@@ -1098,10 +1174,15 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
         eff = _text(raw, 64).lower().removeprefix("canary_")
         return eff if eff in ("read", "write", "exec", "sql") else "unspecified"
 
+    cost_by_role: dict[str, dict[str, Any]] = {}
+    cost_by_model: dict[str, dict[str, Any]] = {}
+    cumulative_cost = 0.0
     for idx, (row, detail) in enumerate(chronological, start=1):
         det = detail or {}
         eff_counts = {"read": 0, "write": 0, "exec": 0, "sql": 0, "unspecified": 0}
         run_file_map: dict[str, dict[str, int]] = {}
+        run_cost = round(float(row.get("cost_usd") or 0.0), 8)
+        cumulative_cost = round(cumulative_cost + run_cost, 8)
 
         for tf in row.get("files_touched") or []:
             cf = _clean_path(tf)
@@ -1142,7 +1223,32 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
                 "tokens_in": int(rv_dict.get("tokens_in") or 0),
                 "tokens_out": int(rv_dict.get("tokens_out") or 0),
                 "events": int(rv_dict.get("events") or 0),
+                "models": sorted(_text(m, 120) for m in (rv_dict.get("models") or []) if _text(m, 120))[:10],
             }
+            agg = cost_by_role.setdefault(rname, {"cost_usd": 0.0, "tokens_in": 0,
+                                                  "tokens_out": 0, "events": 0, "models": []})
+            agg["cost_usd"] = round(agg["cost_usd"] + by_role[rname]["cost_usd"], 8)
+            agg["tokens_in"] += by_role[rname]["tokens_in"]
+            agg["tokens_out"] += by_role[rname]["tokens_out"]
+            agg["events"] += by_role[rname]["events"]
+            for model_name in by_role[rname]["models"]:
+                if model_name not in agg["models"]:
+                    agg["models"].append(model_name)
+        by_model_raw = _dict(_dict(det.get("costs")).get("by_model"))
+        for mname, mvals in by_model_raw.items():
+            mv_dict = _dict(mvals)
+            model_name = _text(mname, 120)
+            if not model_name:
+                continue
+            agg = cost_by_model.setdefault(model_name, {"cost_usd": 0.0, "tokens_in": 0,
+                                                        "tokens_out": 0, "events": 0, "roles": []})
+            agg["cost_usd"] = round(agg["cost_usd"] + round(float(mv_dict.get("cost_usd") or 0.0), 8), 8)
+            agg["tokens_in"] += int(mv_dict.get("tokens_in") or 0)
+            agg["tokens_out"] += int(mv_dict.get("tokens_out") or 0)
+            agg["events"] += int(mv_dict.get("events") or 0)
+            for role_name in (mv_dict.get("roles") or []):
+                if _text(role_name, 64) and _text(role_name, 64) not in agg["roles"]:
+                    agg["roles"].append(_text(role_name, 64))
 
         for st in det.get("stages") or []:
             st_dict = _dict(st)
@@ -1166,7 +1272,8 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
             "proven": int(row.get("proven") or 0),
             "dropped": int(row.get("dropped") or 0),
             "suspicions_raised": int(row.get("suspicions_raised") or 0),
-            "cost_usd": round(float(row.get("cost_usd") or 0.0), 8),
+            "cost_usd": run_cost,
+            "cumulative_cost_usd": cumulative_cost,
             "tokens_in": int(row.get("tokens_in") or 0),
             "tokens_out": int(row.get("tokens_out") or 0),
             "duration_s": row.get("duration_s"),
@@ -1231,6 +1338,7 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
         )
     ]
 
+    readable_count = len(readable_entries)
     return {
         "repo": summary,
         "metrics": {
@@ -1242,11 +1350,18 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
             "fixes_verified": fixes_verified_total,
             "fixes_bypassed": fixes_bypassed_total,
             "discarded": discarded,
+            "proven_rate": round(proven_total / suspicions_total, 4) if suspicions_total else None,
             "cost_usd": round(cost, 8),
+            "cost_per_run": round(cost / readable_count, 8) if readable_count else None,
+            "cost_per_proven": round(cost / proven_total, 8) if proven_total else None,
             "tokens_in": tokens_in,
             "tokens_out": tokens_out,
             "median_duration_s": median_duration_s,
         },
+        # No budget cap is stored in any ledger or artifact: None means "not recorded".
+        "budget_usd": None,
+        "cost_by_role": cost_by_role,
+        "cost_by_model": cost_by_model,
         "verdict_totals": verdict_totals,
         "funnel": funnel,
         "run_series": run_series,
