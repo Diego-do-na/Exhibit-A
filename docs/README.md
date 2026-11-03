@@ -29,6 +29,7 @@ One line per document. Paths are relative to the repository root.
 - [ci/github-action.md](ci/github-action.md) — GitHub Action usage: PR-diff runs, exit codes, result comments, ledger artifacts.
 - [ci/github-action-security.md](ci/github-action-security.md) — Action security model: key handling, fork guard, leak scan, residual risks.
 - [ci/live-pr-demo.md](ci/live-pr-demo.md) — Runbook for the live pull-request demo: setup, the two demo PRs, expected checks, disabling, cost.
+- [ci/chain-validation.md](ci/chain-validation.md) — T150 live chain: 14 PRs on exhibit-a-testbed, expected vs obtained verdict, cost, time, merge block, comment, suggested fix.
 - [ci/audit.md](ci/audit.md) — Repository audit: ranked graph reach paths, budget-capped loop, audit.json/audit.md, weekly workflow.
 - [ci/fix-pr.md](ci/fix-pr.md) — Verified fix pull requests: review suggestions and automated PR branches.
 - [ci/replay-determinism.md](ci/replay-determinism.md) — Why batch replay verdicts flipped under load, and the warm-up/sample and replay-timeout fixes.
