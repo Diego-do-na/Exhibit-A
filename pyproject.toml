@@ -18,6 +18,16 @@ exhibit-a = "exhibit_a.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+exhibit_a = [
+    "sandbox/seccomp.json",
+    "sandbox/witness/*",
+    "graph/js/*",
+    "oracle/js/*",
+    "advisory/symbols.json",
+    "schemas/*.json",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "src"]
