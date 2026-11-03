@@ -263,8 +263,8 @@
           <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
             <div class="card" data-style="padding: 20px 22px"><span class="lbl">State</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">MERGED</div><span data-style="font-size: 14px; color: #3d4b68">{{pr.when}}</span></div>
             <div class="card" data-style="padding: 20px 22px"><span class="lbl">Author</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.author}}</div><span data-style="font-size: 14px; color: #3d4b68">{{pr.authorType}}</span></div>
-            <div class="card" data-style="padding: 20px 22px"><span class="lbl">Change</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.files}} files</div><span class="mono" data-style="font-size: 13px; color: #3d4b68">+{{pr.added}} / \u2212{{pr.removed}} \u00b7 {{pr.commits}} commits</span></div>
-            <div class="card" data-style="padding: 20px 22px"><span class="lbl">Area</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.areaShort}}</div><span data-style="font-size: 14px; color: #3d4b68">{{pr.testsLabel}} \u00b7 cycle {{pr.cycle}}</span></div>
+            <div class="card" data-style="padding: 20px 22px"><span class="lbl">Change</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.files}} files</div><span class="mono" data-style="font-size: 13px; color: #3d4b68">+{{pr.added}} / −{{pr.removed}} · {{pr.commits}} commits</span></div>
+            <div class="card" data-style="padding: 20px 22px"><span class="lbl">Area</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.areaShort}}</div><span data-style="font-size: 14px; color: #3d4b68">{{pr.testsLabel}} · cycle {{pr.cycle}} min</span></div>
           </div>
           <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
             <h3 class="ct">No Exhibit A run was recorded for this pull request</h3>
