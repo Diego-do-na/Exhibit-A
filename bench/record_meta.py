@@ -162,8 +162,20 @@ def load_case(case_id: str) -> Case:
     return load_corpus(case_dir(case_id))[0]
 
 
+#: Timeout for a live recording run, and the replay-only slack. Replay runs the
+#: identical recorded tests, but on a shared CI runner under sandbox CPU limits
+#: (``--cpus 0.5``) a wall-clock timeout can fire before a timing/race exploit
+#: finishes, and the judge then reports ``no_effect`` for a run that never
+#: completed. Replay therefore gets documented slack on the wall clock only:
+#: oracle thresholds, sample counts and verdict assertions are unchanged
+#: (docs/ci/replay-determinism.md).
+RECORD_TIMEOUT_S = 60.0
+REPLAY_TIMEOUT_S = 240.0
+
+
 def run_case(
-    case: Case, provider: Any, out_dir: Path, meter: Any = None, profile: str = "standard"
+    case: Case, provider: Any, out_dir: Path, meter: Any = None, profile: str = "standard",
+    *, timeout: float = RECORD_TIMEOUT_S,
 ) -> CaseOutcome:
     """Run the full loop on one case with every role answered by ``provider``.
 
@@ -190,6 +202,7 @@ def run_case(
         effect=case.effect,
         prompt_profile=profile,
         language=case.language,
+        timeout=timeout,
     )
     outcome = CaseOutcome(case.id)
     try:
@@ -249,7 +262,7 @@ def replay_case(case_id: str, model: str, out_dir: Path, profile: str = "standar
     """Replay a recorded Meta run offline (no network); the sandbox still runs every test."""
     recording, _ = recording_paths(case_id, model, profile)
     return run_case(load_case(case_id), ReplayProvider(recording), out_dir,
-                    replay_meter(case_id, model, profile), profile)
+                    replay_meter(case_id, model, profile), profile, timeout=REPLAY_TIMEOUT_S)
 
 
 def _usage(recording: Path) -> dict[str, Any]:
