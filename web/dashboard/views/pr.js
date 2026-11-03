@@ -36,7 +36,14 @@ window.Component = class Component extends DCLogic {
         const detail = await res.json();
         const run = (detail && detail.run) || {};
         const discarded = (detail && detail.discarded) || [];
+        const provenItems = (detail && detail.proven) || [];
+        const firstD = discarded[0] || {};
+        const firstP = provenItems[0] || {};
         this.setState({
+          vkind: (run.proven || 0) > 0 ? 'proven' : (firstD.verdict || 'none'),
+          vreason: firstD.reason || '',
+          vwhere: (firstD.file || '') + (firstD.line ? ':' + firstD.line : ''),
+          vhyp: firstP.hypothesis || firstP.reason || '',
           provenCount: run.proven || 0,
           safe: {
             show: (run.proven || 0) === 0 && !run.error,
@@ -189,6 +196,29 @@ window.Component = class Component extends DCLogic {
       ck(done >= 10, 'Fix verified, bypasses fail', 'Exploit passes on the fix, baseline still green, defender variants blocked.', '3 / 3 blocked')
     ];
 
+    const VK = {
+      discarded_unproven: { t: 'Not reported: nothing could be proven', c: '#4a5873', bg: 'rgba(13,27,62,.05)', bd: 'rgba(13,27,62,.14)' },
+      invalid_test: { t: 'Not reported: the exploit test was invalid', c: '#7d5229', bg: 'rgba(165,112,63,.08)', bd: 'rgba(165,112,63,.3)' },
+      flaky: { t: 'Not reported: the result was not stable', c: '#7d5229', bg: 'rgba(165,112,63,.08)', bd: 'rgba(165,112,63,.3)' },
+      env_failure: { t: 'Not reported: the environment failed', c: '#7d5229', bg: 'rgba(165,112,63,.08)', bd: 'rgba(165,112,63,.3)' },
+      none: { t: 'Not reported: no verdict was recorded', c: '#4a5873', bg: 'rgba(13,27,62,.05)', bd: 'rgba(13,27,62,.14)' }
+    };
+    const vdec = runId && s.vkind && VK[s.vkind]
+      ? { ...VK[s.vkind], d: (s.vreason || 'The recorded run ended with this verdict.') + (s.vwhere ? ' (' + s.vwhere + ')' : '') }
+      : null;
+    const notReached = (n, d) => ({ ok: false, n, d, s: 'not reached', sc: '#7a86a1', bg: 'transparent', bd: 'rgba(13,27,62,.25)' });
+    const vproof = runId && s.vkind && s.vkind !== 'proven'
+      ? [ck(true, 'Baseline passes', 'The recorded run completed its baseline stage.', 'recorded'),
+         notReached('Exploit fails on vulnerable code', 'The oracle did not observe the intended effect for the recorded reason.'),
+         notReached('Valid provenance', 'No proven effect, so there is no provenance to validate.'),
+         notReached('Stable', 'Stability is only claimed for a proven verdict.'),
+         notReached('Fix verified, bypasses fail', 'No fix is proposed when nothing was proven.')]
+      : null;
+    const showFixSection = !runId || !s.vkind || s.vkind === 'proven';
+    const whyPanel = runId && s.vkind && s.vkind !== 'proven'
+      ? { title: VK[s.vkind] ? VK[s.vkind].t : 'Why it was not reported', reason: s.vreason || 'No reason was recorded for this verdict.', where: s.vwhere || '', kind: s.vkind }
+      : null;
+
     const risk = { l: 'High', c: '#a5703f', bars: [{ c: '#d9b98f' }, { c: '#c09060' }, { c: '#a5703f' }], d: 'Application code on a path reachable from a public entry point.' };
     const verdict = proven || status === 'approved' ? { l: 'Proven', d: 'Path traversal · CWE-22 · canary_read observed by the oracle.' } : { l: 'Running', d: 'Waiting for the oracle to observe an effect.' };
     const merge = status === 'approved' ? { l: 'Ready', d: 'Fix committed; checks green on the new head.' } : status === 'committing' ? { l: 'Updating', d: 'Bot commit in progress.' } : { l: 'Blocked', d: 'Not merged. Waiting for the fix to be approved.' };
@@ -301,7 +331,7 @@ window.Component = class Component extends DCLogic {
     const mode = { isAnalysis: !!runId || !selPr, isPr: !!selPr && !runId, isDemo: !runId && !selPr, isRun: !!runId };
     return { mode, pr, bPath: bv === 'path' ? 'block' : 'none', bNet: bv === 'net' ? 'block' : 'none',
       bvOpts: [['path', 'Path'], ['net', 'Graph']].map(([k, l]) => ({ l, cls: 'sb' + (bv === k ? ' sb-on' : ''), pick: () => this.setState({ bv: k }) })),
-      st, risk, verdict, merge: mergeOut, attack, weak, tag, stop: (e) => e.stopPropagation(), live, dec, proof, prDiff, fixDiff, expect, path, safe: s.safe,
+      st, risk, verdict, merge: mergeOut, attack, weak, tag, stop: (e) => e.stopPropagation(), live, dec: vdec || dec, proof: vproof || proof, showFixSection, whyPanel, prDiff, fixDiff, expect, path, safe: s.safe,
       fx, commitSteps, after, confirm: s.confirm, askApprove: () => this.setState({ confirm: true }), cancel: () => this.setState({ confirm: false }), doCommit,
       reset: () => this.setState({ status: 'pending', cstep: 0 }) };
   }

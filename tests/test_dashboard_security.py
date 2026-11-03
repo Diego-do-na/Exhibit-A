@@ -163,6 +163,16 @@ def test_pr_blast_graph_is_the_full_graph_with_damaged_route_in_red():
     assert "f:pam" not in pr_js  # the old pamphlet-only mini graph is gone
 
 
+def test_pr_page_has_a_view_per_verdict():
+    js = (WEB_DIR / "views/pr.js").read_text(encoding="utf-8")
+    html = (WEB_DIR / "pr.html").read_text(encoding="utf-8")
+    for kind in ("discarded_unproven", "invalid_test", "flaky", "env_failure"):
+        assert kind in js, kind
+    assert "showFixSection" in js and "whyPanel" in js
+    assert 'value="{{showFixSection}}"' in html and "Why it was not reported" in html
+    assert "'not reached'" in js
+
+
 def test_economics_page_loads_and_is_registered():
     from exhibit_a.dashboard.server import STATIC_FILES
 

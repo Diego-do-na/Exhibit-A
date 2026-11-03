@@ -181,6 +181,7 @@
         </div>
       </section>
 
+      <sc-if value="{{showFixSection}}">
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">{{fx.title}}</h2><p class="lead">{{fx.lead}}</p></div></div>
 
@@ -237,6 +238,19 @@
           </div>
         </sc-if>
       </section>
+      </sc-if>
+
+      <sc-if value="{{whyPanel}}">
+        <section data-style="display: flex; flex-direction: column; gap: 22px">
+          <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Why it was not reported</h2><p class="lead">{{whyPanel.title}}.</p></div></div>
+          <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
+            <span class="mono" data-style="font-size: 13px; color: #a5703f">{{whyPanel.kind}}</span>
+            <p data-style="margin: 0; font-size: 16px; line-height: 1.65; color: #26365a">{{whyPanel.reason}}</p>
+            <span class="mono" data-style="font-size: 13px; color: #3d4b68">{{whyPanel.where}}</span>
+            <p data-style="margin: 0; font-size: 14px; line-height: 1.6; color: #3d4b68">No fix is proposed and nothing is approved when the oracle did not observe the effect. Green would mean nothing could be proven, never safe.</p>
+          </div>
+        </section>
+      </sc-if>
 
       <sc-if value="{{safe.show}}" hint-placeholder-val="{{ false }}">
         <section id="why-safe" data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
