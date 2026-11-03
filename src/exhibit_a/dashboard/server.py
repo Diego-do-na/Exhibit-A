@@ -85,6 +85,7 @@ STATIC_FILES = {
     "finding.html": "text/html; charset=utf-8",
     "graph.html": "text/html; charset=utf-8",
     "benchmark.html": "text/html; charset=utf-8",
+    "economics.html": "text/html; charset=utf-8",
     "dashboard.css": "text/css; charset=utf-8",
     "dc-lite.js": "text/javascript; charset=utf-8",
 }

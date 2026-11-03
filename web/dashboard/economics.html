@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exhibit A · Economics</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="dashboard.css">
+<script src="views/fullchart.js"></script>
+<script src="views/viz.js"></script>
+<script src="dc-lite.js"></script>
+<script src="views/economics.js"></script>
+<script src="views/palette.js"></script>
+</head>
+<body>
+<template data-dc>
+<div class="xa">
+  <div class="blob" aria-hidden="true" data-style="width: 760px; height: 760px; left: -200px; top: -260px; background: #2c4fc4; opacity: .38"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: -160px; top: 8%; background: #9aa3e0; opacity: .55"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 700px; height: 700px; left: 25%; top: 38%; background: #4b3fa0; opacity: .22"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 620px; height: 620px; right: 5%; top: 62%; background: #6a8fd8; opacity: .35"></div>
+  <div class="blob" aria-hidden="true" data-style="width: 560px; height: 560px; left: 8%; bottom: -160px; background: #c3cbd8; opacity: .8"></div>
+
+  <div class="frame">
+
+    <nav class="side" data-nomap aria-label="Main" data-style="padding: 24px 14px; display: flex; flex-direction: column; gap: 28px">
+      <pre class="mono" aria-label="Exhibit A" data-style="padding: 0 10px; font-size: 9.5px; line-height: 1.2; color: #ffffff">╔═╗═╗ ╦╦ ╦╦╔╗ ╦╔╦╗  ╔═╗
+║╣ ╔╩╦╝╠═╣║╠╩╗║ ║   ╠═╣
+╚═╝╩ ╚═╩ ╩╩╚═╝╩ ╩   ╩ ╩</pre>
+      <div data-style="display: flex; flex-direction: column; gap: 2px">
+        <a class="nav-a" href="index.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>Overview</a>
+        <a class="nav-a" href="prs.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="18" r="2.5"></circle><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13 3.5 10.5 6 13 8.5"></path></svg>Pull requests</a>
+        <a class="nav-a" href="findings.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m8.8 12 2.2 2.2 4.3-4.4"></path></svg>Findings</a>
+        <a class="nav-a" href="graph.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="12" r="2.3"></circle><circle cx="18" cy="5.5" r="2.3"></circle><circle cx="18" cy="18.5" r="2.3"></circle><path d="m7.1 11 8.8-4.4M7.1 13l8.8 4.4"></path></svg>Code graph</a>
+        <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
+                <a class="nav-a nav-on" href="economics.html" aria-current="page"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Economics</a>
+      </div>
+      <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+      <button type="button" class="theme-t pal-open" data-open-palette aria-label="Open search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><span>Search</span><span class="pal-kbd">⌘K</span></button>
+      <button type="button" class="theme-t" data-theme-toggle aria-label="Toggle night mode"><svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"></path></svg><svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg><span class="t-night">Night mode</span><span class="t-day">Day mode</span></button>
+    </nav>
+
+    <div class="scroll"><main class="content">
+      <header data-style="padding: 12px 4px 0">
+        <span class="lbl">32 cases · muse-wonder-1.0 · compact profile</span>
+        <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Economics</h1>
+        <p class="lead" data-style="font-size: 19px">What it costs to prove a vulnerability, and where the money goes.</p>
+      </header>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px" class="metric-grid">
+          <sc-for list="{{cards}}" as="k">
+            <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
+              <span class="lbl kpi-l"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="{{k.i}}"></path></svg>{{k.l}}</span>
+              <span class="dsp" data-style="font-size: 40px; font-weight: 500">{{k.v}}</span>
+              <span data-style="font-size: 14px; color: #3d4b68">{{k.u}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Spend by role</h2><p class="lead">How to read it: each bar is how many times that model role was called across the batch. Why it matters: calls are where the tokens, and therefore the money, go.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
+          <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Calls by role</h3><button type="button" class="ib" data-zoom data-zoom-id="econroles" data-zoom-desc="Model calls per role over the recorded batch." data-zoom-points="The test writer is called most, because every suspicion needs an exploit." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+          <sc-for list="{{roles}}" as="r">
+            <div data-style="display: grid; grid-template-columns: 140px minmax(0, 1fr) 90px; gap: 14px; align-items: center">
+              <div><div data-style="font-size: 15px">{{r.n}}</div><div data-style="font-size: 12px; color: #3d4b68">{{r.d}}</div></div>
+              <div data-style="height: 22px; background: rgba(13,27,62,.06)"><div data-style="height: 100%; width: {{r.pct}}%; background: {{r.c}}"></div></div>
+              <span class="mono" data-style="font-size: 13px; text-align: right">{{r.v}} calls</span>
+            </div>
+          </sc-for>
+          <p data-style="font-size: 13px; color: #3d4b68">Token split per role is not recorded in the existing data, so this chart shows calls, not tokens, per role.</p>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">What each dollar buys</h2><p class="lead">How to read it: per $1 spent, what each approach produces. Why it matters: the naive report is cheaper per report and still costs more, because humans must triage what it cannot prove.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+          <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 90px 90px; gap: 10px; font-size: 12px; font-weight: 600; color: #26365a"><span></span><span data-style="text-align: right">Exhibit A</span><span data-style="text-align: right">Naive LLM</span></div>
+          <sc-for list="{{buy}}" as="b">
+            <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 90px 90px; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(13,27,62,.08)">
+              <span data-style="font-size: 15px">{{b.l}}</span>
+              <span class="mono" data-style="font-size: 14px; text-align: right">{{b.a}}</span>
+              <span class="mono" data-style="font-size: 14px; text-align: right; color: #45587c">{{b.b}}</span>
+            </div>
+          </sc-for>
+          <p data-style="font-size: 13px; color: #3d4b68">Cost per report: Exhibit A $0.15 · naive LLM $0.02 · extra spend per proven target $0.08 (recorded batch figures).</p>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">What-if calculator</h2><p class="lead">Simulation, not a measurement: change the token prices or the profile scale and the estimate is recomputed from the recorded 223k tokens.</p></div></div>
+        <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 16px">
+          <div data-style="display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end">
+            <label data-style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Input $ / million tokens<input class="inp mono" type="number" min="0" step="0.5" value="{{calc.inP}}" onChange="{{calc.onIn}}"></label>
+            <label data-style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Output $ / million tokens<input class="inp mono" type="number" min="0" step="1" value="{{calc.outP}}" onChange="{{calc.onOut}}"></label>
+            <label data-style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Profile
+              <select class="sel" value="{{calc.profile}}" onChange="{{calc.onProfile}}" data-options="{{calc.opts}}"></select></label>
+            <div><span class="lbl">Estimated batch cost</span><div class="dsp" data-style="font-size: 36px; font-weight: 500">{{calc.est}}</div></div>
+            <div><span class="lbl">Per proven finding</span><div class="dsp" data-style="font-size: 36px; font-weight: 500">{{calc.per}}</div></div>
+          </div>
+          <p data-style="font-size: 13px; color: #3d4b68">Simulation basis: 223k recorded tokens with the input/output split implied by the recorded $2.42 at $4/$20; the standard profile scales tokens by the recorded calls-per-case ratio. Treat the result as an estimate to explore prices, not as a bill.</p>
+        </div>
+      </section>
+    </main></div>
+  </div>
+</template>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'></script>
+</body>
+</html>

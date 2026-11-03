@@ -163,6 +163,22 @@ def test_pr_blast_graph_is_the_full_graph_with_damaged_route_in_red():
     assert "f:pam" not in pr_js  # the old pamphlet-only mini graph is gone
 
 
+def test_economics_page_loads_and_is_registered():
+    from exhibit_a.dashboard.server import STATIC_FILES
+
+    assert "economics.html" in STATIC_FILES
+    html = (WEB_DIR / "economics.html").read_text(encoding="utf-8")
+    assert "data-open-palette" in html and "views/economics.js" in html
+    js = (WEB_DIR / "views/economics.js").read_text(encoding="utf-8")
+    assert "223k" in js and "Simulation" in (WEB_DIR / "economics.html").read_text(encoding="utf-8")
+    palette = (WEB_DIR / "views/palette.js").read_text(encoding="utf-8")
+    assert "economics.html" in palette
+    for path in sorted(WEB_DIR.glob("*.html")):
+        text = path.read_text(encoding="utf-8")
+        if "data-theme-toggle" in text:
+            assert 'href="economics.html"' in text, path.name
+
+
 def test_dashboard_visual_protagonists_and_contrast_hooks():
     css = (WEB_DIR / "dashboard.css").read_text(encoding="utf-8")
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")

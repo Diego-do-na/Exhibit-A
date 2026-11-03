@@ -14,6 +14,7 @@
     { t: 'Findings', d: 'Every suspicion and its verdict', href: 'findings.html' },
     { t: 'Code graph', d: 'Packages, heatmap and attack paths', href: 'graph.html' },
     { t: 'Benchmark', d: 'Loop against the naive baseline', href: 'benchmark.html' },
+    { t: 'Economics', d: 'What proving a vulnerability costs', href: 'economics.html' },
   ];
 
   function params() {
