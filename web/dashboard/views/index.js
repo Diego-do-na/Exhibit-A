@@ -34,10 +34,10 @@ window.Component = class Component extends DCLogic {
       grid: ticks.map((v) => ({ y: ys(v), ty: ys(v) + 4, l: isP ? String(v) : (v / 1000) + 'k' })) };
 
     const kpis = [
-      { l: 'Proven findings', v: '30', u: 'of 44', p: 68, c: '#2c4fc4', d: 'Every one ships an exploit test and a verified fix.' },
-      { l: 'False accusations', v: '0', u: 'naive LLM: 1', p: 0, c: '#0f2557', d: 'The patched Starlette release was never reported.' },
-      { l: 'Precision', v: '0.86', u: 'recall 0.68', p: 86, c: '#6a8fd8', d: '25 of 29 reports matched the expected class.' },
-      { l: 'Model spend', v: '$2.42', u: 'of $4.00', p: 60.5, c: '#b7834f', d: 'About eight cents for each proven finding.' }
+      { i: 'M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3ZM8.8 12l2.2 2.2 4.3-4.4', l: 'Proven findings', v: '30', u: 'of 44', p: 68, c: '#2c4fc4', d: 'Every one ships an exploit test and a verified fix.' },
+      { i: 'M18.4 5.6 5.6 18.4M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', l: 'False accusations', v: '0', u: 'naive LLM: 1', p: 0, c: '#0f2557', d: 'The patched Starlette release was never reported.' },
+      { i: 'M12 12 19 5M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z', l: 'Precision', v: '0.86', u: 'recall 0.68', p: 86, c: '#6a8fd8', d: '25 of 29 reports matched the expected class.' },
+      { i: 'M12 2v20M16.5 6.5C15.8 5.4 14 4.5 12 4.5c-2.5 0-4.5 1.6-4.5 3.7 0 5 9 2.6 9 7.1 0 2.1-2 3.7-4.5 3.7-2 0-3.8-.9-4.5-2', l: 'Model spend', v: '$2.42', u: 'of $4.00', p: 60.5, c: '#b7834f', d: 'About eight cents for each proven finding.' }
     ];
     const minor = [
       { v: '18', l: 'held-out cases never used for tuning' }, { v: '3', l: 'languages: Python, JavaScript, TypeScript' },

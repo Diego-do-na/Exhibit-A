@@ -56,7 +56,7 @@
         <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
           <sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
-              <span class="lbl">{{k.l}}</span>
+              <span class="lbl kpi-l"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="{{k.i}}"></path></svg>{{k.l}}</span>
               <div data-style="display: flex; align-items: baseline; gap: 10px"><span class="dsp" data-style="font-size: 56px; font-weight: 500; letter-spacing: -.04em; line-height: .9">{{k.v}}</span><span data-style="font-size: 14px; color: #3d4b68">{{k.u}}</span></div>
               <div data-style="height: 4px; border-radius: 2px; background: rgba(13,27,62,.08)"><div data-style="height: 100%; width: {{k.p}}%; border-radius: 2px; background: {{k.c}}"></div></div>
               <p data-style="margin: 0; font-size: 14px; line-height: 1.5; color: #3d4b68">{{k.d}}</p>
