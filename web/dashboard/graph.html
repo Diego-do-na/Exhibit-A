@@ -12,6 +12,7 @@
 <script src="dc-lite.js"></script>
 <script src="views/graph.js"></script>
 <script src="views/palette.js"></script>
+<script src="views/sourcebar.js"></script>
 </head>
 <body>
 <template data-dc>
@@ -41,6 +42,7 @@
     </nav>
 
     <div class="scroll"><main class="content">
+      <div data-xa-source class="xa-src"></div>
       <header class="g-head" data-style="padding: 12px 4px 0">
         <span class="lbl">src/exhibit_a · ast only</span>
         <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Code graph</h1>
@@ -145,6 +147,13 @@
       </section>
       <section class="g-after" data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
         <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Heatmap and attack paths</h2><p class="lead">{{heatNote}} Select a tile to focus its file in the graph above; select a proven path to highlight every step the oracle observed.</p></div></div>
+        <sc-if value="{{heatEmpty}}">
+        <div class="card" data-style="padding: 28px; display: flex; flex-direction: column; gap: 14px">
+          <span class="lbl">No recorded graph</span>
+          <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">The code graph comes from the run artifact. Open a run report (graph.html?run=RUN_ID) to see its recorded files and proven attack paths, or compute one for a repository with:</p>
+          <div class="mono" data-style="font-size: 14px; background: rgba(13,27,62,.06); border: 1px solid rgba(13,27,62,.1); border-radius: 4px; padding: 12px 14px">exhibit-a scan --graph</div>
+        </div>
+        </sc-if>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
           <div class="heat" role="group" aria-label="Repository heatmap">
             <sc-for list="{{heat}}" as="t">

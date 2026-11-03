@@ -19,6 +19,7 @@ Every lookup tolerates missing or mistyped keys.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import statistics
 from collections.abc import Iterable, Sequence
@@ -35,7 +36,7 @@ from ..report.cwe import get_cwe, severity_from_effect
 from ..schemas import Event, EventType, VerdictValue
 from ..schemas.graph import CodeGraph, ReachPath
 from ..ledger.trace import trace_events, trace_to_dict
-from .sources import RunData
+from .sources import RunData, valid_discussion_url
 
 #: The verdict loop stages shown on the run timeline, in order.
 STAGES = ("BASELINE", "SUSPECT", "EXPLOIT", "RUN", "VERDICT", "FIX", "VERIFY", "PACKAGE")
@@ -474,7 +475,14 @@ def run_row(data: RunData) -> dict[str, Any]:
     row["headline"] = _headline(row["status"], row["proven"])
     row["repo_id"] = repo_id(row["repo"])
     row["head_sha"] = row["commit"]
-    row["discussion_url"] = _discussion_url(row["repo"], row["pr"])
+    # The artifact's review-thread URL wins when it names this run's repo and
+    # PR; otherwise the synthesized PR page (or "" when nothing is recorded).
+    extra = data.result or {}
+    row["provider"] = _text(extra.get("provider"), 120)
+    row["discussion_url"] = (
+        valid_discussion_url(extra.get("discussion_url"), row["repo"], row["pr"])
+        or _discussion_url(row["repo"], row["pr"])
+    )
     if not data.error:
         row["models"] = _event_models(data.events)
     return row
@@ -835,7 +843,8 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
                 "trace": trace_to_dict(row["run_id"], []), "costs": _costs([]), "graph": graph,
                 # No provider or budget cap is recorded in the ledger or artifact.
                 "provider": "", "budget_usd": None,
-                "artifacts": {"fix_patch": None, "exploit_test": None}}
+                "artifacts": {"fix_patch": None, "exploit_test": None},
+                "graph_summary": None}
     events = data.events
     suspicions: dict[str, dict[str, Any]] = {}
     verdicts: dict[str, dict[str, Any]] = {}
@@ -920,9 +929,9 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
         "trace": trace_to_dict(row["run_id"], steps),
         "costs": _costs(events),
         "graph": graph,
-        # The ledger records model names but no provider, and no budget cap is
-        # stored in the ledger or artifact: "" / None mean "not recorded".
-        "provider": "",
+        # The result artifact may name the provider; no budget cap is stored in
+        # the ledger or artifact: "" / None mean "not recorded".
+        "provider": row.get("provider", ""),
         "budget_usd": None,
         # Proof artifacts, read as text only (never executed); None means
         # the run folder or artifact does not carry that file ("not recorded").
@@ -930,6 +939,9 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
             "fix_patch": artifacts.get("fix.patch"),
             "exploit_test": artifacts.get("test_exploit.py"),
         },
+        # Validated graph-summary.json (artifact-schema.md); None means the run
+        # folder or artifact does not carry one ("not recorded").
+        "graph_summary": data.graph_summary or None,
     }
 
 
@@ -1095,6 +1107,7 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
     """
     summary = _repo_summary(rid, group)
     findings: list[dict[str, Any]] = []
+    discarded_rows: list[dict[str, Any]] = []
     discarded = 0
     cost = 0.0
     tokens_in = tokens_out = 0
@@ -1106,6 +1119,21 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
             continue
         discarded += len(detail.get("discarded", []))
         findings.extend(_finding_row(row, item) for item in detail.get("proven", []))
+        for item in detail.get("discarded", []):
+            discarded_rows.append({
+                "run_id": row["run_id"],
+                "suspicion_id": item.get("id", ""),
+                "class": item.get("class", ""),
+                "file": item.get("file", ""),
+                "line": item.get("line", 0),
+                "entry_point": item.get("entry_point", ""),
+                "verdict": item.get("verdict", ""),
+                "reason": item.get("reason", ""),
+                "reason_code": item.get("reason_code", ""),
+                "effect": item.get("effect", ""),
+                "pr": row.get("pr", ""),
+                "started_at": row.get("started_at", ""),
+            })
     causes: dict[str, dict[str, Any]] = {}
     for finding in findings:  # newest run first, so the first one seen is the latest
         cause = causes.setdefault(finding["root_cause"], {**finding, "occurrences": 0, "runs": []})
@@ -1371,6 +1399,108 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
         "pull_requests": pull_requests,
         "top_findings": serious[:MAX_REPO_ROWS],
         "all_findings": findings[:MAX_REPO_ROWS],
+        "discarded_findings": discarded_rows[:MAX_REPO_ROWS],
+    }
+
+
+# -- benchmark (bench/results, Exhibit-A repo only) ------------------------------------
+
+
+#: Benchmark result files considered for ``/api/benchmark``.
+BENCH_RESULTS_GLOB = "20*.json"
+MAX_BENCH_FILES = 8
+MAX_BENCH_BYTES = 2 * 1024 * 1024
+MAX_BENCH_TARGETS = 200
+
+
+def _bench_root() -> Path | None:
+    root = Path(__file__).resolve().parents[3] / "bench" / "results"
+    return root if root.is_dir() else None
+
+
+def _bench_number(value: Any) -> float | None:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def build_benchmark(source_label: str, repo_names: Sequence[str]) -> dict[str, Any]:
+    """Aggregate ``bench/results/*.json`` for the Exhibit-A repo only.
+
+    Every figure is a count or sum over measured ``per_target`` rows; rates
+    are exact divisions, never estimates. For any other source the answer is
+    ``available: False`` with reason ``no benchmark data for this source``:
+    the corpus evaluation describes the Exhibit-A benchmark, not this source.
+    """
+    names = [str(source_label or "").lower()] + [str(n or "").lower() for n in repo_names]
+    if not any("exhibit-a" in name for name in names):
+        return {"available": False, "reason": "no benchmark data for this source"}
+    root = _bench_root()
+    if root is None:
+        return {"available": False, "reason": "no benchmark data for this source"}
+    files = sorted(root.glob(BENCH_RESULTS_GLOB))[-MAX_BENCH_FILES:]
+    if not files:
+        return {"available": False, "reason": "no benchmark data for this source"}
+    path = files[-1]
+    try:
+        if path.stat().st_size > MAX_BENCH_BYTES:
+            return {"available": False, "reason": "no benchmark data for this source"}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"available": False, "reason": "no benchmark data for this source"}
+    rows = payload.get("per_target") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return {"available": False, "reason": "no benchmark data for this source"}
+    systems: dict[str, dict[str, Any]] = {}
+    targets: list[dict[str, Any]] = []
+    for entry in rows:
+        if not isinstance(entry, dict) or entry.get("measured") is not True:
+            continue
+        system = _text(entry.get("system"), 120) or "unrecorded system"
+        slot = systems.setdefault(system, {"system": system, "targets": 0, "reported": 0,
+                                           "true_positives": 0, "false_positives": 0, "discarded": 0,
+                                           "calls": 0, "cost_usd": 0.0, "truth_found": 0, "truth_total": 0})
+        slot["targets"] += 1
+        for key in ("reported", "true_positives", "false_positives", "discarded", "calls"):
+            value = _bench_number(entry.get(key))
+            if value is not None:
+                slot[key] += int(value)
+        cost = _bench_number(entry.get("cost_usd"))
+        if cost is not None:
+            slot["cost_usd"] = round(slot["cost_usd"] + cost, 8)
+        found, total = _bench_number(entry.get("truth_found")), _bench_number(entry.get("truth_total"))
+        if found is not None:
+            slot["truth_found"] += int(found)
+        if total is not None:
+            slot["truth_total"] += int(total)
+        if len(targets) < MAX_BENCH_TARGETS:
+            targets.append({
+                "target": _text(entry.get("target"), 200),
+                "system": system,
+                "role": _text(entry.get("role"), 64),
+                "reported": entry.get("reported"),
+                "true_positives": entry.get("true_positives"),
+                "false_positives": entry.get("false_positives"),
+                "discarded": entry.get("discarded"),
+                "calls": entry.get("calls"),
+                "cost_usd": entry.get("cost_usd"),
+                "model": _text(entry.get("model"), 120),
+            })
+    ordered = []
+    for slot in systems.values():
+        denom = slot["true_positives"] + slot["false_positives"]
+        ordered.append({
+            **{k: slot[k] for k in ("system", "targets", "reported", "true_positives",
+                                   "false_positives", "discarded", "calls", "cost_usd")},
+            "precision": round(slot["true_positives"] / denom, 4) if denom else None,
+            "recall": round(slot["truth_found"] / slot["truth_total"], 4) if slot["truth_total"] else None,
+        })
+    ordered.sort(key=lambda s: (-s["reported"], s["system"]))
+    return {
+        "available": True,
+        "reason": "",
+        "file": path.name,
+        "files": [p.name for p in files],
+        "systems": ordered,
+        "targets": targets,
     }
 
 

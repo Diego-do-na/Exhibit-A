@@ -10,6 +10,7 @@
 <script src="dc-lite.js"></script>
 <script src="views/findings.js"></script>
 <script src="views/palette.js"></script>
+<script src="views/sourcebar.js"></script>
 </head>
 <body>
 <template data-dc>
@@ -40,14 +41,28 @@
     </nav>
 
     <div class="scroll"><main class="content">
+      <div data-xa-source class="xa-src"></div>
       <header data-style="padding: 12px 4px 0">
-        <span class="lbl">32 cases · muse-wonder-1.0 · compact profile</span>
+        <span class="lbl">{{repoName}}</span>
         <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Findings</h1>
         <p class="lead" data-style="font-size: 19px">What the engine suspected, and what the oracle decided about each.</p>
       </header>
 
+      <sc-if value="{{emptySource}}">
+      <div class="card" data-style="padding: 28px; display: flex; flex-direction: column; gap: 16px">
+        <span class="lbl">Get started</span>
+        <h2 class="dsp" data-style="margin: 0; font-size: 30px; font-weight: 500">No runs recorded for this source</h2>
+        <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">Findings appear here once Exhibit A records a run. Three steps record your first run:</p>
+        <ol data-style="margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font-size: 15px; line-height: 1.6; color: #26365a">
+          <li>Initialise the Action workflow in your repository: <span class="mono" data-style="font-size: 14px">exhibit-a init</span></li>
+          <li>Add the model secret to the exhibit-a environment: <span class="mono" data-style="font-size: 14px">gh secret set EXHIBIT_A_API_KEY --env exhibit-a</span> (the dashboard never stores keys)</li>
+          <li>Open a pull request — the Action runs Exhibit A on the diff, then open <span class="mono" data-style="font-size: 14px">exhibit-a dashboard --source github:owner/repo</span> to see it here.</li>
+        </ol>
+      </div>
+      </sc-if>
+
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">The verdicts</h2><p class="lead">Of 44 suspicions: 30 proven, 9 invalid tests, 5 discarded. Refusing is a feature.</p></div></div>
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">The verdicts</h2><p class="lead">{{secLead1}}</p></div></div>
         <div class="secondary-grid" data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
           <sc-for list="{{tot}}" as="k" hint-placeholder-count="4">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
@@ -58,11 +73,11 @@
           </sc-for>
         </div>
         <div class="card hero-bar" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
-          <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">All 44 suspicions</h3><button type="button" class="ib" data-zoom data-zoom-id="sus" data-zoom-desc="Every suspicion the adversary raised, colored by what the oracle decided: 30 proven, 9 thrown out because the test itself was invalid, 5 discarded because nothing could be proven or no fix held." data-zoom-points="Refusing is a feature: it is how the engine avoids accusing safe code.|Only proven suspicions become findings, and each ships an exploit test and a verified fix." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+          <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">All 44 suspicions</h3><button type="button" class="ib" data-zoom data-zoom-id="sus" data-zoom-desc="Every suspicion the adversary raised in the recorded runs, colored by what the oracle decided." data-zoom-points="Refusing is a feature: it is how the engine avoids accusing safe code.|Only proven suspicions become findings, and each ships an exploit test and a verified fix." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
           <div data-style="display: flex; height: 56px; gap: 3px">
-            <div data-style="width: 68.2%; background: #0f2557; color: #ffffff; display: flex; align-items: center; padding: 0 18px; gap: 10px"><span class="dsp" data-style="font-size: 24px; font-weight: 500">30</span><span data-style="font-size: 14px">proven</span></div>
-            <div data-style="width: 20.5%; background: #9aa3e0; color: #0d1b3e; display: flex; align-items: center; padding: 0 14px; gap: 8px"><span class="dsp" data-style="font-size: 24px; font-weight: 500">9</span><span data-style="font-size: 14px">invalid</span></div>
-            <div data-style="width: 11.3%; background: #c3cbd8; color: #0d1b3e; display: flex; align-items: center; padding: 0 12px; gap: 6px"><span class="dsp" data-style="font-size: 24px; font-weight: 500">5</span><span data-style="font-size: 13px">discarded</span></div>
+            <sc-for list="{{susBars}}" as="s">
+              <div data-style="width: {{s.w}}%; background: {{s.c}}; color: #ffffff; display: flex; align-items: center; padding: 0 14px; gap: 8px; overflow: hidden"><span class="dsp" data-style="font-size: 24px; font-weight: 500">{{s.v}}</span><span data-style="font-size: 14px">{{s.l}}</span></div>
+            </sc-for>
           </div>
           <div data-style="display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: #3d4b68"><span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #0f2557"></span>Proven</span><span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #9aa3e0"></span>Invalid test</span><span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #c3cbd8"></span>Discarded</span></div>
         </div>
@@ -118,7 +133,7 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Does it generalize?</h2><p class="lead">Eighteen held-out cases, never used to tune the prompts.</p></div></div>
+        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Do the fixes hold?</h2><p class="lead">Fix status of the proven findings, as recorded.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <sc-for list="{{gen}}" as="g">
             <div class="card" data-style="flex: 1 1 380px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 18px">
@@ -138,7 +153,7 @@
         <div class="sec-h"><span class="sec-n">05</span><div><h2 class="sec-t">The cost of a proof</h2><p class="lead">A case costs a few cents.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <div class="card" data-style="flex: 3 1 560px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 12px">
-            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Spend per case</h3><button type="button" class="ib" data-zoom data-zoom-id="cost" data-zoom-desc="Model spend for each case, sorted from the most to the least expensive." data-zoom-points="A case costs a few cents.|The most expensive is the patched Starlette release: the engine kept trying to prove a vulnerability that no longer existed, and correctly failed." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Spend per case</h3><button type="button" class="ib" data-zoom data-zoom-id="cost" data-zoom-desc="Recorded model spend for each run, sorted from the most to the least expensive." data-zoom-points="Every bar is one recorded run.|Select a bar to open its run report." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
             <svg viewBox="0 0 680 240" width="100%" role="img" aria-label="Bar chart of model spend per case, sorted">
               <text x="0" y="12" fill="#3d4b68" font-size="12" font-family="IBM Plex Sans">US dollars</text>
               <sc-for list="{{cost.grid}}" as="g">
@@ -146,7 +161,7 @@
                 <text x="36" y="{{g.ty}}" text-anchor="end" fill="#3d4b68" font-size="12" font-family="JetBrains Mono">{{g.l}}</text>
               </sc-for>
               <sc-for list="{{cost.bars}}" as="b"><rect x="{{b.x}}" y="{{b.y}}" width="{{b.w}}" height="{{b.h}}" fill="{{b.c}}" data-ev-click="{{b.pick}}" data-style="cursor: pointer"><title>{{b.t}}</title></rect></sc-for>
-              <text x="44" y="234" fill="#3d4b68" font-size="12" font-family="IBM Plex Sans">32 cases, most expensive first</text>
+              <text x="44" y="234" fill="#3d4b68" font-size="12" font-family="IBM Plex Sans">recorded runs, most expensive first</text>
             </svg>
           </div>
           <div class="card" data-style="flex: 2 1 320px; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: stretch">
@@ -156,7 +171,7 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
-        <div class="sec-h"><span class="sec-n">06</span><div><h2 class="sec-t">Case explorer</h2><p class="lead">Filter by verdict or effect and open any case to read what the oracle saw for each suspicion.</p></div></div>
+        <div class="sec-h"><span class="sec-n">06</span><div><h2 class="sec-t">Suspicion explorer</h2><p class="lead">Filter by recorded verdict or effect and open any suspicion to read what the oracle recorded.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
           <div class="card" data-style="flex: 3 1 560px; min-width: 0; overflow: hidden">
             <div data-style="display: flex; gap: 8px; flex-wrap: wrap; padding: 16px 18px">
@@ -167,7 +182,7 @@
             </div>
             <div data-style="overflow-x: auto">
               <div data-style="min-width: 540px">
-                <div class="frow lbl" data-style="cursor: default; min-height: 38px; font-size: 11px"><span>Case</span><span>CWE</span><span>Effect</span><span>Verdicts</span></div>
+                <div class="frow lbl" data-style="cursor: default; min-height: 38px; font-size: 11px"><span>Suspicion</span><span>CWE</span><span>Effect</span><span>Verdict</span></div>
                 <div data-style="max-height: 576px; overflow-y: auto">
                   <sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
                     <button type="button" class="{{r.cls}}" data-ev-click="{{r.pick}}" aria-label="{{r.case}}">
@@ -183,13 +198,15 @@
             </div>
           </div>
 
-          <aside class="card" aria-label="Selected case" data-style="flex: 2 1 340px; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 18px">
-            <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><span class="lbl">{{sel.cwe}} · {{sel.eff}}</span><span class="lbl">{{sel.held}}</span></div>
-            <h3 class="mono" data-style="margin: 0; font-size: 18px; font-weight: 500; word-break: break-word">{{sel.case}}</h3>
+          <aside class="card" aria-label="Selected suspicion" data-style="flex: 2 1 340px; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 18px">
+            <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><span class="lbl">{{sel.verdict}} · {{sel.effect}}</span><span class="lbl">{{sel.cwe}}</span></div>
+            <h3 class="mono" data-style="margin: 0; font-size: 18px; font-weight: 500; word-break: break-word">{{sel.cls}}</h3>
+            <div class="mono" data-style="font-size: 13px; color: #3d4b68">{{sel.file}}</div>
+            <div class="mono" data-style="font-size: 13px; color: #3d4b68">{{sel.entry}}</div>
             <div data-style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid rgba(13,27,62,.1); border-bottom: 1px solid rgba(13,27,62,.1)">
-              <div data-style="padding: 14px 0"><div class="lbl" data-style="font-size: 11px">Suspicions</div><div class="dsp" data-style="font-size: 28px; font-weight: 500; margin-top: 4px">{{sel.n}}</div></div>
-              <div data-style="padding: 14px 0"><div class="lbl" data-style="font-size: 11px">Calls</div><div class="dsp" data-style="font-size: 28px; font-weight: 500; margin-top: 4px">{{sel.calls}}</div></div>
-              <div data-style="padding: 14px 0"><div class="lbl" data-style="font-size: 11px">Cost</div><div class="dsp" data-style="font-size: 28px; font-weight: 500; margin-top: 4px">{{sel.cost}}</div></div>
+              <div data-style="padding: 14px 0"><div class="lbl" data-style="font-size: 11px">Run spend</div><div class="dsp" data-style="font-size: 22px; font-weight: 500; margin-top: 4px">{{sel.calls}}</div></div>
+              <div data-style="padding: 14px 0"><div class="lbl" data-style="font-size: 11px">Fix status</div><div class="dsp" data-style="font-size: 22px; font-weight: 500; margin-top: 4px">{{sel.cost}}</div></div>
+              <div data-style="padding: 14px 0"><div class="lbl" data-style="font-size: 11px">Report</div><div data-style="margin-top: 8px"><a href="{{sel.href}}">{{sel.runLabel}}</a></div></div>
             </div>
             <div data-style="display: flex; flex-direction: column; gap: 14px">
               <sc-for list="{{sel.vs}}" as="x">

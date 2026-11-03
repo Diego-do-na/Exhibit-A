@@ -33,7 +33,8 @@ window.Component = class Component extends DCLogic {
       if (res.ok) graph = await res.json();
     } catch (e) { /* static snapshot stays */ }
     if (!graph || !graph.available) {
-      this.setState({ heatNote: 'No code tree for this run: tiles below show package size only.' });
+      const why = graph && graph.reason ? graph.reason + '. ' : '';
+      this.setState({ heatNote: 'No code graph was recorded for this run. ' + why + 'Compute one with exhibit-a scan --graph.' });
       return;
     }
     const SEVC = { low: '#6a8fd8', medium: '#b7834f', high: '#a5703f', critical: '#8f2f2f' };
@@ -218,15 +219,18 @@ window.Component = class Component extends DCLogic {
       }
       det.hasDeps = deps.length > 0; det.hasUsers = users.length > 0; det.nDeps = deps.length; det.nUsers = users.length;
     }
-    const heat = st.heat.length ? st.heat : P.map(([n, loc, l]) => ({
-      n, v: loc.toLocaleString('en-US') + ' lines', w: Math.max(4, (loc / 5971) * 100).toFixed(1), c: LC[l],
-      pick: () => this.setState({ sel: n, mod: null }),
-    }));
-    const heatNote = st.heatNote || 'Package size by lines, colored by layer (dark blue core, light blue analysis, bronze surfaces).';
+    // Heat comes only from the recorded artifact (the run's codegraph): without
+    // a run there is nothing to show but the empty state with the scan command.
+    const heat = st.heat.length ? st.heat : [];
+    const hasRun = !!st.runId || !!this.runParams().run;
+    const heatNote = st.heatNote || (hasRun
+      ? 'The recorded code graph carries no file heat for this run.'
+      : 'No run selected: open a run report to see its recorded files and proven attack paths.');
+    const heatEmpty = heat.length === 0;
     this.__d = { P, LC };
     return {
       det, q: st.q, onQ: (e) => this.setState({ q: e.target.value }),
-      heat, heatNote, paths: st.paths, hasPaths: st.paths.length > 0, runId: st.runId,
+      heat, heatNote, heatEmpty, hasRun, noRun: !hasRun, paths: st.paths, hasPaths: st.paths.length > 0, runId: st.runId,
       zin: () => this.cur().zoomBy(1.35), zout: () => this.cur().zoomBy(1 / 1.35), zfit: () => this.cur().fit(),
       nDisp: 'block', gDisp: 'none', fnDisp: st.lv === 'net' ? 'inline-flex' : 'none',
       fnOpts: [[true, 'Functions on'], [false, 'Files only']].map(([k, l]) => ({ l, cls: 'sb' + (st.fn === k ? ' sb-on' : ''), pick: () => this.setState({ fn: k }) })),

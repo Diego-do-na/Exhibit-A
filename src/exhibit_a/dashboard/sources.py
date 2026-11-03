@@ -33,7 +33,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ..schemas import Event
 
@@ -55,6 +55,8 @@ MAX_ARTIFACT_TEXT = 64 * 1024
 PROOF_TEXT_NAMES = ("fix.patch", "test_exploit.py")
 #: Optional report files read as text when the run folder or artifact has them.
 REPORT_TEXT_NAMES = ("summary.md",)
+#: Machine-readable call-graph summary (artifact-schema.md) read as JSON text.
+GRAPH_SUMMARY_NAME = "graph-summary.json"
 #: Largest runs.jsonl index accepted, in bytes.
 MAX_INDEX_BYTES = 2 * 1024 * 1024
 #: Most runs a source lists.
@@ -126,6 +128,9 @@ class RunData:
     #: run folder or artifact carries them. Read as capped text only, never executed;
     #: absent names simply have no entry ("not recorded").
     artifacts: dict[str, str] = field(default_factory=dict)
+    #: Validated ``graph-summary.json`` (artifact-schema.md), when the run folder
+    #: or artifact carries it; {} when absent or invalid ("not recorded").
+    graph_summary: dict[str, Any] = field(default_factory=dict)
 
 
 class RunSource(Protocol):
@@ -215,6 +220,122 @@ class _Result(BaseModel):
     skipped_reason: str = Field(default="", max_length=2000)
     engine_exit: int | None = Field(default=None, ge=-1024, le=1024)
     risk: _Risk | None = None
+    #: Which provider answered the model calls; "" when the artifact is silent.
+    provider: str = Field(default="", max_length=120)
+    #: Review-suggestion thread URL (artifact-schema.md). Anything off-shape is
+    #: dropped here; whether it names this run's repo and PR is checked by the
+    #: caller, which knows the run.
+    discussion_url: str = Field(default="", max_length=500)
+
+    @field_validator("provider", "discussion_url", mode="before")
+    @classmethod
+    def _empty_for_null(cls, value: Any) -> Any:
+        # An explicit null is "not recorded", never a reason to drop the run.
+        return "" if value is None else value
+
+
+#: A review-suggestion thread URL (artifact-schema.md): the pull-request page of
+#: one repository plus a fragment naming the suggestion discussion. Anything
+#: else is not a discussion URL and is dropped.
+_THREAD_URL_RE = re.compile(
+    r"^https://github\.com/"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}"
+    r"/pull/(\d+)#(?:discussion_r\d+|pullrequestreview-\d+|issuecomment-\d+)$"
+)
+
+
+def valid_discussion_url(url: Any, repo: Any, pr: Any) -> str:
+    """Keep a review-thread URL only when it names this run's repo and PR.
+
+    The schema records only the current pull request of the repository the
+    run verified; a URL for another repository or PR is dropped (""), never
+    borrowed, and the caller falls back to the synthesized PR page.
+    """
+    if not isinstance(url, str):
+        return ""
+    match = _THREAD_URL_RE.match(url.strip())
+    if match is None:
+        return ""
+    want_pr = str(pr or "").lstrip("#")
+    if not want_pr.isdigit() or match.group(1) != want_pr:
+        return ""
+    owner_repo = match.group(0).split("/pull/")[0].removeprefix("https://github.com/")
+    if owner_repo != str(repo or ""):
+        return ""
+    return match.group(0)
+
+
+class _GraphSummary(BaseModel):
+    """Validated ``graph-summary.json`` (artifact-schema.md); extras ignored."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    schema_version: str = ""
+    available: bool = False
+    status: str = ""
+    effect: str = ""
+    reason: str = ""
+    stats: dict[str, Any] = Field(default_factory=dict)
+    build_seconds: Any = None
+    entries: list[Any] = Field(default_factory=list)
+    changed: list[Any] = Field(default_factory=list)
+    paths: list[Any] = Field(default_factory=list)
+    paths_to_other_sinks: Any = 0
+    source_file: str = ""
+
+    @field_validator("schema_version", "status", "effect", "reason", "source_file",
+                     mode="before")
+    @classmethod
+    def _empty_for_null(cls, value: Any) -> Any:
+        # An explicit null is "not recorded", never a reason to drop the summary.
+        return "" if value is None else value
+
+
+def parse_graph_summary(value: Any) -> dict[str, Any]:
+    """Validate a decoded ``graph-summary.json``; garbage means {} (not recorded)."""
+    if not isinstance(value, dict):
+        return {}
+    try:
+        model = _GraphSummary.model_validate(value)
+    except ValidationError:
+        return {}
+    if model.available is not True:
+        return {}
+    stats = {k: v for k, v in model.stats.items()
+             if isinstance(k, str) and isinstance(v, (int, float)) and not isinstance(v, bool)}
+    entries = [e[:200] for e in model.entries if isinstance(e, str)][:60]
+    changed = [c[:200] for c in model.changed if isinstance(c, str)][:60]
+    paths: list[dict[str, Any]] = []
+    for entry in model.paths[:60]:
+        if not isinstance(entry, dict):
+            continue
+        paths.append({k: (str(v)[:300] if isinstance(v, str) else v)
+                      for k, v in entry.items()
+                      if k in ("path", "entry_point", "changed", "vuln_class", "confidence")})
+    seconds = model.build_seconds
+    return {
+        "schema_version": str(model.schema_version)[:16],
+        "available": True,
+        "status": str(model.status)[:64],
+        "effect": str(model.effect)[:64],
+        "reason": str(model.reason)[:2000],
+        "stats": stats,
+        "build_seconds": seconds if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) else None,
+        "entries": entries,
+        "changed": changed,
+        "paths": paths,
+        "paths_to_other_sinks": model.paths_to_other_sinks if isinstance(model.paths_to_other_sinks, int) else 0,
+        "source_file": str(model.source_file)[:300],
+    }
+
+
+def _parse_summary_text(text: str | None) -> dict[str, Any]:
+    if not text:
+        return {}
+    try:
+        return parse_graph_summary(_loads(text))
+    except ValueError:
+        return {}
 
 
 def parse_result(data: bytes) -> dict[str, Any]:
@@ -226,6 +347,8 @@ def parse_result(data: bytes) -> dict[str, Any]:
         model = _Result.model_validate(obj)
     except (UnicodeDecodeError, ValueError) as exc:  # ValidationError is a ValueError
         raise SourceError("result JSON is not valid") from exc
+    if model.discussion_url and not _THREAD_URL_RE.match(model.discussion_url.strip()):
+        model.discussion_url = ""
     return model.model_dump(mode="json")
 
 
@@ -421,6 +544,12 @@ class LocalRunsSource:
                 if raw_diff:
                     data.diff = raw_diff.decode("utf-8", errors="replace")
                 data.artifacts = read_proof_texts(folder)
+                try:
+                    raw_summary = _read_capped(folder / GRAPH_SUMMARY_NAME, MAX_ARTIFACT_TEXT)
+                except SourceError:
+                    raw_summary = None  # missing or unreadable means not recorded
+                data.graph_summary = _parse_summary_text(
+                    raw_summary.decode("utf-8", errors="replace") if raw_summary else None)
         self._cache.put(stamp, data)
         return data
 
@@ -571,13 +700,14 @@ def read_artifact_zip(data: bytes) -> tuple[bytes | None, bytes | None]:
 def read_artifact_texts(data: bytes) -> dict[str, str]:
     """Pull optional text files out of artifact zip bytes, in memory.
 
-    Reads only top-level entries named in ``PROOF_TEXT_NAMES``, ``DIFF_NAME``
-    or ``REPORT_TEXT_NAMES``; everything else is ignored. Each entry is capped
-    at ``MAX_ARTIFACT_TEXT`` (or ``MAX_DIFF_BYTES`` for the diff) on the actual
-    bytes read and decoded as text (never executed). Missing or unreadable
-    entries are skipped: extras never make a run unreadable.
+    Reads only top-level entries named in ``PROOF_TEXT_NAMES``, ``DIFF_NAME``,
+    ``REPORT_TEXT_NAMES`` or ``GRAPH_SUMMARY_NAME``; everything else is
+    ignored. Each entry is capped at ``MAX_ARTIFACT_TEXT`` (or
+    ``MAX_DIFF_BYTES`` for the diff) on the actual bytes read and decoded as
+    text (never executed). Missing or unreadable entries are skipped: extras
+    never make a run unreadable.
     """
-    caps = {name: MAX_ARTIFACT_TEXT for name in (*PROOF_TEXT_NAMES, *REPORT_TEXT_NAMES)}
+    caps = {name: MAX_ARTIFACT_TEXT for name in (*PROOF_TEXT_NAMES, *REPORT_TEXT_NAMES, GRAPH_SUMMARY_NAME)}
     caps[DIFF_NAME] = MAX_DIFF_BYTES
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
@@ -758,6 +888,7 @@ class GitHubSource:
             if texts.get(DIFF_NAME):
                 data.diff = texts[DIFF_NAME]
             data.artifacts = {name: texts[name] for name in PROOF_TEXT_NAMES if name in texts}
+            data.graph_summary = _parse_summary_text(texts.get(GRAPH_SUMMARY_NAME))
         self._cache.put(run_id, data)
         return data
 

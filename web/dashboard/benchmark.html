@@ -10,6 +10,7 @@
 <script src="dc-lite.js"></script>
 <script src="views/benchmark.js"></script>
 <script src="views/palette.js"></script>
+<script src="views/sourcebar.js"></script>
 </head>
 <body>
 <template data-dc>
@@ -40,21 +41,22 @@
     </nav>
 
     <div class="scroll"><main class="content">
+      <div data-xa-source class="xa-src"></div>
       <header data-style="padding: 12px 4px 0">
-        <span class="lbl">muse-wonder-1.0 · $4 in / $20 out per million tokens</span>
+        <span class="lbl">{{benchFile}}</span>
         <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Benchmark</h1>
         <p class="lead" data-style="font-size: 19px">Proof loop against a naive baseline, safeguard by safeguard, and by author.</p>
       </header>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Proof loop versus a naive model</h2><p class="lead">Same corpus, same model: only the naive baseline accused a patched release.</p></div></div>
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Systems compared</h2><p class="lead">{{secLead1}}</p></div></div>
         <div class="bench-cards" data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
           <sc-for list="{{ek}}" as="k">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
               <span class="lbl kpi-l"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="{{k.i}}"></path></svg>{{k.l}}</span>
               <div data-style="display: flex; align-items: flex-end; justify-content: space-between; gap: 12px">
-                <div><div class="dsp" data-style="font-size: 54px; font-weight: 500; letter-spacing: -.04em; line-height: .9">{{k.a}}</div><div data-style="font-size: 13px; color: #3d4b68; margin-top: 8px">Exhibit A</div></div>
-                <div data-style="text-align: right"><div class="dsp" data-style="font-size: 30px; font-weight: 500; line-height: .9; color: #45587c">{{k.b}}</div><div data-style="font-size: 13px; color: #3d4b68; margin-top: 8px">Naive LLM</div></div>
+                <div><div class="dsp" data-style="font-size: 54px; font-weight: 500; letter-spacing: -.04em; line-height: .9">{{k.a}}</div><div data-style="font-size: 13px; color: #3d4b68; margin-top: 8px">{{k.an}}</div></div>
+                <div data-style="text-align: right"><div class="dsp" data-style="font-size: 30px; font-weight: 500; line-height: .9; color: #45587c">{{k.b}}</div><div data-style="font-size: 13px; color: #3d4b68; margin-top: 8px">{{k.bn}}</div></div>
               </div>
               <p data-style="margin: 0; font-size: 14px; line-height: 1.5; color: #3d4b68">{{k.d}}</p>
             </div>
@@ -80,8 +82,8 @@
             <p data-style="margin: 0; font-size: 15px; line-height: 1.55; color: #26365a">{{smNote}}</p>
           </div>
           <div class="card" data-style="flex: 2 1 340px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px">
-            <h3 class="ct">What each dollar buys</h3>
-            <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px; gap: 10px; font-size: 12px; font-weight: 600; color: #26365a"><span></span><span data-style="text-align: right">Exhibit A</span><span data-style="text-align: right">Naive LLM</span></div>
+            <h3 class="ct">What the runs cost</h3>
+            <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px; gap: 10px; font-size: 12px; font-weight: 600; color: #26365a"><span></span><span data-style="text-align: right">{{buyA}}</span><span data-style="text-align: right">{{buyB}}</span></div>
             <sc-for list="{{buy}}" as="b">
               <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px; gap: 10px; align-items: baseline; padding: 10px 0; border-top: 1px solid rgba(13,27,62,.08)">
                 <span data-style="font-size: 14px; color: #26365a">{{b.l}}</span>
@@ -93,6 +95,15 @@
         </div>
       </section>
 
+      <sc-if value="{{noBench}}">
+      <div class="card" data-style="padding: 28px; display: flex; flex-direction: column; gap: 14px">
+        <span class="lbl">No benchmark data for this source</span>
+        <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">The corpus evaluation in bench/results describes the Exhibit-A benchmark, not this source. Point the dashboard at the Exhibit-A repo to see it.</p>
+        <div class="mono" data-style="font-size: 14px; background: rgba(13,27,62,.06); border: 1px solid rgba(13,27,62,.1); border-radius: 4px; padding: 12px 14px">exhibit-a dashboard --source github:owner/exhibit-a</div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{hasBench}}">
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">What each safeguard is worth</h2><p class="lead">215 cheating tests replayed with one safeguard off at a time; 21 remain, each a documented limit.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
@@ -194,9 +205,10 @@
           </aside>
         </div>
       </section>
+      </sc-if>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
-        <div class="sec-h"><span class="sec-n">06</span><div><h2 class="sec-t">Coverage: what could not be proven</h2><p class="lead">Fourteen suspicions were refused with a named reason. Refusing is the product working: green means nothing could be proven, never safe.</p></div></div>
+        <div class="sec-h"><span class="sec-n">06</span><div><h2 class="sec-t">Coverage: what could not be proven</h2><p class="lead">Discarded suspicions per system, as recorded in bench/results. Refusing is the product working: green means nothing could be proven, never safe.</p></div></div>
         <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
           <sc-for list="{{pstats}}" as="k" hint-placeholder-count="4">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
@@ -205,6 +217,7 @@
             </div>
           </sc-for>
         </div>
+        <p data-style="margin: 0; font-size: 14px; color: #3d4b68">{{redteam}}</p>
         <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px">
           <sc-for list="{{cover}}" as="w">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">

@@ -35,6 +35,9 @@ Endpoints (GET):
   findings per run, severity mix), aggregated from the run data; nothing is stored.
 - ``/api/repos/<id>``: one repository's headline metrics across its runs, its recent
   pull requests and its most serious proven findings.
+- ``/api/benchmark``: ``bench/results`` aggregates for the Exhibit-A repo only;
+  every other source gets ``available: false`` with reason
+  ``no benchmark data for this source``.
 """
 
 from __future__ import annotations
@@ -60,6 +63,7 @@ from ..live.replay import Replayer, format_done, parse_speed, select_events
 from .model import (
     EFFECT_SCHEMA,
     MAX_REPO_RUNS,
+    build_benchmark,
     build_code_graph,
     build_graph_view,
     build_repo_detail,
@@ -377,6 +381,8 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 self._trends(query)
             elif route == "/api/repos":
                 self._repos()
+            elif route == "/api/benchmark":
+                self._benchmark()
             elif _REPO_ROUTE.match(route):
                 rid = _REPO_ROUTE.match(route).group(1)
                 if not REPO_ID_RE.match(rid):
@@ -461,6 +467,15 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 "runs_considered": len(entries),
                 "runs_total": total,
             })
+
+        def _benchmark(self) -> None:
+            loaded = self._repo_entries()
+            if loaded is None:
+                return
+            entries, _ = loaded
+            names = [summary.get("name", "") for summary in build_repo_index(entries)]
+            self._json({**build_benchmark(state.source.label, names),
+                        "source": state.source.label})
 
         def _repo(self, rid: str) -> None:
             loaded = self._repo_entries()
