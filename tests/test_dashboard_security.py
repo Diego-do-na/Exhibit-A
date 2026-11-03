@@ -231,7 +231,10 @@ def test_economics_page_loads_and_is_registered():
     html = (WEB_DIR / "economics.html").read_text(encoding="utf-8")
     assert "data-open-palette" in html and "views/economics.js" in html
     js = (WEB_DIR / "views/economics.js").read_text(encoding="utf-8")
-    assert "223k" in js and "Simulation" in (WEB_DIR / "economics.html").read_text(encoding="utf-8")
+    # The Economics page is recomputed from /api for the current --source:
+    # no recorded batch figures and no price simulation may be hardcoded.
+    assert "not recorded" in js and "fetch('/api/repos'" in js
+    assert "223k" not in js and "$2.42" not in js and "Simulation" not in js
     palette = (WEB_DIR / "views/palette.js").read_text(encoding="utf-8")
     assert "economics.html" in palette
     for path in sorted(WEB_DIR.glob("*.html")):
