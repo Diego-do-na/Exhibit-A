@@ -5,8 +5,8 @@ This is the contract for the GitHub Actions artifact named `exhibit-a-ledger`
 source (`--source github:<owner/repo>`) downloads that zip and reads it in
 memory. A green Action check means **nothing could be proven**, never that
 the change is safe. Files in the artifact are untrusted (model output and
-PR-influenced text): validate them, never execute them outside the isolated,
-resource-limited sandbox.
+PR-influenced text): validate them, never execute them outside the isolated
+and resource-limited sandbox.
 
 The zip is the only object the dashboard sees for a CI run. If a field the
 dashboard needs is not a **top-level** zip entry or a field of top-level
@@ -281,7 +281,7 @@ exists. The dashboard does not parse SARIF.
 | Rule | Detail |
 |---|---|
 | Untrusted | Every byte: model text, suspicion ids, reasons, patch, exploit, graph labels, `html_url`. |
-| Never execute | `fix.patch` and `test_exploit.*` are read as text. The dashboard does not apply or run them. Reproduction is `exhibit-a reproduce` in the isolated, resource-limited sandbox. |
+| Never execute | `fix.patch` and `test_exploit.*` are read as text. The dashboard does not apply or run them. Reproduction is `exhibit-a reproduce` in the isolated and resource-limited sandbox. |
 | No secrets | The engine step scans `$OUT/run` and `$OUT/report` for the API key and deletes the output on a hit, before this zip is assembled. |
 | Caps | Dashboard: ledger 8 MiB, result 256 KiB, proof text 64 KiB, zip 24 MiB / 64 entries. Oversized entries are refused or skipped; a run that fails ledger/result validation is unreadable as a whole. |
 | Top-level only | Nested zip entries are ignored. |
