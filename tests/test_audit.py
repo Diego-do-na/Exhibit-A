@@ -164,12 +164,68 @@ def test_list_only_prints_ranked_targets_and_calls_no_model(tmp_path, capsys) ->
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(audit_ext, "_build_roles", _boom)
+    monkeypatch.setattr(audit_ext, "run_audit", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("run_audit must not run under --list-only")
+    ))
     try:
         rc = cli_main(["audit", "--repo", str(tmp_path), "--list-only"])
     finally:
         monkeypatch.undo()
     assert rc == 0
-    text = capsys.readouterr().out
+    captured = capsys.readouterr()
+    text = captured.out
     assert "canary_exec" in text and "canary_write" in text and "canary_read" in text
     # Severity order shows in the printed ranking.
     assert text.index("canary_exec") < text.index("canary_write") < text.index("canary_read")
+    assert "omitted" not in captured.err
+    assert "capping spend" not in captured.err
+
+
+def test_omitted_budget_uses_the_default_cap_and_prints_a_notice(tmp_path, capsys, monkeypatch) -> None:
+    import exhibit_a.cli.ext.audit as audit_ext
+
+    seen: dict = {}
+
+    class _Outcome:
+        stopped = "completed"
+        targets: list = []
+        tried: list = []
+        findings: list = []
+        spent_usd = 0.0
+
+    def _fake_audit(repo, out, **kwargs):
+        seen["repo"] = repo
+        seen["out"] = out
+        seen.update(kwargs)
+        return _Outcome()
+
+    monkeypatch.setattr(audit_ext, "run_audit", _fake_audit)
+    rc = cli_main(["audit", "--repo", str(tmp_path)])
+    assert rc == 0
+    assert seen["budget_usd"] == audit_ext.DEFAULT_BUDGET_USD
+    err = capsys.readouterr().err
+    assert "--budget-usd omitted" in err
+    assert f"US${audit_ext.DEFAULT_BUDGET_USD:.2f}" in err
+    assert "isolated and resource-limited" in err
+
+
+def test_explicit_budget_does_not_print_the_omitted_notice(tmp_path, capsys, monkeypatch) -> None:
+    import exhibit_a.cli.ext.audit as audit_ext
+
+    seen: dict = {}
+
+    class _Outcome:
+        stopped = "completed"
+        targets: list = []
+        tried: list = []
+        findings: list = []
+        spent_usd = 0.0
+
+    monkeypatch.setattr(
+        audit_ext, "run_audit",
+        lambda repo, out, **kwargs: seen.update(kwargs) or _Outcome(),
+    )
+    rc = cli_main(["audit", "--repo", str(tmp_path), "--budget-usd", "2.5"])
+    assert rc == 0
+    assert seen["budget_usd"] == 2.5
+    assert "omitted" not in capsys.readouterr().err

@@ -690,9 +690,5 @@ def cmd_run(args: argparse.Namespace) -> int:
         return _run_case(args)
     if getattr(args, "pr_diff", None):
         return _run_pr_diff(args)
-    print(
-        f"run: the core loop is not wired yet "
-        f"(repo={args.repo!r}, diff={args.diff!r}, "
-        f"replay={args.replay!r}, budget_usd={args.budget_usd!r})"
-    )
-    return 0
+    print("run: one of --case or --pr-diff is required", file=sys.stderr)
+    return 2

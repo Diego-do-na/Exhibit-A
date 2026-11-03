@@ -100,7 +100,9 @@ def build_parser() -> argparse.ArgumentParser:
     scan.set_defaults(func=cmd_scan)
 
     run = sub.add_parser(
-        "run", parents=[COMMON], help="Run the core loop (wired for benchmark cases via --case)."
+        "run",
+        parents=[COMMON],
+        help="Run the core loop on a benchmark case (--case) or a PR diff (--pr-diff).",
     )
     run.add_argument(
         "--case",
