@@ -166,8 +166,9 @@ ORACLE_LAYERS = frozenset({
 })
 # Conservative statistical bar (docs/oracle/oracle-provenance.md, section 3.12). A timing
 # effect is noisier than a canary file: these numbers are high on purpose so a noisy
-# machine cannot mint a proof. 5 + 5 samples, same container, sandbox CPU/time unchanged.
-DOS_SAMPLES = 5
+# machine cannot mint a proof. 9 + 9 CPU-time samples after one warm-up call per input,
+# same container, sandbox CPU/time unchanged (docs/ci/replay-determinism.md).
+DOS_SAMPLES = 9
 DOS_RATIO = 50.0
 DOS_FLOOR = 0.015  # seconds of application CPU on the malicious input
 DOS_MAX_INPUT = 65536
@@ -1245,6 +1246,12 @@ def _bind_dos(emit, admission, stack_fn) -> None:
         mal_other: list[float] = []
         stacks: list = []
         stolen = False
+        # Warm up once per input, untimed: the first call pays import, cache and
+        # allocator costs that are not the app's steady-state CPU. Including it
+        # made the benign median (a near-zero denominator) swing the ratio
+        # across the judge threshold under load (docs/ci/replay-determinism.md).
+        timed_call(fn, benign, test_dir)
+        timed_call(fn, malicious, test_dir)
         for _ in range(DOS_SAMPLES):
             a, t, o, _stack, s = timed_call(fn, benign, test_dir)
             ben_app.append(a)
