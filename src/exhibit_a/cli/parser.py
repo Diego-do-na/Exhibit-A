@@ -240,7 +240,7 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--source", default=None, help="Dashboard source, such as local:RUNS (default: local:runs when it exists).")
     dashboard.add_argument("--port", type=int, default=0, help="Port on 127.0.0.1 (default: a free port).")
     dashboard.add_argument("--export", default=None, metavar="DIR", help="Export a self-contained static dashboard to DIR.")
-    dashboard.add_argument("--run", default=None, metavar="RUN_ID", help="Run to include in a static export (default: newest).")
+    dashboard.add_argument("--run", default=None, metavar="RUN_ID", help="Run to include in a static export (default: all runs, for static hosting).")
     dashboard.add_argument("--open", dest="open", action=argparse.BooleanOptionalAction, default=True,
                            help="Open the live dashboard URL in the default browser (default; use --no-open to skip).")
     dashboard.set_defaults(func=cmd_dashboard)

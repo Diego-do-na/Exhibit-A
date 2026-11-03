@@ -573,7 +573,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--web", default=None, help="Directory holding the dashboard UI (default: web/dashboard).")
     parser.add_argument("--verbose", action="store_true", help="Log method, path and status (never queries).")
     parser.add_argument("--export", default=None, metavar="DIR", help="Write a self-contained static dashboard and exit.")
-    parser.add_argument("--run", default=None, metavar="RUN_ID", help="Run to include in a static export (default: newest).")
+    parser.add_argument("--run", default=None, metavar="RUN_ID", help="Run to include in a static export (default: all runs, for static hosting).")
     parser.add_argument("--open", action="store_true", help="Open the live dashboard URL in the default browser.")
     return parser
 

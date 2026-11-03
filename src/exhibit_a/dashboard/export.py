@@ -107,9 +107,6 @@ class StaticEventSource {{
   close() {{}}
 }}
 window.EventSource = StaticEventSource;
-const script = document.createElement("script");
-script.src = "app.js";
-document.head.appendChild(script);
 """
 
 
@@ -120,15 +117,20 @@ def export_dashboard(
     run_id: str | None = None,
     web_dir: str | Path | None = None,
 ) -> Path:
-    """Write a deterministic, self-contained export for one local run."""
+    """Write a deterministic, self-contained static export.
+
+    With ``run_id`` only that run is exported; without it every readable
+    run is exported, so a full history (for example 134 PR runs) can be
+    hosted on GitHub Pages with no backend server or API key.
+    """
     refs = sorted(source.list_runs(), key=lambda ref: (ref.started_at, ref.run_id), reverse=True)
     if not refs:
         raise SourceError("no readable run folders found")
-    selected = run_id or refs[0].run_id
-    _safe_child(source.root, selected)
-    data = source.load_run(selected)
-    if data.error:
-        raise SourceError(f"run {selected!r} could not be read: {data.error}")
+    if run_id is not None:
+        _safe_child(source.root, run_id)
+        refs = [ref for ref in refs if ref.run_id == run_id]
+        if not refs:
+            raise SourceError(f"unknown run {run_id!r}")
 
     root = Path(destination).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -137,49 +139,76 @@ def export_dashboard(
         raise SourceError(f"dashboard UI directory not found: {ui}")
     _copy_tree(ui, root)
 
-    run_dir = _safe_child(root / "runs", selected)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    ledger_path = _safe_child(source.root, selected) / LEDGER_NAME
-    if ledger_path.is_symlink() or not ledger_path.is_file():
-        raise SourceError("selected run ledger is missing or is a symlink")
-    shutil.copyfile(ledger_path, run_dir / LEDGER_NAME)
-    result_path = _safe_child(source.root, selected) / RESULT_NAME
-    if result_path.is_file() and not result_path.is_symlink():
-        shutil.copyfile(result_path, run_dir / RESULT_NAME)
-
-    rows = [run_row(data)]
-    detail = run_detail(data)
-    entries = [(rows[0], detail)]
+    rows: list[dict[str, Any]] = []
+    entries: list[tuple[dict[str, Any], Any]] = []
+    runs_by_id: dict[str, Any] = {}
+    for ref in refs:
+        rid = ref.run_id
+        data = source.load_run(rid)
+        if data.error:
+            if run_id is not None:
+                raise SourceError(f"run {rid!r} could not be read: {data.error}")
+            continue
+        run_dir = _safe_child(root / "runs", rid)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        ledger_path = _safe_child(source.root, rid) / LEDGER_NAME
+        if ledger_path.is_symlink() or not ledger_path.is_file():
+            if run_id is not None:
+                raise SourceError("selected run ledger is missing or is a symlink")
+            continue
+        shutil.copyfile(ledger_path, run_dir / LEDGER_NAME)
+        result_path = _safe_child(source.root, rid) / RESULT_NAME
+        if result_path.is_file() and not result_path.is_symlink():
+            shutil.copyfile(result_path, run_dir / RESULT_NAME)
+        row = run_row(data)
+        detail = run_detail(data)
+        rows.append(row)
+        entries.append((row, detail))
+        events = {"run_id": rid, "from": 0,
+                  "events": [event_view(i, event) for i, event in enumerate(data.events)],
+                  "count": len(data.events), "total": len(data.events)}
+        runs_by_id[rid] = {
+            "detail": detail,
+            "events": events,
+            "replay": {"events": events["events"]},
+            "ledger": f"runs/{rid}/{LEDGER_NAME}",
+            "graph": build_graph_view(data),
+            "codegraph": build_code_graph(data),
+        }
+    if not runs_by_id:
+        raise SourceError("no readable run folders found")
+    selected = run_id or refs[0].run_id
+    if selected not in runs_by_id:
+        selected = next(iter(runs_by_id))
+    total = len(rows)
     repos = {
-        rid: {**build_repo_detail(rid, group), "runs_considered": 1, "runs_total": 1}
+        rid: {**build_repo_detail(rid, group), "runs_considered": total, "runs_total": total}
         for rid, group in group_by_repo(entries).items()
     }
-    events = {"run_id": selected, "from": 0, "events": [event_view(i, event) for i, event in enumerate(data.events)],
-              "count": len(data.events), "total": len(data.events)}
     bundle = {
         "info": {"source": source.label, "stages_note": "nothing could be proven is not safe"},
-        "runs": {"source": source.label, "runs": rows, "page": 1, "per_page": max(1, len(rows)), "total": len(rows),
+        "runs": {"source": source.label, "runs": rows, "page": 1, "per_page": max(1, total), "total": total,
                  "pages": 1},
-        "trends": {"points": build_trends(rows), "limit": len(rows), "total": len(rows)},
-        "repos": {"source": source.label, "repos": build_repo_index(entries), "runs_considered": 1, "runs_total": 1},
+        "trends": {"points": build_trends(rows), "limit": total, "total": total},
+        "repos": {"source": source.label, "repos": build_repo_index(entries), "runs_considered": total, "runs_total": total},
         "reposById": repos,
-        "runsById": {
-            selected: {
-                "detail": detail,
-                "events": events,
-                "replay": {"events": events["events"]},
-                "ledger": f"runs/{selected}/{LEDGER_NAME}",
-                "graph": build_graph_view(data),
-                "codegraph": build_code_graph(data),
-            }
-        },
+        "runsById": runs_by_id,
     }
     (root / "data").mkdir(exist_ok=True)
-    for name in ("info", "runs", "trends"):
+    for name in ("info", "runs", "trends", "repos"):
         (root / "data" / f"{name}.json").write_bytes(_json_bytes(bundle[name]))
     (root / "data" / "run.json").write_bytes(_json_bytes(bundle["runsById"][selected]))
+    for rid, run_bundle in runs_by_id.items():
+        (root / "data" / f"run-{rid}.json").write_bytes(_json_bytes(run_bundle))
     (root / "static.js").write_text(_static_script(bundle), encoding="utf-8", newline="\n")
-    index = (root / "index.html").read_text(encoding="utf-8")
-    index = index.replace('<script src="app.js"></script>', '<script src="static.js"></script>')
-    (root / "index.html").write_text(index, encoding="utf-8", newline="\n")
+    # Load the offline adapter on every page before the view logic runs.
+    for html_path in sorted(root.glob("*.html")):
+        html = html_path.read_text(encoding="utf-8")
+        if "static.js" not in html:
+            html = html.replace(
+                '<script src="dc-lite.js"></script>',
+                '<script src="static.js"></script>\n<script src="dc-lite.js"></script>',
+                1,
+            )
+        html_path.write_text(html, encoding="utf-8", newline="\n")
     return root

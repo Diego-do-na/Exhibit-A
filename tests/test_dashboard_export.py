@@ -64,7 +64,7 @@ def test_export_is_self_contained_and_uses_relative_references(tmp_path: Path):
     html = (output / "index.html").read_text(encoding="utf-8")
     references = re.findall(r"""(?:src|href)="([^"]+)""", html)
     assert {"dashboard.css", "dc-lite.js", "views/index.js", "prs.html"} <= set(references)
-    assert all(re.fullmatch(r"[a-z]+\.html|dashboard\.css|dc-lite\.js|views/[a-z]+\.js", value) for value in references)
+    assert all(re.fullmatch(r"[a-z]+\.html|dashboard\.css|dc-lite\.js|static\.js|views/[a-z]+\.js", value) for value in references)
     assert not re.search(r"""(?:src|href)=["'](?:/|[A-Za-z]:[\\/])""", html)
     assert json.loads((output / "data/run.json").read_text(encoding="utf-8"))["ledger"].startswith("runs/")
 
@@ -135,6 +135,22 @@ def test_hostile_text_round_trips_as_data_not_markup(tmp_path: Path):
     assert "<script>" not in static and "</script>" not in static
     assert "<img" not in static
     assert "<script>" not in (output / "index.html").read_text(encoding="utf-8")
+
+
+def test_export_without_run_id_exports_every_run_for_static_hosting(tmp_path: Path):
+    runs = make_samples(tmp_path)
+    output = tmp_path / "export-all"
+    export_dashboard(LocalRunsSource(runs), output)
+    data = json.loads((output / "data/runs.json").read_text(encoding="utf-8"))
+    assert data["total"] > 1
+    assert len(data["runs"]) == data["total"]
+    for row in data["runs"]:
+        assert (output / "data" / f"run-{row['run_id']}.json").is_file()
+        assert (output / "runs" / row["run_id"] / "ledger.jsonl").is_file()
+    index = (output / "index.html").read_text(encoding="utf-8")
+    assert '<script src="static.js"></script>' in index
+    assert index.index("static.js") < index.index("dc-lite.js")
+    assert "app.js" not in (output / "static.js").read_text(encoding="utf-8")
 
 
 def test_export_is_deterministic(tmp_path: Path):
