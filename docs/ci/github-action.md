@@ -4,8 +4,10 @@ Run Exhibit A on every pull request and use it as a **required status check**
 that turns red only when a finding is `proven`.
 
 The check is real: on a pull request the Action runs `exhibit-a run --pr-diff
-BASE..HEAD` (T075, wired by T082) with the `provider` and `model` inputs passed as
-`--provider`/`--model`. It also fails, never passes, when the engine is incomplete
+BASE..HEAD --profile compact --slice` (T075, wired by T082) with the `provider` and
+`model` inputs passed as `--provider`/`--model`. Compact is the default profile for
+PR runs and slicing limits model context to the changed code's reachable paths.
+It also fails, never passes, when the engine is incomplete
 (exit 20), rejects its input (exit 2), exits unexpectedly, or produces no verdicts
 (`status: not_run`, `surface_ran: false`). Only a risk-gate skip of a docs/tests-only
 change is green without a run.
@@ -35,7 +37,7 @@ Security design and its reasons: [github-action-security.md](github-action-secur
    or high (rules below). Low risk (docs/tests only) skips the exploit run
    unless `risk-gate: "false"`.
 3. **Run**: `exhibit-a run --repo <dir> --pr-diff <base>..<head> --out <tmp>
-   --provider <provider> [--model <model>]` under `timeout
+   --provider <provider> --profile compact --slice [--model <model>]` under `timeout
    <max-runtime-minutes>m` (exit codes in `docs/reference/cli-exit-codes.md`: 0 ran with
    nothing proven, 10 proven, 20 incomplete, 2 usage error). Exit 20, 2 or any
    unexpected code fails the check immediately; only 0, 10 and the timeout
@@ -64,7 +66,7 @@ Security design and its reasons: [github-action-security.md](github-action-secur
 | `model` | `""` | Model id for every role. See Requires. |
 | `api-key` | `""` | Pass `${{ secrets.EXHIBIT_A_API_KEY }}` from a protected environment. |
 | `api-key-env` | `META_API_KEY` | Variable the provider reads the key from (`MetaProvider` default). |
-| `profile` | `standard` | Prompt profile passed to `--profile` (`standard` or `compact`). |
+| `profile` | `compact` | Prompt profile passed to `--profile` (`standard` or `compact`); PR runs also enable `--slice`. |
 | `fail-on` | `proven` | `proven` or `never` (report only). |
 | `working-directory` | `.` | Directory to analyse; must stay inside the workspace. |
 | `max-runtime-minutes` | `30` | Hard wall-clock limit for the engine (1 to 360). |
@@ -168,8 +170,9 @@ create `triage/`.
 ## What the Action does today
 
 - **PR runs** (the default): the Action passes the validated 40-hex `BASE..HEAD`
-  SHAs to `exhibit-a run --pr-diff` with `--provider "$provider"` and, when set,
-  `--model "$model"`. The engine verifies the changed regular Python files of the
+  SHAs to `exhibit-a run --pr-diff` with `--provider "$provider"`,
+  `--profile compact`, and `--slice`; when set, it also passes `--model "$model"`.
+  The engine verifies the changed regular Python files of the
   diff through the sandbox-backed loop (bounded file count and size) and writes
   `ledger.jsonl` and `result.json` to `--out`.
 - **Exit codes** (`docs/reference/cli-exit-codes.md`): `0` the diff ran and nothing was

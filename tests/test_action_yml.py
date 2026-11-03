@@ -214,7 +214,7 @@ def test_action_third_party_steps_are_pinned_to_full_shas() -> None:
 def test_profile_input_is_validated_and_passed_to_the_engine() -> None:
     action = _load_action()
     profile = action["inputs"]["profile"]
-    assert profile["default"] == "standard"
+    assert profile["default"] == "compact"
     setup = _step(action, "Validate inputs and install Exhibit A")
     assert setup["env"]["IN_PROFILE"] == "${{ inputs.profile }}"
     assert "standard|compact" in setup["run"]
@@ -222,6 +222,7 @@ def test_profile_input_is_validated_and_passed_to_the_engine() -> None:
     engine = _step(action, "Run Exhibit A")
     assert engine["env"]["IN_PROFILE"] == "${{ inputs.profile }}"
     assert '--profile "$IN_PROFILE"' in engine["run"]
+    assert "--slice" in engine["run"]
 
 
 # -- SARIF code-scanning wiring (T095) ------------------------------------------

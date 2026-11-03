@@ -39,9 +39,10 @@ inputs:
   profile:
     description: >-
       Prompt profile passed to --profile. compact bounds every model answer to cut
-      cost; standard matches the recorded replays. compact cannot be used with replay.
+      cost and is the default for pull-request runs; standard matches the recorded
+      replays. compact cannot be used with replay.
     required: false
-    default: standard
+    default: compact
   fail-on:
     description: "proven: fail the check when a proven finding exists. never: report only."
     required: false
@@ -298,7 +299,7 @@ runs:
           [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Exhibit A::head-sha must be a full commit SHA"; exit 1; }
           # Both SHAs are validated above and stay quoted: never interpolated
           # into shell unquoted, so a crafted value cannot inject commands.
-          args+=(--pr-diff "$base..$head" --provider "$IN_PROVIDER" --profile "$IN_PROFILE")
+          args+=(--pr-diff "$base..$head" --provider "$IN_PROVIDER" --profile "$IN_PROFILE" --slice)
           [[ -n "$IN_MODEL" ]] && args+=(--model "$IN_MODEL")
         fi
         [[ "$IN_REPLAY" == "true" ]] && args+=(--replay)
