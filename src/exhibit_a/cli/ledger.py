@@ -17,5 +17,7 @@ def cmd_ledger(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as exc:
         print(f"ledger: cannot read {args.ledger}: {exc}", file=sys.stderr)
         return 1
+    if getattr(args, "quiet", False):
+        return 0
     print(json.dumps(totals, indent=2))
     return 0

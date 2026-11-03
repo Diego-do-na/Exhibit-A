@@ -410,7 +410,10 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
         code = 20 if incomplete else (10 if any_proven else 0)
         result = _write_result(out, ledger, run_id, code)
         _append_run_index(out, result, repo, head, started)
-        print(json.dumps({"status": result["status"], "proven": result["proven"]}, sort_keys=True))
+        if not getattr(args, "quiet", False):
+            print(json.dumps({"status": result["status"], "proven": result["proven"]}, sort_keys=True))
+        if getattr(args, "verbose", 0):
+            _print_phases(ledger, run_id)
         return code
     except ValueError as exc:
         print(f"run: invalid PR diff: {exc}", file=sys.stderr)
@@ -635,18 +638,39 @@ def _run_case(args: argparse.Namespace) -> int:
         print(f"run: aborted: {result.aborted}", file=sys.stderr)
         return 1
 
-    print(f"run {result.run_id}: {json.dumps(result.counts())} dropped={result.dropped}")
-    if result.duplicate_proofs:
+    quiet = getattr(args, "quiet", False)
+    if not quiet:
+        print(f"run {result.run_id}: {json.dumps(result.counts())} dropped={result.dropped}")
+    if result.duplicate_proofs and not quiet:
         print(f"run {result.run_id}: {len(result.proven)} proofs are {len(result.findings)} unique "
               f"finding(s); {result.duplicate_proofs} duplicate(s) of an effect already proven")
     totals = ledger.totals(result.run_id)
-    print(f"run {result.run_id} totals: {json.dumps(totals, sort_keys=True)}")
+    if not quiet:
+        print(f"run {result.run_id} totals: {json.dumps(totals, sort_keys=True)}")
+    if getattr(args, "verbose", 0):
+        _print_phases(ledger, result.run_id)
     packaged = [r for r in result.proven if r.package_dir is not None]
     for r in packaged:
         print(f"PACKAGE {r.package_dir} fix_verified={r.fix_verified}"
               + (f" duplicate_of={r.duplicate_of}" if r.duplicate_of else ""))
     print(f"ledger {out / 'ledger.jsonl'}")
     return 0 if any(r.fix_verified for r in packaged) else 1
+
+
+LOOP_STAGES = ("BASELINE", "SUSPECT", "EXPLOIT", "RUN", "VERDICT", "FIX", "VERIFY", "PACKAGE")
+
+
+def _print_phases(ledger: Ledger, run_id: str) -> None:
+    """Verbose detail: how many ledger events each loop phase recorded."""
+    from ..ledger.trace import trace_events
+
+    counts: dict[str, int] = {}
+    for step in trace_events(list(ledger.replay(run_id))):
+        counts[step.stage] = counts.get(step.stage, 0) + 1
+    for stage in LOOP_STAGES:
+        print(f"phase {stage}: {counts.get(stage, 0)} event(s)")
+    for stage in sorted(set(counts) - set(LOOP_STAGES)):
+        print(f"phase {stage}: {counts[stage]} event(s)")
 
 
 def cmd_run(args: argparse.Namespace) -> int:

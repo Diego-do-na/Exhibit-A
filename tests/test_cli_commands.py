@@ -100,6 +100,9 @@ def test_dashboard_delegates_and_reports_missing_build(monkeypatch, capsys):
 
     monkeypatch.setattr(dashboard_cli.importlib, "import_module", fake_import)
     assert main(["dashboard", "--source", "local:runs", "--port", "9000"]) == 0
+    assert calls == [["--source", "local:runs", "--port", "9000", "--open"]]
+    calls.clear()
+    assert main(["dashboard", "--source", "local:runs", "--port", "9000", "--no-open"]) == 0
     assert calls == [["--source", "local:runs", "--port", "9000"]]
 
     def missing(name, *args, **kwargs):

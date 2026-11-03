@@ -52,6 +52,15 @@ options:
 Exit codes: 0 success; 1 runtime error; 2 usage or input error.
 ```
 
+## Global flags
+
+Every command accepts `-v/--verbose` and `-q/--quiet`, before or after the subcommand:
+
+- `-v`: more detail. With `run`, one line per loop phase (BASELINE, SUSPECT, EXPLOIT, RUN, VERDICT, FIX, VERIFY, PACKAGE) with its ledger event count.
+- `-q`: only essential output; the result is implied by the exit code. Inspection commands print nothing on success.
+
+The `--help` output groups commands as core (`run`, `scan`, `doctor`), inspection (`ledger`, `trace`, `runs`, `report`, `dashboard`, `advisories`, `deps`, `audit`, `variants`, `sarif`, `sbom`, `verify`, `reproduce`) and utilities (`init`, `version`).
+
 ## exhibit-a scan
 
 Analyzes repository structure, dependencies, frameworks, static call graph reachability, and PR diff impact.
@@ -314,25 +323,28 @@ See docs/security/advisory.md: advisory matches serve only as hypotheses for the
 
 Launches a local, read-only web dashboard to explore verification runs, call graphs, traces, and proof artifacts.
 
+Defaults: no `--source` needed when a `runs/` folder with run data exists (it serves `local:runs`), no `--port` needed (a free port is picked), and the browser opens by itself unless `--no-open` is given. Without run data it prints where to get some instead of failing.
+
 ### Help output
 
 ```text
-usage: exhibit-a dashboard [-h] --source SOURCE [--port PORT] [--export DIR]
-                           [--run RUN_ID] [--open]
+usage: exhibit-a dashboard [-h] [-v] [-q] [--source SOURCE] [--port PORT]
+                           [--export DIR] [--run RUN_ID] [--open | --no-open]
 
 options:
   -h, --help       show this help message and exit
-  --source SOURCE  Dashboard source, such as local:RUNS.
-  --port PORT
+  --source SOURCE  Dashboard source, such as local:RUNS (default: local:runs when it exists).
+  --port PORT      Port on 127.0.0.1 (default: a free port).
   --export DIR     Write a self-contained static dashboard to DIR.
   --run RUN_ID     Run to include in a static export (default: newest).
-  --open           Open the live dashboard URL in the default browser.
+  --open           Open the live dashboard URL in the default browser (default).
+  --no-open        Do not open a browser.
 ```
 
 ### Example
 
 ```bash
-exhibit-a dashboard --source local:runs --port 8080
+exhibit-a dashboard
 ```
 
 Start the read-only dashboard server on `http://127.0.0.1:8080` reading run data from the `runs` directory.
@@ -391,18 +403,22 @@ See docs/ci/audit.md for scheduled and on-demand audit workflows.
 
 ## exhibit-a doctor
 
-Verifies the effective isolation, runtime capabilities, seccomp filters, and cgroup limits of the sandbox via an ephemeral probe container.
+Verifies the host environment and the effective isolation, runtime capabilities, seccomp filters, and cgroup limits of the sandbox via an ephemeral probe container.
 
 ### Help output
 
 ```text
-usage: exhibit-a doctor [-h] [--runtime RUNTIME] [--json]
+usage: exhibit-a doctor [-h] [-v] [-q] [--runtime RUNTIME] [--env] [--json]
 
 options:
   -h, --help         show this help message and exit
   --runtime RUNTIME  Docker runtime to verify (overrides
                      EXHIBIT_A_DOCKER_RUNTIME, e.g. runsc).
-  --json             Print the isolation report and seccomp profile as JSON.
+  --env              Only the host environment checks (Python 3.11+, Docker CLI,
+                     provider API keys by environment variable, version); no
+                     container is started. Exits 0 when every check passes.
+  --json             Print the isolation report and seccomp profile as JSON
+                     (with --env: the environment report as JSON).
 ```
 
 ### Example
@@ -499,3 +515,22 @@ exhibit-a verify runs/case/packages/starlette-cve-2023-29159
 Check that all proof files in the package match their digests in `manifest.json` and verify the cryptographic signature using the attestation key.
 
 See docs/reference/proof-bundles.md for key discovery and verification rules.
+
+## exhibit-a init
+
+Write an example GitHub Actions workflow that runs Exhibit A on pull requests.
+
+```bash
+exhibit-a init [--path FILE] [--force]
+```
+
+Writes `.github/workflows/exhibit-a.yml` by default and refuses to overwrite it without `--force`. The workflow triggers on `pull_request`, checks out with full history, and calls this repository's Action with the PR diff range. No secret values are written: the provider key is referenced by secret name only (`secrets.META_API_KEY`), so create that repository secret once and every pull request is verified.
+
+## exhibit-a version
+
+Print the Exhibit A version and exit.
+
+```bash
+$ exhibit-a version
+exhibit-a 0.1.0
+```

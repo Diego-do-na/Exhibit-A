@@ -43,6 +43,8 @@ def cmd_runs(args: argparse.Namespace) -> int:
     except OSError as exc:
         print(f"runs: cannot read {args.index}: {exc}", file=sys.stderr)
         return 1
+    if getattr(args, "quiet", False) and not problems:
+        return 0
     if args.json:
         print(json.dumps({
             "runs": [record.model_dump(mode="json") for record in records],

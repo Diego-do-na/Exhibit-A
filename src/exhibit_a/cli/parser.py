@@ -28,17 +28,40 @@ def _provider_name(value: str) -> str:
     return value
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser for the skeleton CLI."""
-    parser = argparse.ArgumentParser(
-        prog="exhibit_a.cli",
-        description="Exhibit A skeleton CLI: proof before accusation.",
-        epilog="Exit codes: 0 success; 1 runtime error; 2 usage or input error.",
+COMMON = argparse.ArgumentParser(add_help=False)
+COMMON.add_argument("-v", "--verbose", action="count", default=0,
+                    help="More detail (repeat for more). With run: per-phase loop output.")
+COMMON.add_argument("-q", "--quiet", action="store_true",
+                    help="Only essential output; results are implied by the exit code.")
+
+
+def _help_groups() -> str:
+    return (
+        "command groups:\n"
+        "  core:        run, scan, doctor\n"
+        "  inspection:  ledger, trace, runs, report, dashboard, advisories, deps, audit, variants, sarif, sbom, verify, reproduce\n"
+        "  utilities:   init, version\n"
+        "\nExit codes: 0 success; 1 runtime error; 2 usage or input error.\n"
+        "A green run means only that nothing could be proven, never that the change is safe."
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the Exhibit A CLI."""
+    parser = argparse.ArgumentParser(
+        prog="exhibit-a",
+        description="Exhibit A: proof before accusation. Only proven vulnerabilities are reported.",
+        epilog=_help_groups(),
+    )
+    parser.add_argument("-v", "--verbose", action="count", default=0,
+                        help="More detail (repeat for more). With run: per-phase loop output.")
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help="Only essential output; results are implied by the exit code.")
+    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     scan = sub.add_parser(
         "scan",
+        parents=[COMMON],
         help="Print the RepoProfile of a repository (a placeholder without one), "
         "optionally with its call graph and reach paths.",
     )
@@ -72,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
     scan.set_defaults(func=cmd_scan)
 
     run = sub.add_parser(
-        "run", help="Run the core loop (wired for benchmark cases via --case)."
+        "run", parents=[COMMON], help="Run the core loop (wired for benchmark cases via --case)."
     )
     run.add_argument(
         "--case",
@@ -173,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.set_defaults(func=cmd_run)
 
     ledger = sub.add_parser(
-        "ledger", help="Print totals for one run id from a ledger file."
+        "ledger", parents=[COMMON], help="Print totals for one run id from a ledger file."
     )
     ledger.add_argument("run_id", help="Run id to total up.")
     ledger.add_argument(
@@ -184,7 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     ledger.set_defaults(func=cmd_ledger)
 
     trace = sub.add_parser(
-        "trace", help="Print the ordered steps one run took, from its ledger."
+        "trace", parents=[COMMON], help="Print the ordered steps one run took, from its ledger."
     )
     trace.add_argument("run_id", help="Run id whose steps to print.")
     trace.add_argument(
@@ -195,31 +218,42 @@ def build_parser() -> argparse.ArgumentParser:
     trace.add_argument("--json", action="store_true", help="Print JSON instead of text.")
     trace.set_defaults(func=cmd_trace)
 
-    report = sub.add_parser("report", help="Render a finding package as Markdown or HTML.")
+    report = sub.add_parser("report", parents=[COMMON], help="Render a finding package as Markdown or HTML.")
     report.add_argument("package_dir")
     report.add_argument("--format", choices=("md", "html"), default="md")
     report.add_argument("--out", default=None, metavar="FILE")
     report.set_defaults(func=cmd_report)
 
-    runs = sub.add_parser("runs", help="Print the table of past runs.")
+    runs = sub.add_parser("runs", parents=[COMMON], help="Print the table of past runs.")
     runs.add_argument("--index", default="runs.jsonl")
     runs.add_argument("--json", action="store_true")
     runs.set_defaults(func=cmd_runs)
 
-    advisories = sub.add_parser("advisories", help="Look up OSV advisories (hint, not proof).")
+    advisories = sub.add_parser("advisories", parents=[COMMON], help="Look up OSV advisories (hint, not proof).")
     advisories.add_argument("--requirements", default=None, metavar="FILE")
     advisories.add_argument("--pyproject", default=None, metavar="FILE")
     advisories.add_argument("--offline", default=None, metavar="FIXTURE")
     advisories.add_argument("--json", action="store_true")
     advisories.set_defaults(func=cmd_advisories)
 
-    dashboard = sub.add_parser("dashboard", help="Serve the optional local dashboard.")
-    dashboard.add_argument("--source", required=True, help="Dashboard source, such as local:RUNS.")
-    dashboard.add_argument("--port", type=int, default=8765)
+    dashboard = sub.add_parser("dashboard", parents=[COMMON], help="Serve the optional local dashboard.")
+    dashboard.add_argument("--source", default=None, help="Dashboard source, such as local:RUNS (default: local:runs when it exists).")
+    dashboard.add_argument("--port", type=int, default=0, help="Port on 127.0.0.1 (default: a free port).")
     dashboard.add_argument("--export", default=None, metavar="DIR", help="Export a self-contained static dashboard to DIR.")
     dashboard.add_argument("--run", default=None, metavar="RUN_ID", help="Run to include in a static export (default: newest).")
-    dashboard.add_argument("--open", action="store_true", help="Open the live dashboard URL in the default browser.")
+    dashboard.add_argument("--open", dest="open", action=argparse.BooleanOptionalAction, default=True,
+                           help="Open the live dashboard URL in the default browser (default; use --no-open to skip).")
     dashboard.set_defaults(func=cmd_dashboard)
 
     register_extensions(sub)
+    # Every command accepts the same global verbosity flags, wherever it lives.
+    for sub_parser in sub.choices.values():
+        for action in list(sub_parser._actions):
+            if "-v" in getattr(action, "option_strings", []):
+                break
+        else:
+            sub_parser.add_argument("-v", "--verbose", action="count", default=0,
+                                    help="More detail (repeat for more).")
+            sub_parser.add_argument("-q", "--quiet", action="store_true",
+                                    help="Only essential output.")
     return parser

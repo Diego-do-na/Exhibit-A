@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from exhibit_a import __version__
 from exhibit_a.sandbox.runner import (
     CPUS_LIMIT,
     DECLARED_MOUNTS,
@@ -221,8 +222,45 @@ def evaluate_isolation(
     }
 
 
+PROVIDER_KEY_ENVS = ("META_API_KEY", "BASENTEN_API_KEY")
+
+
+def environment_report() -> dict[str, Any]:
+    """Host-side checks that never need Docker: Python, CLI tools, provider keys."""
+    import os
+    import shutil
+
+    python_ok = sys.version_info >= (3, 11)
+    docker = shutil.which("docker")
+    keys = {name: bool(os.environ.get(name)) for name in PROVIDER_KEY_ENVS}
+    return {
+        "python": {"version": ".".join(str(p) for p in sys.version_info[:3]), "ok": python_ok},
+        "exhibit_a": __version__,
+        "docker_cli": {"path": docker or "", "ok": docker is not None},
+        "provider_keys": keys,
+        "ok": python_ok and docker is not None,
+    }
+
+
+def _print_environment(report: dict[str, Any]) -> None:
+    py = report["python"]
+    print(f"{'PASS' if py['ok'] else 'FAIL'} python: {py['version']} (needs 3.11+)")
+    print(f"exhibit-a: {report['exhibit_a']}")
+    docker = report["docker_cli"]
+    print(f"{'PASS' if docker['ok'] else 'FAIL'} docker CLI: {docker['path'] or 'not found on PATH'}")
+    for name, present in report["provider_keys"].items():
+        print(f"{'PASS' if present else 'INFO'} provider key {name}: {'set' if present else 'not set (replay still works)'}")
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
-    """Run the sandbox isolation self-check and print the report."""
+    """Run the environment checks and the sandbox isolation self-check."""
+    env = environment_report()
+    if getattr(args, "env", False):
+        if getattr(args, "json", False):
+            print(json.dumps({"environment": env}, indent=2))
+        else:
+            _print_environment(env)
+        return 0 if env["ok"] else 1
     runtime = getattr(args, "runtime", None)
     probe_res = probe_isolation(runtime=runtime)
     report = evaluate_isolation(probe_res)
@@ -231,6 +269,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print(json.dumps(report, indent=2))
         return 0 if report["passed"] else 1
 
+    _print_environment(env)
     print("Exhibit A sandbox self-check (isolated and resource-limited):")
     for check in report["checks"]:
         status = "PASS" if check["passed"] else "FAIL"
@@ -260,6 +299,11 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
         "--runtime",
         default=None,
         help="Docker runtime to verify (overrides EXHIBIT_A_DOCKER_RUNTIME, e.g. runsc).",
+    )
+    parser.add_argument(
+        "--env",
+        action="store_true",
+        help="Only the host environment checks (Python, Docker CLI, provider keys, version); no container is started.",
     )
     parser.add_argument(
         "--json",
