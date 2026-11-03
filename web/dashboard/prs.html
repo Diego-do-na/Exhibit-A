@@ -11,6 +11,7 @@
 <script src="views/prdata.js"></script>
 <script src="views/prs.js"></script>
 <script src="views/palette.js"></script>
+<script src="views/sourcebar.js"></script>
 </head>
 <body>
 <template data-dc>
@@ -40,11 +41,24 @@
     </nav>
 
     <div class="scroll"><main class="content">
+      <div data-xa-source class="xa-src"></div>
+      <sc-if value="{{emptySource}}">
+      <div class="card" data-style="padding: 28px; display: flex; flex-direction: column; gap: 16px">
+        <span class="lbl">Get started</span>
+        <h2 class="dsp" data-style="margin: 0; font-size: 30px; font-weight: 500">No runs recorded for this source</h2>
+        <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">Pull requests appear here once Exhibit A records a run. Three steps record your first run:</p>
+        <ol data-style="margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font-size: 15px; line-height: 1.6; color: #26365a">
+          <li>Initialise the Action workflow in your repository: <span class="mono" data-style="font-size: 14px">exhibit-a init</span></li>
+          <li>Add the model secret to the repository: <span class="mono" data-style="font-size: 14px">gh secret set META_API_KEY</span> (the dashboard never stores keys)</li>
+          <li>Open a pull request — the Action runs Exhibit A on the diff, then open <span class="mono" data-style="font-size: 14px">exhibit-a dashboard --source github:owner/repo</span> to see it here.</li>
+        </ol>
+      </div>
+      </sc-if>
       <header data-style="padding: 12px 4px 0; display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; justify-content: space-between">
         <div>
           <span class="lbl">{{shown}}</span>
           <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Pull requests</h1>
-          <p class="lead" data-style="font-size: 19px">Every task branch that reached main, merged only with green tests.</p>
+          <p class="lead" data-style="font-size: 19px">Every run recorded for this source, newest first. Author names are not recorded in runs, so every author row is unattributed.</p>
         </div>
         <div data-style="display: flex; gap: 8px; flex-wrap: wrap">
           <label for="ag" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Author</label>
@@ -71,13 +85,13 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">Timeline</h2><p class="lead">Each point is a pull request at the moment it merged; height shows its size.</p></div></div>
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">Timeline</h2><p class="lead">Each point is a recorded run at its start time; height shows spend, duration or proven findings.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
           <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
-            <h3 class="ct">Merge timeline</h3>
+            <h3 class="ct">Run timeline</h3>
             <div data-style="display: flex; gap: 8px; align-items: center">
               <div class="seg" role="group" aria-label="Vertical axis"><sc-for list="{{yOpts}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
-              <button type="button" class="ib" data-zoom data-zoom-id="tl" data-zoom-desc="Each point is one pull request, placed at the moment it merged. Vertical position shows how big it was (lines, files or cycle time, chosen with the toggle), so the late surge of heavy changes on October 31 and November 1 stands out on its own." data-zoom-points="Select a point to read that pull request in the panel next to the table.|The tall points are corpus expansions and generated benchmark results, not hand-written code." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+              <button type="button" class="ib" data-zoom data-zoom-id="tl" data-zoom-desc="Each point is one recorded run, placed at its start time. Vertical position shows spend, duration or proven findings with the toggle." data-zoom-points="Select a point to read that run in the panel next to the table.|Every point comes from the recorded runs of this source." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
             </div>
           </div>
           <svg viewBox="0 0 1000 300" width="100%" role="img" aria-label="Scatter of pull requests by merge date">
@@ -99,10 +113,10 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Size and speed</h2><p class="lead">Most pull requests are small and fast; the few huge ones are corpus and generated results.</p></div></div>
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Spend and duration</h2><p class="lead">Recorded spend and duration across the runs of this source.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <div class="card" data-style="flex: 1 1 380px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 16px">
-            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Lines changed per PR</h3><button type="button" class="ib" data-zoom data-zoom-id="hist" data-zoom-desc="How many lines each pull request changed. Most change a few hundred lines; the few very large ones are corpus expansions and generated benchmark results." data-zoom-points="Each bar counts pull requests in one size range.|A long tail to the right is normal here: generated data counts as lines changed." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Spend per run</h3><button type="button" class="ib" data-zoom data-zoom-id="hist" data-zoom-desc="Recorded spend per run, grouped into buckets. Every bar counts recorded runs whose model spend falls in its range." data-zoom-points="Each bar counts recorded runs in one spend range." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
             <div data-style="display: flex; align-items: flex-end; gap: 14px; height: 200px">
               <sc-for list="{{hist}}" as="h">
                 <div data-style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end">
@@ -114,7 +128,7 @@
             </div>
           </div>
           <div class="card" data-style="flex: 1 1 380px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 16px">
-            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Time from first commit to merge</h3><button type="button" class="ib" data-zoom data-zoom-id="cyh" data-zoom-desc="How long a pull request took from its first commit to its merge. Most are small and fast." data-zoom-points="The median is 8 minutes and 90% close within 50 minutes.|Each bar counts pull requests in one time range." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Run duration</h3><button type="button" class="ib" data-zoom data-zoom-id="cyh" data-zoom-desc="Recorded run duration, grouped into buckets. Bars count runs in each range; runs without a recorded duration are not plotted." data-zoom-points="Each bar counts recorded runs in one duration range.|Runs without a recorded duration are not plotted." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
             <div data-style="display: flex; align-items: flex-end; gap: 14px; height: 200px">
               <sc-for list="{{cyh}}" as="h">
                 <div data-style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end">
@@ -129,7 +143,7 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
-        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Every pull request</h2><p class="lead">Search by ID, title, author or area. Select a row, or a point in the timeline, to see its details.</p></div></div>
+        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Every recorded run</h2><p class="lead">Search by run, title, model or branch. Select a row, or a point in the timeline, to open its report.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
           <div class="card" data-style="flex: 3 1 600px; min-width: 0; overflow: hidden">
             <div data-style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 16px 18px">
@@ -140,10 +154,14 @@
               </div>
               <label for="so" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Sort</label>
               <select id="so" class="sel" value="{{sort}}" data-ev-change="{{onSort}}" data-options="{{sortOpts}}"></select>
+              <sc-if value="{{hasMeta}}">
+                <span data-style="font-size: 13px; color: #3d4b68">Merged-PR metadata:</span>
+                <sc-for list="{{metaHits}}" as="hh"><a class="mono" data-style="font-size: 13px" href="{{hh.href}}">{{hh.id}} · {{hh.t}}</a></sc-for>
+              </sc-if>
             </div>
             <div data-style="overflow-x: auto">
               <div data-style="min-width: 560px">
-                <div class="prow lbl" data-style="cursor: default; min-height: 38px; font-size: 11px"><span>ID</span><span>Title</span><span>Merged</span><span data-style="text-align: right">Lines</span><span data-style="text-align: right">Cycle</span></div>
+                <div class="prow lbl" data-style="cursor: default; min-height: 38px; font-size: 11px"><span>ID</span><span>Title</span><span>Recorded</span><span data-style="text-align: right">Files</span><span data-style="text-align: right">Duration</span></div>
                 <div data-style="max-height: 576px; overflow-y: auto">
                   <sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
                     <button type="button" class="{{r.cls}}" data-ev-click="{{r.pick}}" aria-label="{{r.aria}}">
@@ -179,24 +197,27 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
-        <div class="sec-h"><span class="sec-n">05</span><div><h2 class="sec-t">By author</h2><p class="lead">Pull requests, lines changed, median cycle and test-touch rate per author. Type comes from the single mapping in views/prdata.js; anything unlisted is unattributed, never guessed.</p></div></div>
+        <div class="sec-h"><span class="sec-n">05</span><div><h2 class="sec-t">By model</h2><p class="lead">Runs, spend, median duration and proof rate per recorded model. Runs record no author names and no agent/human mapping, so the type is not recorded, never guessed.</p></div></div>
         <div class="card" data-style="padding: 8px 22px 14px">
           <sc-for list="{{authorRows}}" as="p">
             <div data-style="display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr) 90px 90px 90px; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid rgba(13,27,62,.08)">
               <span data-style="display: flex; gap: 8px; align-items: center"><span data-style="flex: none; width: 8px; height: 8px; background: {{p.c}}"></span><span class="mono" data-style="font-size: 13px">{{p.a}}</span><span data-style="font-size: 11px; color: #45587c">{{p.ty}}</span></span>
               <span data-style="height: 10px; background: rgba(13,27,62,.08)"><span data-style="display: block; height: 10px; width: {{p.pct}}%; background: {{p.c}}"></span></span>
-              <span class="mono" data-style="font-size: 13px; text-align: right">{{p.n}} PRs</span>
-              <span class="mono" data-style="font-size: 13px; text-align: right">{{p.lines}} lines</span>
+              <span class="mono" data-style="font-size: 13px; text-align: right">{{p.n}} runs</span>
+              <span class="mono" data-style="font-size: 13px; text-align: right">{{p.lines}}</span>
               <span class="mono" data-style="font-size: 13px; text-align: right">{{p.med}} · {{p.testsPct}}</span>
             </div>
           </sc-for>
         </div>
-        <div class="sec-h"><span class="sec-n">06</span><div><h2 class="sec-t">Where each author merged</h2><p class="lead">Each author's most-merged package, from the same 134 rows.</p></div></div>
+        <div class="sec-h"><span class="sec-n">06</span><div><h2 class="sec-t">Where each author merged</h2><p class="lead">Each author's most-merged package in the Exhibit-A repo.</p></div></div>
+        <sc-if value="{{hasMerged}}">
         <div data-style="display: flex; flex-wrap: wrap; gap: 8px">
           <sc-for list="{{pkgmap}}" as="p">
             <span data-style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(13,27,62,.14); background: rgba(255,255,255,.7); font-size: 14px"><span data-style="width: 9px; height: 9px; border-radius: 50%; background: {{p.c}}"></span>{{p.a}} · {{p.n}} PRs · mostly {{p.area}} ({{p.an}})</span>
           </sc-for>
         </div>
+        </sc-if>
+        <sc-if value="{{noMerged}}"><div class="card" data-style="padding: 22px"><span data-style="font-size: 15px; color: #3d4b68">Merged-PR history: not recorded for this source. It is shown only for the Exhibit-A repo.</span></div></sc-if>
       </section>
     </main></div>
   </div>

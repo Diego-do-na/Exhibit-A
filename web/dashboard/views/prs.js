@@ -1,159 +1,222 @@
-/* View logic for prs.html, rendered by ../dc-lite.js. */
+/* View logic for prs.html, rendered by ../dc-lite.js.
+ *
+ * PRs and authors come from the dashboard API for the current --source
+ * (/api/repos, then /api/repos/<id>): recorded runs, their spend and their
+ * recorded models. The ledger records no author names and no agent/human
+ * mapping, so every author row reads "not recorded" for its type, never a
+ * guess. The merged-PR metadata section (views/prdata.js) is shown only for
+ * the Exhibit-A source, labeled as such.
+ */
 window.Component = class Component extends DCLogic {
   constructor(props) {
     super(props);
-    let pre = ''; try { pre = new URLSearchParams(window.location.search).get('pr') || ''; } catch (e) { /* no query */ }
-    this.state = { q: '', agent: 'all', kind: 'all', sort: 'new', sel: pre || 'T131', y: 'lines' };
+    let repo = '';
+    try { repo = new URLSearchParams(window.location.search).get('repo') || ''; } catch (e) { /* no query */ }
+    this.state = { q: '', agent: 'all', kind: 'all', sort: 'new', sel: null, y: 'cost', repos: [], repoId: repo, detail: null, err: '', info: null };
+  }
+  componentDidMount() {
+    fetch('/api/info', { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((info) => { if (info) this.setState({ info }); })
+      .catch(() => {});
+    fetch('/api/repos', { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        const repos = (body && body.repos) || [];
+        if (!repos.length) { this.setState({ repos: [] }); return; }
+        this.setState({ repos });
+        const want = this.state.repoId;
+        const pick = repos.some((x) => x.id === want) ? want : repos[0].id;
+        this.loadRepo(pick);
+      })
+      .catch(() => this.setState({ err: 'Could not load repositories.' }));
+  }
+  loadRepo(id) {
+    this.setState({ repoId: id, detail: null, err: '', sel: null });
+    fetch('/api/repos/' + encodeURIComponent(id), { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((detail) => {
+        if (!detail) { this.setState({ err: 'Could not load this repository.' }); return; }
+        this.setState({ detail });
+      })
+      .catch(() => this.setState({ err: 'Could not load this repository.' }));
+  }
+  money(v) {
+    if (v == null) return 'not recorded';
+    return '$' + Number(v).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+  isExhibitA() {
+    const s = this.state;
+    const names = [((s.info || {}).source || ''), s.repoId, ((s.detail && s.detail.repo) || {}).name || '']
+      .map((x) => String(x).toLowerCase());
+    return names.some((n) => n.indexOf('exhibit-a') >= 0);
   }
   renderVals() {
-    const COL = window.XA_AUTHOR_COLORS || { claude: '#0f2557', Muse: '#2c4fc4', Copilot: '#6a8fd8', assistant: '#9aa3e0', unlogged: '#c3cbd8', gemini: '#4b3fa0', grok: '#b7834f', agy: '#d9b98f', 'cursor-agent': '#7f97b8', 'claude-cloud': '#4a5873' };
-    const D = window.XA_PRS || [];
-    const DI = { '10-27': 0, '10-28': 1, '10-29': 2, '10-30': 3, '10-31': 4, '11-01': 5 };
-    const MON = { '10': 'Oct', '11': 'Nov' };
-    const fmt = (n) => n.toLocaleString('en-US');
-    const short = (n) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
-    const cyc = (m) => m < 60 ? m + 'm' : Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0');
-    const all = D.map(([id, t, when, a, cm, f, add, del, ts, area, cy]) => ({ id, t, a, cm, f, add, del, ts, area, cy, ch: add + del,
-      min: DI[when.slice(0, 5)] * 1440 + parseInt(when.slice(6, 8), 10) * 60 + parseInt(when.slice(9, 11), 10),
-      whenL: MON[when.slice(0, 2)] + ' ' + parseInt(when.slice(3, 5), 10) + ', ' + when.slice(6) }));
+    const MC = ['#0f2557', '#2c4fc4', '#6a8fd8', '#9aa3e0', '#4b3fa0', '#b7834f', '#d9b98f', '#7f97b8'];
     const st = this.state;
+    const detail = st.detail;
+    const m = (detail && detail.metrics) || {};
+    const prs = ((detail && detail.pull_requests) || []).map((p) => ({
+      run: p.run_id, id: p.pr ? 'PR ' + String(p.pr).replace(/^#/, '') : (p.run_id || '').slice(0, 12),
+      t: p.title || p.headline || p.run_id, branch: p.branch || '', status: p.status || '',
+      models: p.models || [], model: (p.models && p.models[0]) || 'model not recorded',
+      cost: p.cost_usd || 0, dur: typeof p.duration_s === 'number' ? p.duration_s : null,
+      proven: p.proven || 0, dropped: p.dropped || 0, files: (p.files_touched || []).length,
+      started: p.started_at || '', filesTouched: p.files_touched || [],
+      href: 'pr.html?run=' + encodeURIComponent(p.run_id),
+    }));
+    const opt = (list, key) => list.map(([k, l]) => ({ l, cls: 'sb' + (st[key] === k ? ' sb-on' : ''), pick: () => this.setState({ [key]: k }) }));
+    const emptySource = !st.err && st.repos.length === 0;
+    const ready = !!detail && !emptySource;
+
+    const byModel = {};
+    prs.forEach((p) => {
+      const cell = byModel[p.model] || (byModel[p.model] = { a: p.model, n: 0, cost: 0, proven: 0, durs: [], runs: [] });
+      cell.n += 1; cell.cost += p.cost || 0; cell.proven += p.proven; if (p.dur != null) cell.durs.push(p.dur); cell.runs.push(p);
+    });
+    const models = Object.keys(byModel);
+    const mcol = {};
+    models.forEach((a, i) => { mcol[a] = MC[i % MC.length]; });
     const q = st.q.trim().toLowerCase();
-    const kindOf = (a) => window.XA_authorType ? window.XA_authorType(a) : 'unattributed';
-    const byKind = all.filter((r) => st.kind === 'all' || kindOf(r.a) === st.kind || (st.kind === 'unattributed' && kindOf(r.a) === 'unattributed'));
-    const byAgent = byKind.filter((r) => st.agent === 'all' || r.a === st.agent);
-    const cmp = { new: (a, b) => b.min - a.min, old: (a, b) => a.min - b.min, big: (a, b) => b.ch - a.ch, slow: (a, b) => b.cy - a.cy };
-    const list = byAgent.filter((r) => !q || (r.id + ' ' + r.t + ' ' + r.a + ' ' + r.area).toLowerCase().includes(q)).sort(cmp[st.sort]);
+    const byAgent = prs.filter((p) => st.agent === 'all' || p.model === st.agent);
+    const byKind = byAgent.filter((p) => st.kind === 'all' || st.kind === 'not recorded');
+    const cmp = { new: (a, b) => (b.started < a.started ? -1 : b.started > a.started ? 1 : 0),
+      old: (a, b) => (a.started < b.started ? -1 : a.started > b.started ? 1 : 0),
+      big: (a, b) => b.cost - a.cost, slow: (a, b) => (b.dur || 0) - (a.dur || 0) };
+    const list = byKind.filter((p) => !q || (p.run + ' ' + p.t + ' ' + p.model + ' ' + p.branch).toLowerCase().includes(q))
+      .sort(cmp[st.sort] || cmp.new);
 
-    const B = byAgent;
-    const sum = (k) => B.reduce((s, r) => s + r[k], 0);
-    const cs = B.map((r) => r.cy).sort((a, b) => a - b);
-    const n = Math.max(B.length, 1);
+    const sum = (k) => byAgent.reduce((s, p) => s + (p[k] || 0), 0);
+    const n = Math.max(byAgent.length, 1);
     const tot = [
-      { i: 'M6 3v12M18 9a3 3 0 0 0-3-3h-4M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z', l: 'Pull requests', v: String(B.length), u: 'merged into main' },
-      { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 8a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z', l: 'Commits', v: String(sum('cm')), u: (sum('cm') / n).toFixed(1) + ' per pull request' },
-      { i: 'M4 6h16M4 12h10M4 18h13', l: 'Lines changed', v: short(sum('add') + sum('del')), u: '+' + short(sum('add')) + ' added · −' + short(sum('del')) + ' removed' },
-      { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2', l: 'Median cycle', v: B.length ? cyc(cs[Math.floor(cs.length / 2)]) : '—', u: '90th percentile ' + (B.length ? cyc(cs[Math.floor(cs.length * 0.9)]) : '—') }
+      { i: 'M6 3v12M18 9a3 3 0 0 0-3-3h-4M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z', l: 'Recorded runs', v: ready ? String(byAgent.length) : '…', u: (detail && detail.repo && detail.repo.name) || 'this source' },
+      { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 8a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z', l: 'Proven findings', v: ready ? String(m.proven || 0) : '…', u: (m.discarded || 0) + ' discarded suspicions' },
+      { i: 'M4 6h16M4 12h10M4 18h13', l: 'Recorded spend', v: ready ? this.money(sum('cost')) : '…', u: (models.length || 0) + ' recorded models' },
+      { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2', l: 'Median run', v: ready && byAgent.length ? (() => { const d = byAgent.map((p) => p.dur).filter((v) => v != null).sort((a, b) => a - b); return d.length ? d[Math.floor(d.length / 2)] + 's' : 'not recorded'; })() : '…', u: 'across recorded runs' },
     ];
-    const withT = B.filter((r) => r.ts > 0).length;
-    const days = {}; B.forEach((r) => { const d = Math.floor(r.min / 1440); days[d] = (days[d] || 0) + 1; });
+    const withProven = byAgent.filter((p) => p.proven > 0).length;
     const minor = [
-      { v: Math.round(withT / n * 100) + '%', l: 'touch at least one test file' },
-      { v: (sum('f') / n).toFixed(1), l: 'files changed per pull request' },
-      { v: fmt(Math.round((sum('add') + sum('del')) / n)), l: 'lines per pull request on average' },
-      { v: String(Object.keys(days).length), l: 'active days in the window' },
-      { v: String(new Set(B.map((r) => r.a)).size), l: 'contributing authors' }
+      { v: ready ? Math.round(withProven / n * 100) + '%' : '…', l: 'of runs prove a finding' },
+      { v: ready ? (sum('files') / n).toFixed(1) : '…', l: 'touched files per run' },
+      { v: ready ? this.money(byAgent.length ? sum('cost') / byAgent.length : null) : '…', l: 'spend per run on average' },
+      { v: String(models.length), l: 'recorded models' },
     ];
-    const lead1 = st.agent === 'all'
-      ? 'Ten authors, most of them coding agents, merged 134 pull requests in six days. Work arrived in small, verifiable steps: a typical change took under ten minutes from first commit to merge.'
-      : st.agent + ' merged ' + B.length + ' of the 134 pull requests, with ' + sum('cm') + ' commits and ' + fmt(sum('add')) + ' lines added.';
+    const lead1 = ready ? (byAgent.length + ' recorded runs, ' + (m.proven || 0) + ' proven findings, ' + this.money(sum('cost')) + ' recorded spend.') : 'Loading the recorded runs for this source.';
 
-    const counts = {}; all.forEach((r) => { counts[r.a] = (counts[r.a] || 0) + 1; });
-    const agOpts = [{ k: 'all', l: 'All authors' }].concat(Object.keys(COL).map((k) => ({ k, l: k + ' (' + counts[k] + ')' })));
-    const sortOpts = [['new', 'Newest'], ['old', 'Oldest'], ['big', 'Largest'], ['slow', 'Slowest']].map(([k, l]) => ({ k, l }));
-    const yOpts = [['lines', 'Lines'], ['files', 'Files'], ['cycle', 'Cycle']].map(([k, l]) => ({ l, cls: 'sb' + (st.y === k ? ' sb-on' : ''), pick: () => this.setState({ y: k }) }));
-
-    const inL = {}; list.forEach((r) => { inL[r.id] = 1; });
+    // Timeline: one point per recorded run at its start time.
+    const starts = byAgent.map((p) => p.started).filter(Boolean).sort();
+    const t0 = starts.length ? Date.parse(starts[0]) : 0;
+    const t1 = starts.length ? Date.parse(starts[starts.length - 1]) : 1;
+    const span = Math.max(1, t1 - t0);
     const X0 = 48, X1 = 996, Y0 = 260, Y1 = 30;
-    const xs = (m) => X0 + (m / 8640) * (X1 - X0);
-    const YM = { lines: [(r) => r.ch, 4.5, [[1, '1'], [10, '10'], [100, '100'], [1000, '1k'], [10000, '10k']], 'Lines changed'],
-      files: [(r) => r.f, 2.5, [[1, '1'], [10, '10'], [100, '100']], 'Files touched'],
-      cycle: [(r) => r.cy + 1, 2.2, [[1, '0m'], [10, '10m'], [60, '1h']], 'Minutes to merge'] };
-    const [yv, ymax, yt, ytitle] = YM[st.y];
-    const ys = (v) => Y0 - (Math.log10(Math.max(v, 1)) / ymax) * (Y0 - Y1);
-    const dw = (X1 - X0) / 6;
-    const s0 = all.find((r) => r.id === st.sel) || all[all.length - 1];
+    const xs = (p) => X0 + ((Date.parse(p.started || starts[0] || 0) - t0) / span) * (X1 - X0);
+    const YM = { cost: [(p) => p.cost, Math.max(1e-9, ...byAgent.map((p) => p.cost)), 'Recorded spend'],
+      dur: [(p) => (p.dur == null ? 0 : p.dur), Math.max(1, ...byAgent.map((p) => (p.dur == null ? 0 : p.dur))), 'Run duration (s)'],
+      proven: [(p) => p.proven, Math.max(1, ...byAgent.map((p) => p.proven)), 'Proven findings'] };
+    const [yv, ymax, ytitle] = YM[st.y] || YM.cost;
+    const ys = (v) => Y0 - (Math.log10(Math.max(v, 1)) / Math.log10(Math.max(ymax, 10))) * (Y0 - Y1);
+    const inL = {};
+    list.forEach((p) => { inL[p.run] = 1; });
+    const s0 = list.find((p) => p.run === st.sel) || list[0];
+    const dots = byAgent.slice().sort((a, b) => (inL[a.run] || 0) - (inL[b.run] || 0)).map((p) => {
+      const s = s0 && p.run === s0.run;
+      return { x: xs(p).toFixed(1), y: ys(Math.max(yv(p), st.y === 'cost' ? 0.0001 : 1)).toFixed(1), r: s ? 8.5 : 6, c: mcol[p.model] || '#4a5873', op: inL[p.run] ? 0.9 : 0.1,
+        s: s ? '#0d1b3e' : 'rgba(255,255,255,.9)', sw: s ? 2 : 1, t: p.id + ' · ' + p.t + ' · ' + this.money(p.cost), pick: () => this.setState({ sel: p.run }) };
+    });
+    const daySet = [...new Set(starts.map((s) => s.slice(0, 10)))].sort();
     const tl = { yt: ytitle,
-      days: ['Oct 27', 'Oct 28', 'Oct 29', 'Oct 30', 'Oct 31', 'Nov 1'].map((l, i) => ({ l, x: X0 + i * dw, w: dw, tx: X0 + i * dw + dw / 2, f: i % 2 ? 'rgba(13,27,62,.03)' : 'rgba(13,27,62,0)' })),
-      grid: yt.map(([v, l]) => ({ y: ys(v), ty: ys(v) + 4, l })),
-      dots: all.slice().sort((a, b) => (inL[a.id] || 0) - (inL[b.id] || 0)).map((r) => {
-        const s = r.id === st.sel;
-        return { x: xs(r.min).toFixed(1), y: ys(yv(r)).toFixed(1), r: s ? 8.5 : 6, c: COL[r.a], op: inL[r.id] ? 0.9 : 0.1,
-          s: s ? '#0d1b3e' : 'rgba(255,255,255,.9)', sw: s ? 2 : 1, t: r.id + ' · ' + r.t, pick: () => this.setState({ sel: r.id }) };
-      }),
-      sx: xs(s0.min).toFixed(1), sy: (ys(yv(s0)) - 15).toFixed(1), sl: s0.id };
+      days: daySet.map((l) => { const x = X0 + ((Date.parse(l) - t0) / span) * (X1 - X0); return { l: l.slice(5), x: x.toFixed(1), w: 0, tx: x.toFixed(1), f: 'rgba(13,27,62,0)' }; }),
+      grid: [1, 10, 100].filter((v) => v <= Math.max(ymax, 10)).map((v) => ({ y: ys(v), ty: ys(v) + 4, l: String(v) })),
+      dots, sx: s0 ? xs(s0).toFixed(1) : 0, sy: s0 ? (ys(Math.max(yv(s0), 1)) - 15).toFixed(1) : 0, sl: s0 ? s0.id : '' };
 
-    const BK = [['<50', 0, 50], ['50–200', 50, 200], ['200–500', 200, 500], ['500–1.5k', 500, 1500], ['1.5k+', 1500, 1e9]];
-    const hc = BK.map(([l, a, b]) => ({ l, n: B.filter((r) => r.ch >= a && r.ch < b).length }));
+    const BK = [['<1¢', 0, 0.01], ['1–10¢', 0.01, 0.1], ['10–50¢', 0.1, 0.5], ['50¢+', 0.5, 1e18]];
+    const hc = BK.map(([l, a, b]) => ({ l, n: byAgent.filter((p) => p.cost >= a && p.cost < b).length }));
     const hm = Math.max(1, ...hc.map((h) => h.n));
-    const hist = hc.map((h, i) => ({ ...h, pct: (h.n / hm * 78).toFixed(1), c: ['#c3cbd8', '#9aa3e0', '#6a8fd8', '#2c4fc4', '#0f2557'][i] }));
-    const CK = [['<5m', 0, 5], ['5–15m', 5, 15], ['15–30m', 15, 30], ['30–60m', 30, 60], ['1h+', 60, 1e9]];
-    const cc = CK.map(([l, a, b]) => ({ l, n: B.filter((r) => r.cy >= a && r.cy < b).length }));
-    const cm = Math.max(1, ...cc.map((h) => h.n));
-    const cyh = cc.map((h, i) => ({ ...h, pct: (h.n / cm * 78).toFixed(1), c: ['#0f2557', '#2c4fc4', '#6a8fd8', '#9aa3e0', '#b7834f'][i] }));
+    const hist = hc.map((h, i) => ({ ...h, pct: (h.n / hm * 78).toFixed(1), c: ['#c3cbd8', '#9aa3e0', '#6a8fd8', '#2c4fc4'][i] }));
+    const DK = [['<10s', 0, 10], ['10–60s', 10, 60], ['1–10m', 60, 600], ['10m+', 600, 1e18]];
+    const dc = DK.map(([l, a, b]) => ({ l, n: byAgent.filter((p) => (p.dur == null ? -1 : p.dur) >= a && (p.dur || 0) < b).length }));
+    const dm = Math.max(1, ...dc.map((h) => h.n));
+    const cyh = dc.map((h, i) => ({ ...h, pct: (h.n / dm * 78).toFixed(1), c: ['#0f2557', '#2c4fc4', '#6a8fd8', '#9aa3e0'][i] }));
 
-    const rows = list.map((r) => ({ id: r.id, t: r.t, a: r.a, ty: kindOf(r.a), isAgent: kindOf(r.a) === 'agent', c: COL[r.a], when: r.whenL, ch: fmt(r.ch), cyc: cyc(r.cy), aria: r.id + ' ' + r.t,
-      cls: 'prow' + (st.sel === r.id ? ' prow-on' : ''), pick: () => this.setState({ sel: r.id }) }));
-    const t0 = Math.max(1, s0.ch);
-    const sizeOf = (x) => x < 50 ? 'XS' : x < 200 ? 'S' : x < 500 ? 'M' : x < 1500 ? 'L' : 'XL';
-    const rankSize = all.slice().sort((a, b) => b.ch - a.ch).findIndex((r) => r.id === s0.id) + 1;
-    const sel = { id: s0.id, t: s0.t, a: s0.a, c: COL[s0.a], when: s0.whenL, cm: s0.cm, f: s0.f, cyc: cyc(s0.cy), add: fmt(s0.add), del: fmt(s0.del),
-      addPct: (s0.add / t0 * 100).toFixed(1), delPct: (s0.del / t0 * 100).toFixed(1), size: 'Size ' + sizeOf(s0.ch),
-      href: 'pr.html?pr=' + encodeURIComponent(s0.id), story: 'Merged by ' + s0.a + ' after ' + s0.cm + (s0.cm === 1 ? ' commit' : ' commits') + ' across ' + s0.f + ' files, mostly in ' + s0.area + '. It is the #' + rankSize + ' largest change of the 134' + (s0.ts ? ', and touched ' + s0.ts + (s0.ts === 1 ? ' test file.' : ' test files.') : '.') };
+    const rows = list.map((p) => ({ id: p.id, t: p.t, a: p.model, ty: 'not recorded', isAgent: false, c: mcol[p.model] || '#4a5873',
+      when: (p.started || '').slice(0, 16).replace('T', ' '), ch: String(p.files), cyc: p.dur == null ? '—' : p.dur + 's',
+      aria: p.id + ' ' + p.t, cls: 'prow' + (s0 && st.sel === p.run ? ' prow-on' : ''), pick: () => this.setState({ sel: p.run }) }));
+    const sel = s0 ? { id: s0.id, t: s0.t, a: s0.model, c: mcol[s0.model] || '#4a5873', when: (s0.started || '').slice(0, 16).replace('T', ' '),
+      cm: String(s0.proven + s0.dropped), f: String(s0.files), cyc: s0.dur == null ? 'not recorded' : s0.dur + 's',
+      add: this.money(s0.cost), del: '—', addPct: '100', delPct: '0', size: s0.proven ? s0.proven + ' proven' : 'nothing proven',
+      story: (s0.branch ? 'Branch ' + s0.branch + '. ' : '') + 'Status ' + (s0.status || 'not recorded') + '. ' + s0.proven + ' proven, ' + s0.dropped + ' discarded. Touched files: ' + (s0.filesTouched.slice(0, 4).join(', ') || 'not recorded') + '.',
+      href: s0.href } : null;
 
-    // Author to package map: where each author merged most, from the same rows.
-    const byAuthor = {};
-    all.forEach((r) => {
-      const cell = byAuthor[r.a] || (byAuthor[r.a] = { a: r.a, c: COL[r.a], n: 0, areas: {} });
-      cell.n += 1; cell.areas[r.area] = (cell.areas[r.area] || 0) + 1;
+    const authorRows = models.sort((a, b) => byModel[b].n - byModel[a].n).map((a) => {
+      const cell = byModel[a];
+      const ds = cell.durs.sort((x, y) => x - y);
+      return { a, ty: 'not recorded', isAgent: false, isHuman: false, c: mcol[a], n: cell.n,
+        pct: (cell.n / Math.max(1, ...models.map((k) => byModel[k].n)) * 100).toFixed(1),
+        lines: this.money(cell.cost), med: ds.length ? ds[Math.floor(ds.length / 2)] + 's' : '—',
+        testsPct: Math.round(cell.proven / Math.max(1, cell.n) * 100) + '% proven' };
     });
-    const pkgmap = Object.values(byAuthor).sort((a, b) => b.n - a.n).map((cell) => {
-      const top = Object.entries(cell.areas).sort((a, b) => b[1] - a[1])[0];
-      return { a: cell.a, c: cell.c, n: cell.n, area: top[0], an: top[1] };
-    });
+    // Merged-PR metadata lives at pr.html?pr=<T-id>; runs link to pr.html?run=<id>.
+    const hasMerged = this.isExhibitA();
+    const XA = window.XA_PRS || [];
+    const metaHits = (hasMerged && q) ? XA.filter((r) => (r[0] + ' ' + r[1]).toLowerCase().includes(q)).slice(0, 5)
+      .map((r) => ({ id: r[0], t: r[1], href: 'pr.html?pr=' + encodeURIComponent(r[0]) })) : [];
+    const pkgmap = hasMerged ? (() => {
+      const byAuthor = {};
+      XA.forEach((r) => {
+        const cell = byAuthor[r[3]] || (byAuthor[r[3]] = { a: r[3], c: (window.XA_AUTHOR_COLORS || {})[r[3]] || '#4a5873', n: 0, areas: {} });
+        cell.n += 1; cell.areas[r[9]] = (cell.areas[r[9]] || 0) + 1;
+      });
+      return Object.values(byAuthor).sort((a, b) => b.n - a.n).map((cell) => {
+        const top = Object.entries(cell.areas).sort((a, b) => b[1] - a[1])[0];
+        return { a: cell.a, c: cell.c, n: cell.n, area: top[0], an: top[1] };
+      });
+    })() : [];
 
-    this.__d = { all, COL, BK, CK, yv, ymax, yt, ytitle, ykey: st.y, cyc, fmt };
-    const kindOpts = [{ k: 'all', l: 'All types' }, { k: 'agent', l: 'Agents' }, { k: 'human', l: 'Humans' }, { k: 'unattributed', l: 'Unattributed' }];
-    const byA = {}; byAgent.forEach((r) => { const k = r.a; (byA[k] = byA[k] || []).push(r); });
-    const maxN = Math.max(1, ...Object.values(byA).map((v) => v.length));
-    const authorRows = Object.entries(byA).sort((a, b) => b[1].length - a[1].length).map(([a, v]) => {
-      const cys = v.map((r) => r.cy).sort((x, y) => x - y);
-      return { a, ty: kindOf(a), isAgent: kindOf(a) === 'agent', isHuman: kindOf(a) === 'human', c: COL[a] || '#4a5873', n: v.length,
-        pct: (v.length / maxN * 100).toFixed(1), lines: fmt(v.reduce((s, r) => s + r.ch, 0)), med: cyc(cys[Math.floor(cys.length / 2)]),
-        testsPct: Math.round(v.filter((r) => r.ts > 0).length / v.length * 100) + '%' };
-    });
-    return { tot, minor, lead1, shown: list.length + ' of 134 shown', agent: st.agent, agOpts, onAgent: (e) => this.setState({ agent: e.target.value }),
+    this.__d = { starts, t0, span, yv, ymax, ytitle, ykey: st.y, BK, DK, mcol, prs: byAgent, xs, ys, models, byModel };
+    const kindOpts = [{ k: 'all', l: 'All types' }, { k: 'agent', l: 'Agents' }, { k: 'human', l: 'Humans' }, { k: 'not recorded', l: 'Not recorded' }];
+    const agOpts = [{ k: 'all', l: 'All models' }].concat(models.map((k) => ({ k, l: k + ' (' + byModel[k].n + ')' })));
+    const sortOpts = [['new', 'Newest'], ['old', 'Oldest'], ['big', 'Costliest'], ['slow', 'Slowest']].map(([k, l]) => ({ k, l }));
+    const repoName = (detail && detail.repo && (detail.repo.name || detail.repo.id)) || (st.info && st.info.source) || 'loading';
+    return { tot, minor, lead1, shown: list.length + ' of ' + prs.length + ' shown', agent: st.agent, agOpts, onAgent: (e) => this.setState({ agent: e.target.value }),
       kind: st.kind, kindOpts, onKind: (e) => this.setState({ kind: e.target.value }), authorRows,
-      sort: st.sort, sortOpts, onSort: (e) => this.setState({ sort: e.target.value }), yOpts, tl, hist, cyh, rows, sel, pkgmap,
-      q: st.q, onQ: (e) => this.setState({ q: e.target.value }) };
+      sort: st.sort, sortOpts, onSort: (e) => this.setState({ sort: e.target.value }),
+      yOpts: opt([['cost', 'Spend'], ['dur', 'Duration'], ['proven', 'Proven']], 'y'), tl, hist, cyh, rows, sel,
+      metaHits, hasMeta: metaHits.length > 0, hasMerged, noMerged: ready && !hasMerged,
+      pkgmap, q: st.q, onQ: (e) => this.setState({ q: e.target.value }),
+      repoName, ready, emptySource, err: st.err };
   }
 
-  // The expanded version of each chart: same data, drawn in full (see fullchart.js).
   fullSpec(id) {
     const d = this.__d;
-    if (!d) return null;
-    const { all, COL } = d;
-    const authors = Object.keys(COL);
+    if (!d || !d.starts) return null;
     if (id === 'tl') {
-      const dayNames = ['Oct 27', 'Oct 28', 'Oct 29', 'Oct 30', 'Oct 31', 'Nov 1'];
-      const perDay = dayNames.map((_, i) => all.filter((r) => Math.floor(r.min / 1440) === i).length);
-      const label = d.ykey === 'lines' ? ' lines' : d.ykey === 'files' ? ' files' : ' min to merge';
-      const val = (r) => d.yv(r) - (d.ykey === 'cycle' ? 1 : 0);
-      const sorted = all.slice().sort((a, b) => val(b) - val(a));
-      const counts = {}; all.forEach((r) => { counts[r.a] = (counts[r.a] || 0) + 1; });
-      return { type: 'scatter', title: 'Merge timeline', aria: 'Every pull request at the moment it merged', xMax: 8640, yMaxLog: d.ymax, yTitle: d.ytitle + ' (log scale)',
-        days: dayNames.map((l, i) => ({ l, sub: perDay[i] + ' PRs' })), yTicks: d.yt,
-        points: all.map((r) => ({ key: r.id, x: r.min, y: d.yv(r), color: COL[r.a], r: 4 + Math.min(5, Math.log10(Math.max(2, r.ch)) * 1.1),
-          tip: r.id + ' \u00b7 ' + r.t + ' \u00b7 ' + r.a + ' \u00b7 ' + r.whenL + ' \u00b7 ' + d.fmt(val(r)) + label })),
-        labelled: sorted.slice(0, 6).map((r) => ({ key: r.id, x: r.min, y: d.yv(r) })),
-        legend: authors.filter((a) => counts[a]).map((a) => ({ name: a, color: COL[a], n: counts[a] })),
-        rows: sorted.map((r) => ({ key: r.id, label: r.id + ' \u00b7 ' + r.t, value: d.fmt(val(r)) + label, n: val(r) })) };
+      const { yv, ymax } = d;
+      const val = (p) => Math.max(yv(p), 1e-9);
+      const sorted = d.prs.slice().sort((a, b) => val(b) - val(a));
+      const days = [...new Set(d.starts.map((s) => s.slice(0, 10)))].sort();
+      return { type: 'scatter', title: 'Recorded runs timeline', aria: 'Every recorded run at its start time', xMax: 1, yMaxLog: Math.log10(Math.max(ymax, 10)), yTitle: d.ytitle + ' (log scale)',
+        days: days.map((l) => ({ l: l.slice(5), sub: d.prs.filter((p) => (p.started || '').slice(0, 10) === l).length + ' runs' })),
+        yTicks: [1, 10, 100].filter((v) => v <= Math.max(ymax, 10)).map((v) => v),
+        points: d.prs.map((p) => ({ key: p.run, x: d.xs(p), y: val(p), color: d.mcol[p.model] || '#4a5873', r: 5,
+          tip: p.id + ' · ' + p.t + ' · ' + p.model })),
+        labelled: sorted.slice(0, 6).map((p) => ({ key: p.run, x: d.xs(p), y: val(p) })),
+        legend: d.models.map((a) => ({ name: a, color: d.mcol[a], n: d.byModel[a].n })),
+        rows: sorted.map((p) => ({ key: p.run, label: p.id + ' · ' + p.t, value: String(Math.round(val(p) * 10000) / 10000), n: val(p) })) };
     }
     if (id === 'hist' || id === 'cyh') {
       const isH = id === 'hist';
-      const BK = isH ? d.BK : d.CK, get = isH ? (r) => r.ch : (r) => r.cy;
-      const values = {}; const rows = [];
-      BK.forEach(([l, a, b]) => {
-        values[l] = {};
-        const inB = all.filter((r) => get(r) >= a && get(r) < b);
-        inB.forEach((r) => { values[l][r.a] = (values[l][r.a] || 0) + 1; });
-        const top = inB.slice().sort((x, y) => get(y) - get(x)).slice(0, 3).map((r) => r.id).join(', ');
-        rows.push({ key: l, label: l + (isH ? ' lines' : ''), value: inB.length + ' PRs' + (top ? ' \u00b7 ' + top : ''), n: inB.length });
+      const BK = isH ? d.BK : d.DK;
+      const get = isH ? ((p) => p.cost) : ((p) => (p.dur == null ? -1 : p.dur));
+      const values = {};
+      const rows = BK.map(([l, a, b]) => {
+        const inB = d.prs.filter((p) => get(p) >= a && get(p) < b);
+        values[l] = { runs: inB.length };
+        return { key: l, label: l, value: inB.length + ' runs', n: inB.length };
       });
-      return { type: 'bars', title: isH ? 'Lines changed per PR' : 'Time from first commit to merge', aria: isH ? 'Pull requests by size' : 'Pull requests by time to merge',
-        yTitle: 'Pull requests', cats: BK.map(([l]) => ({ k: l, l: isH ? l + ' lines' : l })), series: authors.map((a) => ({ k: a, name: a, color: COL[a] })), values, rows,
+      return { type: 'bars', title: isH ? 'Recorded spend per run' : 'Run duration', aria: isH ? 'Recorded runs by spend' : 'Recorded runs by duration', yTitle: 'Recorded runs',
+        cats: BK.map(([l]) => ({ k: l, l })), series: [{ k: 'runs', name: 'runs', color: '#2c4fc4' }], values, rows,
         totalNote: (k) => (rows.find((x) => x.key === k) || {}).value || '' };
     }
     return null;
   }
 };
-

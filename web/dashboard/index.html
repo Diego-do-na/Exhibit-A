@@ -10,6 +10,7 @@
 <script src="dc-lite.js"></script>
 <script src="views/index.js"></script>
 <script src="views/palette.js"></script>
+<script src="views/sourcebar.js"></script>
 </head>
 <body>
 <template data-dc>
@@ -40,11 +41,25 @@
     </nav>
 
     <div class="scroll"><main class="content">
+      <div data-xa-source class="xa-src"></div>
       <header data-style="padding: 12px 4px 0">
-        <span class="lbl">Oct 27 — Nov 1, 2026</span>
+        <span class="lbl">{{repoName}}</span>
         <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Overview</h1>
         <p class="lead" data-style="font-size: 19px">A vulnerability is reported only when an exploit is proven and its fix verified.</p>
       </header>
+
+      <sc-if value="{{empty}}">
+      <div class="card" data-style="padding: 28px; display: flex; flex-direction: column; gap: 16px">
+        <span class="lbl">Get started</span>
+        <h2 class="dsp" data-style="margin: 0; font-size: 30px; font-weight: 500">No runs recorded for this source</h2>
+        <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">Exhibit A has not proven anything here yet, because nothing has been recorded. Three steps record your first run:</p>
+        <ol data-style="margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font-size: 15px; line-height: 1.6; color: #26365a">
+          <li>Initialise the Action workflow in your repository: <span class="mono" data-style="font-size: 14px">exhibit-a init</span></li>
+          <li>Add the model secret to the repository: <span class="mono" data-style="font-size: 14px">gh secret set META_API_KEY</span> (the dashboard never stores keys)</li>
+          <li>Open a pull request — the Action runs Exhibit A on the diff, then open <span class="mono" data-style="font-size: 14px">exhibit-a dashboard --source github:owner/repo</span> to see it here.</li>
+        </ol>
+      </div>
+      </sc-if>
 
       <section class="card proof-strip" aria-label="How a proof works">
         <div class="proof-step"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><div><b>Suspicion</b><span>The adversary proposes what might be wrong.</span></div></div><span class="proof-arrow" aria-hidden="true">→</span>
@@ -54,7 +69,7 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">The state of the proof</h2><p class="lead">32 applications, 44 suspicions: 30 proven with a verified fix, none accusing safe code.</p></div></div>
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">The state of the proof</h2><p class="lead">{{secLead1}}</p></div></div>
         <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
           <sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
@@ -71,14 +86,14 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">How the work arrived</h2><p class="lead">134 pull requests from ten authors in six days; the last two days carried the heaviest changes.</p></div></div>
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">How the work arrived</h2><p class="lead">{{secLead2}}</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <div class="card" data-style="flex: 3 1 560px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px">
             <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
               <h3 class="ct">Merges per day</h3>
               <div data-style="display: flex; gap: 8px; align-items: center">
                 <div class="seg" role="group" aria-label="Metric"><sc-for list="{{velOpts}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
-                <button type="button" class="ib" data-zoom data-zoom-id="vel" data-zoom-desc="Pull requests, or lines added with the toggle, merged into main on each day from Oct 27 to Nov 1, split by author. The first day laid the foundation: scaffold, ledger, oracle and sandbox. The last two days carried the heaviest changes." data-zoom-points="Each bar is one day and each colored segment one author, named in the legend.|Switch between PRs and lines to compare volume with size: Oct 27 has the most pull requests, Oct 31 and Nov 1 the most lines.|&#x27;unlogged&#x27; marks work whose author was not recorded. A pull request is not always written by a coding agent." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+                <button type="button" class="ib" data-zoom data-zoom-id="vel" data-zoom-desc="Recorded runs per day for this source, stacked by outcome. The toggle switches between run counts and recorded spend." data-zoom-points="Each bar is one day and each colored segment one outcome, named in the legend.|Every number comes from the recorded runs of this source." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
               </div>
             </div>
             <svg viewBox="0 0 680 280" width="100%" role="img" aria-label="{{vel.aria}}">
@@ -112,14 +127,14 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">What was proven, and what was not</h2><p class="lead">Command execution and file reads lead the proven findings.</p></div></div>
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">What was proven, and what was not</h2><p class="lead">{{secLead3}}</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <div class="card" data-style="flex: 2 1 400px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px">
             <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
               <h3 class="ct">Findings by {{donT}}</h3>
               <div data-style="display: flex; gap: 8px; align-items: center">
                 <div class="seg" role="group" aria-label="Group by"><sc-for list="{{donOpts}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
-                <button type="button" class="ib" data-zoom data-zoom-id="don" data-zoom-desc="Share of the 44 suspicions the adversary raised, grouped either by the effect that was proven or by the verdict each suspicion received." data-zoom-points="By effect counts the 30 proven findings: command execution 9, file read 7, SQL read 6, file write 5, access bypass 2, SSRF 1.|By verdict: 30 proven, 9 invalid test, 5 discarded.|Invalid tests and discards are refusals, not misses: Exhibit A reports only what it can prove." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+                <button type="button" class="ib" data-zoom data-zoom-id="don" data-zoom-desc="Share of the recorded suspicions, grouped either by the effect that was proven or by the verdict each suspicion received." data-zoom-points="By effect counts the proven findings of this source.|By verdict counts every recorded verdict.|Invalid tests and discards are refusals, not misses: Exhibit A reports only what it can prove." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
               </div>
             </div>
             <div data-style="display: flex; flex-wrap: wrap; gap: 22px; align-items: center">
@@ -154,13 +169,13 @@
                 </div>
               </sc-for>
             </div>
-            <p data-style="margin: 4px 0 0; font-size: 15px; line-height: 1.55; color: #26365a">14 stopped at the oracle; 4 fixes were verified but ship flagged as incomplete.</p>
+            <p data-style="margin: 4px 0 0; font-size: 15px; line-height: 1.55; color: #26365a">{{funnelNote}}</p>
           </div>
         </div>
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
-        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">The codebase today</h2><p class="lead">29,903 lines of Python in 19 packages, 1,932 test functions.</p></div></div>
+        <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">The runs today</h2><p class="lead">{{secLead4}}</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <div class="card" data-style="flex: 3 1 520px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 4px">
             <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px"><h3 class="ct">Latest merges</h3><a href="prs.html" data-style="font-size: 14px; text-decoration: none; min-height: 40px; display: inline-flex; align-items: center">View all</a></div>

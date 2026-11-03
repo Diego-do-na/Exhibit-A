@@ -8,6 +8,7 @@
 <script src="dc-lite.js"></script>
 <script src="views/finding.js"></script>
 <script src="views/palette.js"></script>
+<script src="views/sourcebar.js"></script>
 </head>
 <body>
 <template data-dc>
@@ -34,6 +35,7 @@
     </nav>
 
     <div class="scroll"><main class="content">
+      <div data-xa-source class="xa-src"></div>
       <sc-if value="{{err}}" hint-placeholder-val="{{ false }}">
         <div class="card" data-style="padding: 22px; font-size: 16px">{{err}}</div>
       </sc-if>
