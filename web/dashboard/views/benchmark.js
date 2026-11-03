@@ -72,8 +72,53 @@ window.Component = class Component extends DCLogic {
       { l: 'Lines added', v: (p0[4] / 131046 * 100).toFixed(1) + '%', pct: (p0[4] / 131046 * 100).toFixed(1) },
       { l: 'Test files touched', v: p0[5] + ' of 278', pct: (p0[5] / 278 * 100).toFixed(1) }] };
 
+    this.__d = { SYS, AB, roles, AG };
     return { ek, smOpts: opt([['prec', 'Precision'], ['rec', 'Recall'], ['rep', 'Reports'], ['cost', 'Cost']], 'sm'), sm, smNote: note, buy,
       abOpts: opt([['fp', 'False proofs'], ['tp', 'True proofs']], 'ab'), ab, abIns, roles, econ,
+      cover: [
+        { n: 'Effect never observed', v: '6', d: 'The exploit ran, but the oracle never saw the canary move. Without the observed effect there is no proof.' },
+        { n: 'Invalid provenance', v: '4', d: 'The effect happened outside application code, so the run was refused with a named reason.' },
+        { n: 'No verified fix', v: '3', d: 'The exploit worked, but no patch passed verification, so no finding was reported.' },
+        { n: 'Guard tripwire', v: '1', d: 'The test tried to choose where the application lives; the guard stopped it first.' },
+      ],
+      pstats: [
+        { v: '68%', l: 'proof rate: 30 of 44 suspicions proven' },
+        { v: '87%', l: 'fix rate: 26 of 30 proven fixes resist bypass' },
+        { v: '$0.081', l: 'cost per proven finding' },
+        { v: '194 / 215', l: 'red-team cheats stopped; 21 remain as documented limits' },
+      ],
       m: st.m, mOpts, onM: (e) => this.setState({ m: e.target.value }), ag, score, pf };
   }
+
+  // The expanded version of each chart: same data, drawn in full (see fullchart.js).
+  fullSpec(id) {
+    const d = this.__d;
+    if (!d) return null;
+    const fmt = (n) => n.toLocaleString('en-US');
+    if (id === 'sys') {
+      const M = [['Precision', 2, (v) => v.toFixed(2), 1], ['Recall', 3, (v) => v.toFixed(2), 1], ['Reports', 4, (v) => String(v), 29], ['Cost', 5, (v) => '$' + v.toFixed(2), 4.7824]];
+      const groups = M.map(([title, ix, f, max]) => ({ title, max, rows: d.SYS.map((s) => ({ key: s[0], label: s[0], v: s[ix], color: s[1], value: s[0].endsWith('standard') && ix === 2 ? 'n/a' : f(s[ix]) })) }));
+      const rows = d.SYS.map((s) => ({ key: s[0], label: s[0], value: 'precision ' + (s[0].endsWith('standard') ? 'n/a' : s[2].toFixed(2)) + ' \u00b7 recall ' + s[3].toFixed(2) + ' \u00b7 ' + s[4] + ' reports \u00b7 $' + s[5].toFixed(2), n: s[2] }));
+      return { type: 'hbars', title: 'Systems compared', aria: 'Naive baseline against Exhibit A, four measures', rowH: 38, labelW: 210, groups, rows };
+    }
+    if (id === 'abl') {
+      const mk = (title, ix, max) => ({ title, max, note: ix === 1 ? 'lower is better' : 'higher is better', rows: d.AB.map((r, i) => ({ key: r[0], label: r[0], v: r[ix], color: i === 0 ? '#0f2557' : r[0] === 'Bare baseline' || r[0] === 'Failing test only' ? '#b7834f' : '#9aa3e0', value: String(r[ix]) })) });
+      const rows = d.AB.map((r) => ({ key: r[0], label: r[0], value: r[1] + ' false proofs \u00b7 ' + r[2] + ' true proofs', n: r[1] }));
+      return { type: 'hbars', title: 'Ablations', aria: 'Cheating tests accepted and real exploits kept, per safeguard removed', rowH: 32, labelW: 220, groups: [mk('False proofs accepted (of 215 cheats)', 1, 162), mk('True proofs kept (of 53 real exploits)', 2, 53)], rows };
+    }
+    if (id === 'roles') {
+      const total = d.roles.reduce((t, r) => t + r.v, 0);
+      const rows = d.roles.map((r) => ({ key: r.n, label: r.n, sub: r.d, v: r.v, color: r.c, value: r.v + ' calls \u00b7 ' + Math.round(r.v / total * 100) + '%' }));
+      return { type: 'hbars', title: 'Calls by role', aria: 'Model calls for each of the four roles', rowH: 48, labelW: 220, groups: [{ rows, max: d.roles[0].v }],
+        rows: rows.map((r) => ({ key: r.key, label: r.label, value: r.value + ' \u00b7 ' + r.sub, n: r.v })) };
+    }
+    if (id === 'auth') {
+      const M = [['Pull requests', 2, ''], ['Commits', 3, ''], ['Lines added', 4, ''], ['Test files touched', 5, ''], ['Median cycle', 6, ' min']];
+      const groups = M.map(([title, ix, u]) => { const list = d.AG.slice().sort((a, b) => b[ix] - a[ix]); return { title, max: list[0][ix], rows: list.map((a) => ({ key: a[0], label: a[0], v: a[ix], color: a[1], value: fmt(a[ix]) + u })) }; });
+      const rows = d.AG.map((a) => ({ key: a[0], label: a[0], value: a[2] + ' PRs \u00b7 ' + a[3] + ' commits \u00b7 +' + fmt(a[4]) + ' lines', n: a[2] }));
+      return { type: 'hbars', title: 'Author performance', aria: 'Every author across five measures', rowH: 28, labelW: 150, groups, rows };
+    }
+    return null;
+  }
 };
+

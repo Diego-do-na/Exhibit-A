@@ -85,6 +85,29 @@ def test_finding_page_is_a_printable_package():
     assert "@media print" in css
 
 
+def test_finding_page_replays_the_proof_and_shows_a_vulnerability_sheet():
+    js = read("views/finding.js")
+    assert "Replay the proof" in js
+    assert "prefers-reduced-motion" in js
+    assert "not recorded" in js
+    assert "sheetFor" in js and "CWE-22" in js
+    html = read("finding.html")
+    assert "Replay the proof" in html and "{{replay.start}}" in html
+    assert "What it is" in html and "How to fix it" in html
+
+
+def test_benchmark_has_a_coverage_panel_and_derived_stats():
+    assert "Coverage: what could not be proven" in read("benchmark.html")
+    assert "green means nothing could be proven, never safe" in read("benchmark.html")
+    js = read("views/benchmark.js")
+    assert "proof rate" in js and "fix rate" in js and "red-team" in js
+
+
+def test_pull_requests_map_authors_to_packages():
+    assert "pkgmap" in read("views/prs.js")
+    assert "Where each author merged" in read("prs.html")
+
+
 def test_graph_page_has_a_heatmap_and_proven_attack_paths():
     js = read("views/graph.js")
     assert "codegraph" in js and "proven_paths" in js and "heat" in js

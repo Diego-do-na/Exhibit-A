@@ -27,14 +27,35 @@
     return res.json();
   }
 
+  function loadPRData() {
+    if (window.XA_PRS) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'views/prdata.js';
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('prdata'));
+      document.head.appendChild(s);
+    });
+  }
+
   async function loadItems() {
     const items = PAGES.map((p) => ({ group: 'Go to', title: p.t, detail: p.d, href: p.href }));
+    try { await loadPRData(); } catch (e) { /* palette still works without the PR list */ }
+    for (const r of window.XA_PRS || []) {
+      items.push({
+        group: 'Merged pull requests',
+        title: r[0] + ' · ' + r[1],
+        detail: r[3] + ' · ' + r[2] + ' · ' + r[9],
+        href: 'prs.html?pr=' + encodeURIComponent(r[0]),
+        keys: (r[0] + ' ' + r[1] + ' ' + r[3] + ' ' + r[9]).toLowerCase(),
+      });
+    }
     try {
       const runs = await getJSON('/api/runs?per_page=100');
       for (const r of (runs && runs.runs) || []) {
         const name = r.pr ? 'PR ' + r.pr : r.run_id;
         items.push({
-          group: 'Pull requests',
+          group: 'Proof runs',
           title: name + ' · ' + (r.title || r.run_id),
           detail: (r.repo || '') + ' · ' + (r.headline || ''),
           href: 'pr.html?run=' + encodeURIComponent(r.run_id),
@@ -49,9 +70,9 @@
           items.push({
             group: 'Findings in this run', kind: 'proven',
             title: (f.id || 'finding') + ' · ' + (f.class || ''),
-            detail: (f.cwe || '') + ' · ' + (f.file || '') + ':' + (f.line || 0),
+            detail: (((f.evidence || {}).cwe) || '') + ' · ' + (f.file || '') + ':' + (f.line || 0),
             href: 'finding.html?run=' + encodeURIComponent(RUN_ID) + '&finding=' + encodeURIComponent(f.id || ''),
-            keys: ((f.id || '') + ' ' + (f.class || '') + ' ' + (f.cwe || '') + ' ' + (f.file || '')).toLowerCase(),
+            keys: ((f.id || '') + ' ' + (f.class || '') + ' ' + (((f.evidence || {}).cwe) || '') + ' ' + (f.file || '')).toLowerCase(),
           });
         }
         for (const f of (detail && detail.discarded) || []) {
@@ -115,10 +136,10 @@
     q = q.trim().toLowerCase();
     shown = !q
       ? (items || []).slice(0, 60)
-      : (items || []).filter((it) => ((it.title + ' ' + (it.detail || '')).toLowerCase().includes(q) || (it.keys || '').includes(q))).slice(0, 60);
+      : (items || []).filter((it) => { const hay = (it.title + ' ' + (it.detail || '') + ' ' + (it.keys || '')).toLowerCase(); return q.split(/\s+/).every((w) => hay.includes(w)); }).slice(0, 80);
     list.replaceChildren();
     if (!shown.length) {
-      list.appendChild(el('div', 'pal-empty', q ? 'No match. Try a PR number, finding id or module.' : 'Type to search runs, findings and modules.'));
+      list.appendChild(el('div', 'pal-empty', q ? 'No match. Try a PR id (T131), a title word, an author or a module.' : 'Type to search pull requests, runs, findings and modules.'));
       return;
     }
     let lastGroup = '';
@@ -151,6 +172,7 @@
 
   function build() {
     root = el('div', 'ovl pal-ovl');
+    root.style.fontFamily = "'IBM Plex Sans', system-ui, sans-serif";
     root.style.display = 'none';
     root.setAttribute('role', 'dialog');
     root.setAttribute('aria-modal', 'true');
@@ -160,7 +182,7 @@
     input = document.createElement('input');
     input.className = 'pal-input';
     input.type = 'search';
-    input.placeholder = 'Jump to a PR, finding or module…  (Esc to close)';
+    input.placeholder = 'Search pull requests, findings or modules…  (Esc to close)';
     input.setAttribute('aria-label', 'Jump to a PR, finding or module');
     input.addEventListener('input', () => { active = 0; render(input.value); });
     input.addEventListener('keydown', (e) => {
@@ -172,7 +194,7 @@
     bar.appendChild(input);
     list = el('div', 'pal-list');
     list.setAttribute('role', 'listbox');
-    const hint = el('div', 'pal-hint', RUN_ID ? 'Searching this run plus every page and PR.' : 'Tip: open a PR page first to also search its findings and modules.');
+    const hint = el('div', 'pal-hint', RUN_ID ? 'Searching this run plus every page and PR.' : 'Searches all merged pull requests. Open a run first to also search its findings and modules.');
     box.append(bar, list, hint);
     root.appendChild(box);
     root.addEventListener('click', (e) => { if (e.target === root) close(); });

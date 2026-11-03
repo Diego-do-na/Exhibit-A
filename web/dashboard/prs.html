@@ -5,8 +5,10 @@
 <title>Exhibit A · Pull requests</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="dashboard.css">
+<script src="views/fullchart.js"></script>
 <script src="views/viz.js"></script>
 <script src="dc-lite.js"></script>
+<script src="views/prdata.js"></script>
 <script src="views/prs.js"></script>
 <script src="views/palette.js"></script>
 </head>
@@ -40,7 +42,7 @@
         <div>
           <span class="lbl">{{shown}}</span>
           <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Pull requests</h1>
-          <p class="lead" data-style="font-size: 19px">Every task branch that reached main. Each one had a declared scope, its own tests, and was merged only when those tests were green.</p>
+          <p class="lead" data-style="font-size: 19px">Every task branch that reached main, merged only with green tests.</p>
         </div>
         <div data-style="display: flex; gap: 8px; flex-wrap: wrap">
           <label for="ag" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Author</label>
@@ -65,13 +67,13 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">Timeline</h2><p class="lead">Each point is one pull request, placed at the moment it merged. Vertical position shows how big it was (lines, files or cycle time, chosen with the toggle), so the late surge of heavy changes on October 31 and November 1 stands out on its own.</p></div></div>
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">Timeline</h2><p class="lead">Each point is a pull request at the moment it merged; height shows its size.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
           <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
             <h3 class="ct">Merge timeline</h3>
             <div data-style="display: flex; gap: 8px; align-items: center">
               <div class="seg" role="group" aria-label="Vertical axis"><sc-for list="{{yOpts}}" as="o"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.l}}</button></sc-for></div>
-              <button type="button" class="ib" data-zoom data-zoom-desc="Each point is one pull request, placed at the moment it merged. Vertical position shows how big it was (lines, files or cycle time, chosen with the toggle), so the late surge of heavy changes on October 31 and November 1 stands out on its own." data-zoom-points="Select a point to read that pull request in the panel next to the table.|The tall points are corpus expansions and generated benchmark results, not hand-written code." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
+              <button type="button" class="ib" data-zoom data-zoom-id="tl" data-zoom-desc="Each point is one pull request, placed at the moment it merged. Vertical position shows how big it was (lines, files or cycle time, chosen with the toggle), so the late surge of heavy changes on October 31 and November 1 stands out on its own." data-zoom-points="Select a point to read that pull request in the panel next to the table.|The tall points are corpus expansions and generated benchmark results, not hand-written code." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
             </div>
           </div>
           <svg viewBox="0 0 1000 300" width="100%" role="img" aria-label="Scatter of pull requests by merge date">
@@ -93,10 +95,10 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Size and speed</h2><p class="lead">Most pull requests are small and fast: they change a few hundred lines and merge within minutes of their first commit. The few very large ones are corpus expansions and generated benchmark results.</p></div></div>
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Size and speed</h2><p class="lead">Most pull requests are small and fast; the few huge ones are corpus and generated results.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <div class="card" data-style="flex: 1 1 380px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 16px">
-            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Lines changed per PR</h3><button type="button" class="ib" data-zoom data-zoom-desc="How many lines each pull request changed. Most change a few hundred lines; the few very large ones are corpus expansions and generated benchmark results." data-zoom-points="Each bar counts pull requests in one size range.|A long tail to the right is normal here: generated data counts as lines changed." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Lines changed per PR</h3><button type="button" class="ib" data-zoom data-zoom-id="hist" data-zoom-desc="How many lines each pull request changed. Most change a few hundred lines; the few very large ones are corpus expansions and generated benchmark results." data-zoom-points="Each bar counts pull requests in one size range.|A long tail to the right is normal here: generated data counts as lines changed." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
             <div data-style="display: flex; align-items: flex-end; gap: 14px; height: 200px">
               <sc-for list="{{hist}}" as="h">
                 <div data-style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end">
@@ -108,7 +110,7 @@
             </div>
           </div>
           <div class="card" data-style="flex: 1 1 380px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 16px">
-            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Time from first commit to merge</h3><button type="button" class="ib" data-zoom data-zoom-desc="How long a pull request took from its first commit to its merge. Most are small and fast." data-zoom-points="The median is 8 minutes and 90% close within 50 minutes.|Each bar counts pull requests in one time range." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+            <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Time from first commit to merge</h3><button type="button" class="ib" data-zoom data-zoom-id="cyh" data-zoom-desc="How long a pull request took from its first commit to its merge. Most are small and fast." data-zoom-points="The median is 8 minutes and 90% close within 50 minutes.|Each bar counts pull requests in one time range." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
             <div data-style="display: flex; align-items: flex-end; gap: 14px; height: 200px">
               <sc-for list="{{cyh}}" as="h">
                 <div data-style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end">
@@ -169,6 +171,15 @@
             <p data-style="margin: 0; font-size: 15px; line-height: 1.55; color: #26365a">{{sel.story}}</p>
             <a href="pr.html" data-style="display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 46px; border-radius: 4px; background: #0f2557; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 500; box-shadow: inset 0 1px 0 rgba(255,255,255,.2)">Open security analysis<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
           </aside>
+        </div>
+      </section>
+
+      <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
+        <div class="sec-h"><span class="sec-n">05</span><div><h2 class="sec-t">Where each author merged</h2><p class="lead">Each author's most-merged package, from the same 134 rows.</p></div></div>
+        <div data-style="display: flex; flex-wrap: wrap; gap: 8px">
+          <sc-for list="{{pkgmap}}" as="p">
+            <span data-style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(13,27,62,.14); background: rgba(255,255,255,.7); font-size: 14px"><span data-style="width: 9px; height: 9px; border-radius: 50%; background: {{p.c}}"></span>{{p.a}} · {{p.n}} PRs · mostly {{p.area}} ({{p.an}})</span>
+          </sc-for>
         </div>
       </section>
     </main></div>
