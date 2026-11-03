@@ -36,13 +36,23 @@ def test_help_is_grouped_and_mentions_every_group(capsys):
         assert name in out
 
 
-def test_init_writes_workflow_without_secrets_and_refuses_overwrite(tmp_path):
+def test_init_writes_workflow_without_secrets_and_refuses_overwrite(tmp_path, capsys):
+    from exhibit_a.cli.ext.init import (
+        CHECKOUT_ACTION,
+        CHECKOUT_SHA,
+        EXHIBIT_A_ACTION,
+        EXHIBIT_A_ACTION_SHA,
+    )
+
     target = tmp_path / ".github" / "workflows" / "exhibit-a.yml"
     assert main(["init", "--path", str(target)]) == 0
     text = target.read_text(encoding="utf-8")
-    assert "Diego-do-na/Exhibit-A@main" in text
+    assert f"{EXHIBIT_A_ACTION}@{EXHIBIT_A_ACTION_SHA}" in text
+    assert f"{CHECKOUT_ACTION}@{CHECKOUT_SHA}" in text
     assert "pull_request" in text
-    assert "secrets." in text and "META_API_KEY:" in text  # name only, no value
+    assert "secrets.EXHIBIT_A_API_KEY" in text  # name only, no value
+    out = capsys.readouterr().out
+    assert "gh secret set EXHIBIT_A_API_KEY --env exhibit-a" in out
     assert main(["init", "--path", str(target)]) == 2
     assert main(["init", "--path", str(target), "--force"]) == 0
 
@@ -61,6 +71,9 @@ def test_dashboard_without_runs_is_a_clear_error(tmp_path, monkeypatch, capsys):
     assert main(["dashboard", "--no-open"]) == 2
     err = capsys.readouterr().err
     assert "no runs found" in err
+    assert "exhibit-a dashboard --source local:<dir>" in err
+    assert "exhibit-a dashboard --source github:<owner/repo>" in err
+    assert "127.0.0.1" in err
     assert "Traceback" not in err
 
 
@@ -86,4 +99,4 @@ def test_every_subcommand_accepts_verbose_and_quiet():
     sub = next(a for a in parser._actions if a.dest == "command")
     for name, sub_parser in sub.choices.items():
         opts = {o for a in sub_parser._actions for o in a.option_strings}
-        assert {"-v", "--verbose", "-q", "--quiet"} <= opts, name
+        assert {"-v", "--verbose", "-q", "--quiet", "--no-banner"} <= opts, name
