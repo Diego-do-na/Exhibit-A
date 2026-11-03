@@ -18,6 +18,7 @@ from typing import Any
 
 from ..ci.summary import build_result
 from ..graph import build_graph, find_paths, functions_in, reach_from_diff
+from ..graph.catalog import _constant_string
 from ..graph.slicer import SlicePlan, make_plan
 from ..ledger import Ledger, append_run
 from ..loop import Roles, SandboxRunner, VerificationLoop
@@ -244,20 +245,85 @@ def _baseline_name(case_baseline: str, language: str) -> str:
 
 NOTHING_REACHABLE = "nothing_reachable"
 
+#: Oracle effects a sliced PR run may derive when ``--effect`` is omitted.
+#: ``canary_access`` (IDOR) is not in this list: the graph has no sink call for it
+#: (docs/design/code-graph.md). ``canary_redirect`` is not derived here either.
+PR_DERIVED_EFFECTS: tuple[str, ...] = (
+    "canary_exec",
+    "canary_sql",
+    "canary_write",
+    "canary_connect",
+    "canary_read",
+    "canary_dos",
+)
 
-def _slice_plans(
-    clone: Path, sources: list[str], effect: str, *, diff: str | None = None,
+_SKIP_DB_DIRS = frozenset({".git", ".venv", "venv", "node_modules", "__pycache__", ".tox"})
+_DB_SUFFIXES = frozenset({".db", ".sqlite", ".sqlite3"})
+
+
+def pr_derived_effects(report: ReachReport, language: str = "python") -> list[str]:
+    """Effects the oracle can prove on paths the diff actually reaches, in budget order."""
+    allowed = {"canary_read", "canary_exec"} if language in JS_LANGUAGES else set(PR_DERIVED_EFFECTS)
+    seen = {p.sink.effect for p in report.paths if p.sink.effect in allowed}
+    return [effect for effect in PR_DERIVED_EFFECTS if effect in seen]
+
+
+def discover_sql_db(clone: Path, graph: CodeGraph) -> str | None:
+    """One relative sqlite file to seed for ``canary_sql``, or None (fail closed).
+
+    Prefers a unique constant path passed to ``sqlite3.connect`` in the graph; otherwise
+    a unique regular ``.db`` / ``.sqlite`` / ``.sqlite3`` file in the clone. Zero or
+    several matches return None so the SQL effect is skipped rather than guessed.
+    """
+    from exhibit_a.oracle.oracle import sql_db_problem
+
+    named: list[str] = []
+    for edge in graph.edges:
+        if edge.kind != "external" or edge.dst != "sqlite3.connect" or not edge.args:
+            continue
+        constant = _constant_string(edge.args[0])
+        if not constant or sql_db_problem(clone, constant) is not None:
+            continue
+        if constant not in named:
+            named.append(constant)
+    if len(named) == 1:
+        return named[0]
+    found: list[str] = []
+    for path in sorted(clone.rglob("*")):
+        if path.suffix.lower() not in _DB_SUFFIXES or not path.is_file() or path.is_symlink():
+            continue
+        if any(part in _SKIP_DB_DIRS for part in path.relative_to(clone).parts):
+            continue
+        rel = path.relative_to(clone).as_posix()
+        if sql_db_problem(clone, rel) is None and rel not in found:
+            found.append(rel)
+    if len(found) == 1:
+        return found[0]
+    return None
+
+
+def sql_skip_reason(graph: CodeGraph) -> str:
+    """Why ``canary_sql`` is not run on this clone (fail closed, no model call)."""
+    for edge in graph.edges:
+        if edge.kind != "external" or edge.dst != "sqlite3.connect" or not edge.args:
+            continue
+        if _constant_string(edge.args[0]) == ":memory:":
+            return (
+                "canary_sql seeds a file database; this clone opens sqlite as :memory: "
+                "so the effect cannot be judged; no model call was made"
+            )
+    return (
+        "canary_sql needs one sqlite database in the clone to seed; "
+        "none or more than one was found; no model call was made"
+    )
+
+
+def _reach_report(
+    clone: Path, sources: list[str], *, diff: str | None = None,
     declared: list[str] | tuple[str, ...] = (),
     language: str = "python",
-) -> tuple[CodeGraph, ReachReport, dict[str, SlicePlan], float]:
-    """Build the graph of the staged clone and one slice plan per source file with a path.
-
-    The changed functions are those the diff touches, or every function of the source
-    files when there is no diff (a benchmark case names a file, not a change). Only paths
-    to a sink the oracle can prove with ``effect`` count: a path to any other sink could
-    never end in a proof, so it is not worth a model call. Node repositories use the
-    JavaScript graph (``--slice`` on a Node repository needs Docker for its builder).
-    """
+) -> tuple[CodeGraph, ReachReport, float]:
+    """Build the graph of the staged clone and the reach report for ``sources``."""
     started = time.perf_counter()
     if language in JS_LANGUAGES:
         from ..graph.js_graph import build_js_graph, find_paths as js_paths
@@ -279,32 +345,85 @@ def _slice_plans(
             report = find_paths(graph, changed, declared_entries=declared)
         else:
             report = reach_from_diff(graph, diff, declared_entries=declared)
+    return graph, report, seconds
+
+
+def _outside_lines(source: str, report: ReachReport) -> list[tuple[str, int]]:
+    """Changed module-level (file, line) pairs in ``source``."""
+    out: list[tuple[str, int]] = []
+    for loc in report.changed_outside_functions:
+        file, sep, raw = loc.rpartition(":")
+        if not sep or file != source:
+            continue
+        try:
+            line = int(raw)
+        except ValueError:
+            continue
+        out.append((file, line))
+    return out
+
+
+def _plans_for_effect(
+    graph: CodeGraph, clone: Path, sources: list[str], report: ReachReport, effect: str,
+) -> dict[str, SlicePlan]:
+    """One slice plan per source file that has a path to a ``effect`` sink."""
     files = {node.id: node.file for node in graph.nodes}
     plans: dict[str, SlicePlan] = {}
     for source in sources:
         paths = [p for p in report.paths if p.sink.effect == effect and files.get(p.changed) == source]
-        plan = make_plan(graph, clone, paths)
+        plan = make_plan(graph, clone, paths, extra_lines=_outside_lines(source, report))
         if plan is not None:
             plans[source] = plan
-    return graph, report, plans, seconds
+    return plans
+
+
+def _slice_plans(
+    clone: Path, sources: list[str], effect: str, *, diff: str | None = None,
+    declared: list[str] | tuple[str, ...] = (),
+    language: str = "python",
+) -> tuple[CodeGraph, ReachReport, dict[str, SlicePlan], float]:
+    """Build the graph of the staged clone and one slice plan per source file with a path.
+
+    The changed functions are those the diff touches, or every function of the source
+    files when there is no diff (a benchmark case names a file, not a change). Only paths
+    to a sink the oracle can prove with ``effect`` count: a path to any other sink could
+    never end in a proof, so it is not worth a model call. Node repositories use the
+    JavaScript graph (``--slice`` on a Node repository needs Docker for its builder).
+    """
+    graph, report, seconds = _reach_report(
+        clone, sources, diff=diff, declared=declared, language=language)
+    return graph, report, _plans_for_effect(graph, clone, sources, report, effect), seconds
 
 
 def _emit_nothing_reachable(
-    ledger: Ledger, run_id: str, graph: CodeGraph, report: ReachReport, seconds: float, effect: str
+    ledger: Ledger, run_id: str, graph: CodeGraph, report: ReachReport, seconds: float, effect: str,
+    *, derived: bool = False,
 ) -> None:
     """Record that the graph found no path, so no model was called."""
+    if derived:
+        reason = (
+            "no changed function is on a path from an entry point to a sink the oracle can "
+            "prove with read, write, exec, SQL, connect or dos; canary_access (IDOR) has no "
+            "sink call and is not derived; no model call was made"
+        )
+        other = len([p for p in report.paths if p.sink.effect not in PR_DERIVED_EFFECTS])
+    else:
+        reason = (
+            "no changed function is on a path from an entry point to a sink the "
+            f"oracle can prove with {effect}; no model call was made"
+        )
+        other = len(report.paths)
     ledger.append(Event(
         ts=datetime.now(timezone.utc).isoformat(), run_id=run_id, type=EventType.SCAN_DONE,
         payload={
             "status": NOTHING_REACHABLE,
-            "reason": "no changed function is on a path from an entry point to a sink the "
-                      f"oracle can prove with {effect}; no model call was made",
+            "reason": reason,
             "effect": effect,
             "changed": report.changed,
             "changed_outside_functions": report.changed_outside_functions,
             "unreached": [u.model_dump() for u in report.unreached],
             "entries": [e.oracle_name for e in report.entries],
-            "paths_to_other_sinks": len(report.paths),
+            "paths_to_other_sinks": other,
             "graph": graph.stats.model_dump(),
             "build_seconds": seconds,
         },
@@ -372,41 +491,103 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
             result = _write_result(out, ledger, run_id, 0)
             _append_run_index(out, result, repo, head, started)
             return 0
-        plans: dict[str, SlicePlan] = {}
+        plans_by_effect: dict[str, dict[str, SlicePlan]] = {}
+        graph: CodeGraph | None = None
+        report: ReachReport | None = None
         if _slice(args):
             from .scan import git_unified_diff
 
-            effect = args.effect
-            graph, report, plans, seconds = _slice_plans(
-                clone, changed, effect, diff=git_unified_diff(repo, spec), language=language)
-            if not plans:
-                _emit_nothing_reachable(ledger, run_id, graph, report, seconds, effect)
+            graph, report, seconds = _reach_report(
+                clone, changed, diff=git_unified_diff(repo, spec), language=language)
+            derived = args.effect is None
+            effects = [args.effect] if args.effect else pr_derived_effects(report, language)
+            for effect in effects:
+                plans = _plans_for_effect(graph, clone, changed, report, effect)
+                if plans:
+                    plans_by_effect[effect] = plans
+            if not plans_by_effect:
+                shown = args.effect or ",".join(PR_DERIVED_EFFECTS)
+                _emit_nothing_reachable(
+                    ledger, run_id, graph, report, seconds, shown, derived=derived)
                 result = _write_result(out, ledger, run_id, 0)
                 _append_run_index(out, result, repo, head, started)
                 print(json.dumps({"status": result["status"], "proven": result["proven"],
                                   "slice": NOTHING_REACHABLE}, sort_keys=True))
                 return 0
-            changed = [source for source in changed if source in plans]
-        roles = _pr_roles(args) if args.replay else _live_roles(args, _cost_meter(args))
-        runner = _sandbox_runner_cls()(language=language)
+            if derived:
+                ledger.append(Event(
+                    ts=datetime.now(timezone.utc).isoformat(), run_id=run_id,
+                    type=EventType.SCAN_DONE,
+                    payload={
+                        "status": "derived_effects",
+                        "effects": list(plans_by_effect),
+                        "changed": report.changed,
+                        "changed_outside_functions": report.changed_outside_functions,
+                        "graph": graph.stats.model_dump(),
+                        "build_seconds": seconds,
+                    },
+                ))
+        else:
+            effects = [args.effect or "canary_read"]
+        try:
+            meter = None if args.replay else _cost_meter(args)
+        except ValueError as exc:
+            print(f"run: invalid --budget-usd: {exc}", file=sys.stderr)
+            return 1
+        sql_db = discover_sql_db(clone, graph) if graph is not None and "canary_sql" in plans_by_effect else None
         baseline = "."
         any_proven = False
         incomplete = False
-        for source in changed:
-            loop = VerificationLoop(
-                clone, out, ledger, roles, baseline, run_id=run_id,
-                runner=runner, prompt_profile=_profile(args), effect=args.effect,
+        roles = None
+        for effect in effects:
+            if _slice(args) and effect not in plans_by_effect:
+                continue
+            if meter is not None:
+                try:
+                    meter.check()
+                except BudgetExceeded as exc:
+                    print(f"run: PR-diff incomplete: {exc}", file=sys.stderr)
+                    incomplete = True
+                    break
+            if effect == "canary_sql" and not sql_db:
+                ledger.append(Event(
+                    ts=datetime.now(timezone.utc).isoformat(), run_id=run_id,
+                    type=EventType.SCAN_DONE,
+                    payload={
+                        "status": "effect_skipped",
+                        "effect": effect,
+                        "reason": (
+                            sql_skip_reason(graph) if graph is not None
+                            else "canary_sql needs one sqlite database in the clone to seed; "
+                                 "none or more than one was found; no model call was made"
+                        ),
+                    },
+                ))
+                continue
+            if roles is None:
+                roles = _pr_roles(args) if args.replay else _live_roles(args, meter)
+            runner = _sandbox_runner_cls()(
                 language=language,
-                **({"slice_plan": plans[source]} if source in plans else {}),
+                sql_db=sql_db if effect == "canary_sql" else None,
             )
-            try:
-                result_loop = loop.run(source)
-            except (BudgetExceeded, ModelError, OSError) as exc:
-                print(f"run: PR-diff incomplete: {exc}", file=sys.stderr)
-                incomplete = True
+            sources = list(plans_by_effect[effect]) if _slice(args) else changed
+            for source in sources:
+                loop = VerificationLoop(
+                    clone, out, ledger, roles, baseline, run_id=run_id,
+                    runner=runner, prompt_profile=_profile(args), effect=effect,
+                    language=language,
+                    **({"slice_plan": plans_by_effect[effect][source]} if _slice(args) else {}),
+                )
+                try:
+                    result_loop = loop.run(source)
+                except (BudgetExceeded, ModelError, OSError) as exc:
+                    print(f"run: PR-diff incomplete: {exc}", file=sys.stderr)
+                    incomplete = True
+                    break
+                any_proven = any_proven or bool(result_loop.proven)
+                incomplete = incomplete or bool(result_loop.aborted)
+            if incomplete:
                 break
-            any_proven = any_proven or bool(result_loop.proven)
-            incomplete = incomplete or bool(result_loop.aborted)
         code = 20 if incomplete else (10 if any_proven else 0)
         result = _write_result(out, ledger, run_id, code)
         _append_run_index(out, result, repo, head, started)
