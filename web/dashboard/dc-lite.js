@@ -96,7 +96,7 @@
   // swap is not abrupt. The incoming page plays its own entrance (.content>* rise,
   // also exposed as .anim-enter). Rapid clicks bump routeSeq, so only the latest
   // navigation is allowed to proceed and stale waits are cancelled.
-  const EXIT_MS = 190;
+  const EXIT_MS = 230;
   let routeSeq = 0;
   const reducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   function waitForExit(view) {

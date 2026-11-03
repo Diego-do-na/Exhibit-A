@@ -82,7 +82,10 @@ def test_dashboard_server_sends_strict_csp_headers(tmp_path: Path):
 def test_dashboard_route_exit_animation_is_defined_and_reduced_motion_safe():
     css = (WEB_DIR / "dashboard.css").read_text(encoding="utf-8")
     assert "@keyframes cardExit" in css
-    assert ".anim-exit" in css and "cardExit .18s" in css
+    assert ".anim-exit" in css and "cardExit .22s" in css
+    # The exit rule must beat the .content>* entrance in specificity, or
+    # cardExit never runs (the original bug: exit was invisible).
+    assert "main.content>*.anim-exit" in css
     assert ".anim-enter" in css
     reduced = css.split("@media (prefers-reduced-motion:reduce)", 1)[1].split("}", 1)[0]
     assert ".anim-exit" in reduced
