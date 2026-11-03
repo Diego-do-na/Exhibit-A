@@ -22,6 +22,15 @@ from typing import get_args
 
 from exhibit_a.audit.audit import collect_targets, run_audit
 
+#: Low default spend cap when ``--budget-usd`` is omitted on a live audit.
+DEFAULT_BUDGET_USD = 1.0
+BUDGET_OMITTED_NOTICE = (
+    f"audit: --budget-usd omitted; capping spend at US${DEFAULT_BUDGET_USD:.2f}. "
+    "Pass --budget-usd to change the cap. A green audit means nothing could be "
+    "proven, never that the repository is safe. The sandbox is isolated and "
+    "resource-limited."
+)
+
 
 def _print_targets(repo: str | Path, out: str | Path | None = None) -> int:
     from exhibit_a.graph import render
@@ -72,7 +81,10 @@ def cmd_audit(args: argparse.Namespace) -> int:
     if getattr(args, "list_only", False):
         return _print_targets(repo, getattr(args, "out", None))
     budget = getattr(args, "budget_usd", None)
-    if budget is not None and budget <= 0:
+    if budget is None:
+        budget = DEFAULT_BUDGET_USD
+        print(BUDGET_OMITTED_NOTICE, file=sys.stderr)
+    if budget <= 0:
         print("audit: --budget-usd must be positive", file=sys.stderr)
         return 2
     max_targets = int(getattr(args, "max_targets", 10) or 10)
@@ -134,7 +146,13 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
         "--out", default="audit-out", help="Output directory for audit.json/audit.md."
     )
     parser.add_argument(
-        "--budget-usd", type=float, default=None, help="Hard cost limit in USD."
+        "--budget-usd",
+        type=float,
+        default=None,
+        help=(
+            f"Hard cost limit in USD (default: {DEFAULT_BUDGET_USD:.2f} when omitted). "
+            "--list-only spends nothing and does not call a model."
+        ),
     )
     parser.add_argument(
         "--max-targets", type=int, default=10, help="Most sink targets to attempt."

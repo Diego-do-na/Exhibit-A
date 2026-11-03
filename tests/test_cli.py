@@ -10,7 +10,7 @@ import shutil
 
 import pytest
 
-from exhibit_a.cli import NOT_WIRED_YET, main
+from exhibit_a.cli import main
 from exhibit_a.cli import dashboard as dashboard_cli
 from exhibit_a.cli.banner import TAGLINE, load_logo, print_banner
 from exhibit_a.cli.ext.init import (
@@ -39,7 +39,12 @@ def test_scan_without_repository_scans_the_current_directory(capsys) -> None:
     assert profile.test_cmd == "pytest"
 
 
-def test_run_accepts_all_flags(capsys) -> None:
+def test_run_without_case_or_pr_diff_is_a_usage_error(capsys) -> None:
+    assert main(["run"]) == 2
+    assert "one of --case or --pr-diff is required" in capsys.readouterr().err
+
+
+def test_run_with_repo_and_diff_but_no_case_or_pr_diff_is_a_usage_error(capsys) -> None:
     code = main(
         [
             "run",
@@ -52,16 +57,10 @@ def test_run_accepts_all_flags(capsys) -> None:
             "2.5",
         ]
     )
-    assert code == 0
-    out = capsys.readouterr().out
-    assert NOT_WIRED_YET in out
-    assert "/tmp/repo" in out
-    assert "change.diff" in out
-
-
-def test_run_defaults(capsys) -> None:
-    assert main(["run"]) == 0
-    assert NOT_WIRED_YET in capsys.readouterr().out
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "one of --case or --pr-diff is required" in err
+    assert "core loop is not wired yet" not in err
 
 
 def test_run_rejects_non_numeric_budget() -> None:

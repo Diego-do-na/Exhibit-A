@@ -145,9 +145,14 @@ REPO_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}\Z")
 
 
 def default_web_dir() -> Path:
-    """``web/dashboard`` of the source checkout, else of the current directory."""
+    """UI shipped in the wheel, else ``web/dashboard`` of a source checkout."""
+    packaged = Path(__file__).resolve().parent / "web"
+    if (packaged / "index.html").is_file():
+        return packaged
     checkout = Path(__file__).resolve().parents[3] / "web" / "dashboard"
-    return checkout if checkout.is_dir() else Path("web") / "dashboard"
+    if (checkout / "index.html").is_file():
+        return checkout
+    return packaged
 
 
 @dataclass

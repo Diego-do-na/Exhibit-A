@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List
@@ -26,7 +27,26 @@ EXTENSION_LANGUAGES = {
     ".tsx": "typescript",
 }
 MAX_COUNTED_FILES = 500
+MAX_TEST_FILES = 80
 CASE_LANGUAGE_KEYS = ("run.language", "language")
+TEST_DIR_NAMES = frozenset({"tests", "test"})
+PYTEST_CONFIG_NAMES = ("pytest.ini", ".pytest.ini", "pytest.toml")
+PYTHON_MANIFEST_NAMES = (
+    "requirements.txt",
+    "requirements-dev.txt",
+    "requirements-test.txt",
+    "dev-requirements.txt",
+    "test-requirements.txt",
+    "pyproject.toml",
+    "setup.cfg",
+    "setup.py",
+    "tox.ini",
+)
+_PYTEST_IMPORT_RE = re.compile(r"(?m)^[ \t]*(?:import pytest\b|from pytest(?:[ \t]+import|\.))")
+_PYTEST_MARK_RE = re.compile(r"@pytest\.mark\b")
+_UNITTEST_IMPORT_RE = re.compile(
+    r"(?m)^[ \t]*(?:import unittest\b|from unittest(?:[ \t]+import|\.))"
+)
 
 
 def _safe_read(path: Path, repo_root: Path) -> str:
@@ -115,6 +135,85 @@ def _extension_languages(root: Path) -> list[str]:
     return sorted(counts, key=lambda lang: (-counts[lang], lang))
 
 
+def _text_names_pytest(text: str) -> bool:
+    lower = text.lower()
+    return (
+        "pytest" in lower
+        or "[tool.pytest" in lower
+        or "[tool:pytest]" in lower
+        or "[pytest]" in lower
+    )
+
+
+def _pytest_from_manifests(root: Path) -> bool:
+    """True when config or dependency files name pytest."""
+    for name in PYTEST_CONFIG_NAMES:
+        path = root / name
+        if path.is_file() and not path.is_symlink():
+            return True
+    extra: list[Path] = []
+    req_dir = root / "requirements"
+    if req_dir.is_dir() and not req_dir.is_symlink():
+        extra.extend(
+            sorted(child for child in req_dir.iterdir() if child.is_file() and child.suffix == ".txt")[:20]
+        )
+    for path in [*(root / name for name in PYTHON_MANIFEST_NAMES), *extra]:
+        if _text_names_pytest(_safe_read(path, root)):
+            return True
+    return False
+
+
+def _walk_test_python(root: Path):
+    """Yield a capped set of test modules; never follows symlinks."""
+    seen = 0
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in VENDORED_DIRS and not d.startswith(".")]
+        rel = Path(dirpath).relative_to(root)
+        in_test_dir = bool(rel.parts and rel.parts[0] in TEST_DIR_NAMES)
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            if (
+                name == "conftest.py"
+                or name.startswith("test_")
+                or name.endswith("_test.py")
+                or in_test_dir
+            ):
+                yield Path(dirpath) / name
+                seen += 1
+                if seen >= MAX_TEST_FILES:
+                    return
+        if seen >= MAX_TEST_FILES:
+            return
+
+
+def _python_test_framework(root: Path) -> tuple[str, str]:
+    """Return ``(framework, test_cmd)`` for a Python repository.
+
+    Pytest wins on pytest.ini / ``[tool.pytest]``, requirements, pyproject,
+    conftest.py, ``import pytest``, or ``@pytest.mark``. Otherwise unittest.
+    """
+    if _pytest_from_manifests(root):
+        return "pytest", "pytest"
+    saw_pytest = False
+    saw_unittest = False
+    for path in _walk_test_python(root):
+        if path.name == "conftest.py":
+            saw_pytest = True
+        text = _safe_read(path, root)
+        if _PYTEST_IMPORT_RE.search(text) or _PYTEST_MARK_RE.search(text):
+            saw_pytest = True
+        if _UNITTEST_IMPORT_RE.search(text):
+            saw_unittest = True
+        if saw_pytest:
+            break
+    if saw_pytest:
+        return "pytest", "pytest"
+    if saw_unittest:
+        return "unittest", "python -m unittest"
+    return "unittest", "python -m unittest"
+
+
 def detect(repo_root: str, language: str = "auto") -> ScanResult:
     """Rule-based detection of language, package manager and test command.
 
@@ -186,15 +285,7 @@ def detect(repo_root: str, language: str = "auto") -> ScanResult:
             dependency_manager = "pip"
             install_cmd = "python -m pip install -e ."
 
-        maybe = ""
-        for p in ("requirements.txt", "pyproject.toml", "setup.cfg"):
-            maybe += _safe_read(root / p, root)
-        if "pytest" in maybe:
-            framework = "pytest"
-            test_cmd = "pytest"
-        else:
-            framework = "unittest"
-            test_cmd = "python -m unittest"
+        framework, test_cmd = _python_test_framework(root)
 
         profile = RepoProfile(
             commit="unknown",

@@ -14,6 +14,7 @@ from exhibit_a.schemas import RepoProfile
 from exhibit_a.schemas.graph import CodeGraph
 
 FIXTURES = Path(__file__).parent / "fixtures" / "graph"
+SCAN_FIXTURES = Path(__file__).parent / "fixtures" / "scan"
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -109,3 +110,23 @@ def test_scan_rejects_a_bad_diff_spec(repo, spec, capsys):
 def test_scan_of_a_missing_repository_is_a_usage_error(tmp_path, capsys):
     assert main(["scan", str(tmp_path / "missing")]) == 2
     assert "does not exist" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "fixture, framework, test_cmd",
+    [
+        ("pytest_ini", "pytest", "pytest"),
+        ("pytest_pyproject", "pytest", "pytest"),
+        ("pytest_requirements", "pytest", "pytest"),
+        ("pytest_markers", "pytest", "pytest"),
+        ("pytest_imports", "pytest", "pytest"),
+        ("unittest_only", "unittest", "python -m unittest"),
+    ],
+)
+def test_scan_detects_pytest_versus_unittest(tmp_path, capsys, fixture, framework, test_cmd):
+    root = tmp_path / "repo"
+    shutil.copytree(SCAN_FIXTURES / fixture, root)
+    assert main(["scan", str(root)]) == 0
+    profile = RepoProfile.model_validate(json.loads(capsys.readouterr().out))
+    assert (profile.language, profile.framework, profile.test_cmd) == ("python", framework, test_cmd)
+    assert profile.baseline.passed == 0

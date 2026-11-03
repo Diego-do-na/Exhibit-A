@@ -27,6 +27,9 @@ exhibit_a = [
     "advisory/symbols.json",
     "schemas/*.json",
     "cli/logo.txt",
+    "dashboard/web/*",
+    "dashboard/web/views/*",
+    "dashboard/web/fonts/*",
 ]
 
 [tool.pytest.ini_options]

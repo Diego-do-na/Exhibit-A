@@ -85,3 +85,24 @@ def test_no_subprocess_in_scan_module():
     assert "import subprocess" not in src
     assert "subprocess." not in src
 
+
+@pytest.mark.parametrize(
+    "fixture, framework, test_cmd",
+    [
+        ("pytest_ini", "pytest", "pytest"),
+        ("pytest_pyproject", "pytest", "pytest"),
+        ("pytest_requirements", "pytest", "pytest"),
+        ("pytest_markers", "pytest", "pytest"),
+        ("pytest_imports", "pytest", "pytest"),
+        ("unittest_only", "unittest", "python -m unittest"),
+    ],
+)
+def test_detects_pytest_versus_unittest_from_fixtures(fixture, framework, test_cmd):
+    res = detect(_case(fixture))
+    profile = res.profile
+    assert profile.language == "python"
+    assert profile.framework == framework
+    assert profile.test_cmd == test_cmd
+    assert profile.baseline.passed == 0
+    assert res.supported is (framework == "pytest")
+

@@ -1,0 +1,4 @@
+[project]
+name = "pytest-pyproject-sample"
+version = "0.0.1"
+dependencies = ["pytest>=7"]
