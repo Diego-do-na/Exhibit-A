@@ -20,7 +20,7 @@ window.Component = class Component extends DCLogic {
       rep: [4, 29, (v) => String(v), 'Number of findings reported. The standard profile proved nothing live, so it reported nothing.'],
       cost: [5, 4.7824, (v) => '$' + v.toFixed(2), 'Total model spend for the run. Proof costs more than a guess; the standard profile spent the most and proved nothing.'] };
     const [ix, mx, f, note] = SM[st.sm];
-    const sm = SYS.map((s) => ({ n: s[0], c: s[1], v: s[0].endsWith('standard') && st.sm === 'prec' ? 'n/a' : f(s[ix]), w: (s[ix] / mx * 100).toFixed(1) }));
+    const sm = SYS.map((s) => ({ n: s[0], c: s[1], v: s[0].endsWith('standard') && st.sm === 'prec' ? 'not run' : f(s[ix]), w: (s[ix] / mx * 100).toFixed(1) }));
     const buy = [{ l: 'Reports still to triage', a: '0', b: '3' }, { l: 'Exploit tests written', a: '2', b: '0' }, { l: 'Fixes verified', a: '2', b: '0' },
       { l: 'Cost per report', a: '$0.15', b: '$0.02' }, { l: 'Extra spend per target', a: '$0.08', b: '—' }];
 
@@ -97,8 +97,8 @@ window.Component = class Component extends DCLogic {
     const fmt = (n) => n.toLocaleString('en-US');
     if (id === 'sys') {
       const M = [['Precision', 2, (v) => v.toFixed(2), 1], ['Recall', 3, (v) => v.toFixed(2), 1], ['Reports', 4, (v) => String(v), 29], ['Cost', 5, (v) => '$' + v.toFixed(2), 4.7824]];
-      const groups = M.map(([title, ix, f, max]) => ({ title, max, rows: d.SYS.map((s) => ({ key: s[0], label: s[0], v: s[ix], color: s[1], value: s[0].endsWith('standard') && ix === 2 ? 'n/a' : f(s[ix]) })) }));
-      const rows = d.SYS.map((s) => ({ key: s[0], label: s[0], value: 'precision ' + (s[0].endsWith('standard') ? 'n/a' : s[2].toFixed(2)) + ' \u00b7 recall ' + s[3].toFixed(2) + ' \u00b7 ' + s[4] + ' reports \u00b7 $' + s[5].toFixed(2), n: s[2] }));
+      const groups = M.map(([title, ix, f, max]) => ({ title, max, rows: d.SYS.map((s) => ({ key: s[0], label: s[0], v: s[ix], color: s[1], value: s[0].endsWith('standard') && ix === 2 ? 'not run' : f(s[ix]) })) }));
+      const rows = d.SYS.map((s) => ({ key: s[0], label: s[0], value: 'precision ' + (s[0].endsWith('standard') ? 'not run' : s[2].toFixed(2)) + ' \u00b7 recall ' + s[3].toFixed(2) + ' \u00b7 ' + s[4] + ' reports \u00b7 $' + s[5].toFixed(2), n: s[2] }));
       return { type: 'hbars', title: 'Systems compared', aria: 'Naive baseline against Exhibit A, four measures', rowH: 38, labelW: 210, groups, rows };
     }
     if (id === 'abl') {

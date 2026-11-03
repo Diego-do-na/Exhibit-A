@@ -79,15 +79,15 @@
           </div>
           <div class="card" data-style="flex: 2 1 340px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px">
             <h3 class="ct">What each dollar buys</h3>
+            <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px; gap: 10px; font-size: 12px; font-weight: 600; color: #26365a"><span></span><span data-style="text-align: right">Exhibit A</span><span data-style="text-align: right">Naive LLM</span></div>
             <sc-for list="{{buy}}" as="b">
               <div data-style="display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px; gap: 10px; align-items: baseline; padding: 10px 0; border-top: 1px solid rgba(13,27,62,.08)">
                 <span data-style="font-size: 14px; color: #26365a">{{b.l}}</span>
                 <span class="mono" data-style="font-size: 14px; text-align: right">{{b.a}}</span>
-                <span class="mono" data-style="font-size: 14px; text-align: right; color: #6f80a3">{{b.b}}</span>
+                <span class="mono" data-style="font-size: 14px; text-align: right; color: #45587c">{{b.b}}</span>
               </div>
             </sc-for>
-            <div data-style="display: flex; justify-content: flex-end; gap: 28px; font-size: 12px; color: #3d4b68"><span>Exhibit A</span><span>Naive</span></div>
-          </div>
+                      </div>
         </div>
       </section>
 
