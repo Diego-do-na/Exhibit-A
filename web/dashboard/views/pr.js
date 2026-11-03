@@ -216,8 +216,8 @@ window.Component = class Component extends DCLogic {
     const tag = T ? { open: true, id: s.tag, cat: T.cat, name: T.name, desc: T.desc, here: T.here, mitL: T.mitL, mit: T.mit.map(([id, t]) => ({ id, t })),
       world: T.world.map(([id, t]) => ({ id, t })), hasWorld: T.world.length > 0, close: () => this.setState({ tag: null }) } : { open: false, close: () => this.setState({ tag: null }) };
 
-    const D = { ctx: ['transparent', '#7a86a1', '#26365a', ' '], del: ['rgba(165,112,63,.12)', '#a5703f', '#5a3a1c', '−'], add: ['rgba(44,79,196,.10)', '#2c4fc4', '#0f2557', '+'] };
-    const row = ([k, o, n, t, v]) => ({ bg: v ? 'rgba(165,112,63,.2)' : D[k][0], sc: D[k][1], tc: D[k][2], s: D[k][3], o: o || '', n: n || '', t, vuln: !!v });
+    const D = { ctx: ['transparent', '#7a86a1', '#26365a', ' '], del: ['rgba(190,60,60,.11)', '#b23a3a', '#5a1c1c', '−'], add: ['rgba(34,139,84,.11)', '#1f7a4d', '#0f3d26', '+'] };
+    const row = ([k, o, n, t, v]) => ({ bg: v ? 'rgba(190,60,60,.2)' : D[k][0], sc: D[k][1], tc: D[k][2], s: D[k][3], o: o || '', n: n || '', t, vuln: !!v });
     const prDiff = [
       ['ctx', 28, 28, '        self.shelf_dir = shelf_dir'], ['ctx', 29, 29, ''], ['ctx', 30, 30, '    def _resolve(self, name):'],
       ['del', 31, 0, '        """Map a pamphlet name to a file inside the shelf, or None when it points outside."""'],

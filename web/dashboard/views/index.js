@@ -68,11 +68,44 @@ window.Component = class Component extends DCLogic {
     const fun = FUN.map(([l, v, c]) => ({ l, c, w: (v / 44 * 100).toFixed(1), v: st.fun === 'abs' ? String(v) : Math.round(v / 44 * 100) + '%' }));
 
     const latest = [['T131', 'Frontend implementation', 'agy'], ['T128', 'Loop integration for JS/TS', 'Muse'], ['T138', 'Node HTTP attribution red team', 'Copilot'],
-      ['T136', 'Judge the JS/TS corpus', 'grok'], ['T126', 'Node red team: 20+ attacks', 'Muse']].map(([id, t, a]) => ({ id, t, a }));
-    const code = [{ v: '19', l: 'packages' }, { v: '120', l: 'modules' }, { v: '1,052', l: 'functions' }, { v: '1,932', l: 'test functions' }];
+      ['T136', 'Judge the JS/TS corpus', 'grok'], ['T126', 'Node red team: 20+ attacks', 'Muse']].map(([id, t, a]) => ({ id, t, a, aria: 'Open ' + id + ' ' + t, go: () => { window.location.href = 'prs.html?pr=' + encodeURIComponent(id); } }));
+    const code = [{ v: '19', l: 'packages', i: 'M21 8 12 3 3 8v8l9 5 9-5V8ZM3 8l9 5 9-5M12 13v8' }, { v: '120', l: 'modules', i: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5ZM14 3v5h5M9 13h6M9 17h4' },
+      { v: '1,052', l: 'functions', i: 'M8 4C5 4 5 6 5 8v2c0 1.5-1 2-2 2 1 0 2 .5 2 2v2c0 2 0 4 3 4M16 4c3 0 3 2 3 4v2c0 1.5 1 2 2 2-1 0-2 .5-2 2v2c0 2 0 4-3 4' }, { v: '1,932', l: 'test functions', i: 'M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3ZM8.8 12l2.2 2.2 4.3-4.4' }];
 
+    this.__d = { DAYS, AG, EFF, VER, FUN };
     return { kpis, minor, flow, vel, velOpts: opt([['prs', 'PRs'], ['lines', 'Lines']], 'vel'), agents: AG.map(([n, c]) => ({ n, c })),
       don, donT: st.don === 'effect' ? 'effect' : 'verdict', donOpts: opt([['effect', 'Effect'], ['verdict', 'Verdict']], 'don'),
       fun, funOpts: opt([['abs', 'Count'], ['pct', '%']], 'fun'), latest, code };
+  }
+
+  // The expanded version of each chart: same data, drawn in full (see fullchart.js).
+  fullSpec(id) {
+    const d = this.__d;
+    if (!d) return null;
+    const pct = (v, t) => Math.round(v / t * 100) + '%';
+    if (id === 'vel') {
+      const cats = d.DAYS.map(([l, , lines]) => ({ k: l, l, sub: (lines / 1000).toFixed(1) + 'k lines' }));
+      const values = {}; d.DAYS.forEach(([l, m]) => { values[l] = m; });
+      const tot = (m) => Object.values(m).reduce((a, b) => a + b, 0);
+      const rows = d.DAYS.map(([l, m, lines]) => ({ key: l, label: l, value: tot(m) + ' PRs \u00b7 ' + lines.toLocaleString('en-US') + ' lines', n: tot(m) }));
+      return { type: 'bars', title: 'Merges per day', aria: 'Pull requests merged per day, stacked by author', yTitle: 'Pull requests merged', cats,
+        series: d.AG.map(([n, c]) => ({ k: n, name: n, color: c })), values, rows, totalNote: (k) => { const r = rows.find((x) => x.key === k); return r ? r.value : ''; } };
+    }
+    if (id === 'don') {
+      const mk = (idv, title, list, center) => ({ id: idv, title, center, slices: list.map(([n, v, c]) => ({ key: n, label: n, v, color: c })) });
+      const items = [mk('effect', 'By effect (proven findings)', d.EFF, 'proven'), mk('verdict', 'By verdict (all suspicions)', d.VER, 'suspicions')];
+      const rows = [];
+      items.forEach((it) => { const t = it.slices.reduce((a, s) => a + s.v, 0); it.slices.forEach((s) => rows.push({ key: it.id + ':' + s.key, label: (it.id === 'effect' ? 'Effect \u00b7 ' : 'Verdict \u00b7 ') + s.label, value: s.v + ' \u00b7 ' + pct(s.v, t), n: s.v })); });
+      return { type: 'donuts', title: 'Findings breakdown', items, rows };
+    }
+    if (id === 'fun') {
+      const rows = d.FUN.map(([l, v, c], i) => {
+        const prev = i ? d.FUN[i - 1][1] : v;
+        return { key: l, label: l, sub: i && prev !== v ? 'drops ' + (prev - v) + ' (' + pct(prev - v, prev) + ') from the stage above' : i ? 'no drop from the stage above' : 'starting point', v, color: c, value: v + ' \u00b7 ' + pct(v, 44) };
+      });
+      return { type: 'hbars', title: 'Verification funnel', rowH: 44, labelW: 230, groups: [{ rows, max: 44 }],
+        rows: rows.map((r) => ({ key: r.key, label: r.label, value: r.value, n: r.v })) };
+    }
+    return null;
   }
 };

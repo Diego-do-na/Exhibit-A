@@ -78,3 +78,19 @@ def test_night_mode_toggle_on_every_page_and_network_is_csp_safe():
         code = re.sub(r"/\*.*?\*/", "", read(name), flags=re.DOTALL)
         assert "innerHTML" not in code and "eval(" not in code, name
     assert (WEB_DIR / "views/graphdata.js").is_file()
+
+
+def test_every_expandable_chart_has_a_full_version():
+    ids = {"index": {"vel", "don", "fun"}, "prs": {"tl", "hist", "cyh"}, "findings": {"sus", "out", "cost"},
+           "benchmark": {"sys", "abl", "roles", "auth"}, "graph": {"layers"}}
+    for page, want in ids.items():
+        html = read(f"{page}.html")
+        got = set(re.findall(r'data-zoom data-zoom-id="([a-z]+)"', html))
+        assert got == want, page
+        assert "views/fullchart.js" in html and html.index("views/fullchart.js") < html.index("views/viz.js")
+        js = read(f"views/{page}.js")
+        assert "fullSpec(id)" in js
+        for zid in want:
+            assert f"'{zid}'" in js, (page, zid)
+    code = re.sub(r"/\*.*?\*/", "", read("views/fullchart.js"), flags=re.DOTALL)
+    assert "innerHTML" not in code and "eval(" not in code

@@ -245,6 +245,7 @@
     const Component = window.Component || new Function('DCLogic', script.textContent + '\nreturn Component;')(DCLogic);
     const comp = new Component(props);
     comp.props = props;
+    window.DCPage = comp;
 
     const root = document.createElement('div');
     root.id = 'dc-root';

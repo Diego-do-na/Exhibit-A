@@ -36,12 +36,12 @@
     let hover = -1, drag = -1, pan = null, moved = false;
     let sel = new Set(), query = '', visible = null;
     let lit = [], litTarget = [];                       // per-node brightness, eased toward its target
-    let t0 = performance.now(), touched = false;
+    let t0 = performance.now(), touched = false, slow = 0;
 
     function resize() {
       const r = host.getBoundingClientRect();
       if (!r.width || !r.height) return;
-      dpr = Math.min(2, window.devicePixelRatio || 1);
+      dpr = Math.min(1.5, window.devicePixelRatio || 1);
       W = r.width; H = r.height;
       cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
       cv.style.width = W + 'px'; cv.style.height = H + 'px';
@@ -159,7 +159,7 @@
       const dd = detailTarget - detail;
       if (Math.abs(dd) > 0.005) { detail += dd * 0.18; easing = true; } else detail = detailTarget;
       const hot = alpha > 0.012 || drag >= 0;
-      if (hot) { tick(); tick(); alpha *= drag >= 0 ? 0.999 : 0.985; }
+      if (hot) { const t1 = performance.now(); tick(); if (slow < 12) tick(); slow = slow * 0.7 + (performance.now() - t1) * 0.3; alpha *= drag >= 0 ? 0.999 : 0.985; }
       draw(now);
       running = hot || easing || !!viewAnim || live();
       if (viewAnim) stepView(now);
@@ -177,23 +177,37 @@
       g.save();
       g.translate(W / 2 + view.x, H / 2 + view.y); g.scale(view.k, view.k);
       const k = view.k, pulse = REDUCE ? 0 : ((now - t0) / 1400) % 1;
-      // edges (file-to-function links fade with the semantic zoom level)
+      // edges (file-to-function links fade with the semantic zoom level). Edges that share a style are
+      // drawn as one path, which keeps hundreds of lines cheap, and lines outside the view are skipped.
+      const vx0 = (-W / 2 - view.x) / k - 40, vx1 = (W / 2 - view.x) / k + 40, vy0 = (-H / 2 - view.y) / k - 40, vy1 = (H / 2 - view.y) / k + 40;
+      const buckets = new Map(), dots = [];
       for (const e of edges) {
         const p = nodes[e.a], q = nodes[e.b];
         let a = Math.min(lit[e.a], lit[e.b]);
         if (!e.vuln && e.t !== 'imp') a *= 0.12 + 0.88 * detail;
         if (a <= 0.02) continue;
+        if ((p.x < vx0 && q.x < vx0) || (p.x > vx1 && q.x > vx1) || (p.y < vy0 && q.y < vy0) || (p.y > vy1 && q.y > vy1)) continue;
         const strong = (hover >= 0 && (e.a === hover || e.b === hover)) || (hover < 0 && sel.size && (sel.has(p.id) || sel.has(q.id)));
-        g.globalAlpha = e.vuln ? a : a * (strong ? 0.95 : e.t === 'own' ? 0.3 : e.t === 'use' ? 0.3 : 0.6);
-        g.strokeStyle = e.vuln ? '#ff6b6b' : strong ? '#cfe0ff' : e.t === 'use' ? '#e2b98a' : '#8aa2e6';
-        g.lineWidth = (e.vuln ? 2.6 : strong ? 1.6 : e.t === 'own' ? 0.6 : 0.9) / Math.sqrt(k);
+        const alpha = e.vuln ? a : a * (strong ? 0.95 : e.t === 'own' ? 0.3 : e.t === 'use' ? 0.3 : 0.6);
+        const key = (e.vuln ? 'v' : strong ? 's' : e.t) + '|' + (Math.round(alpha * 8) / 8);
+        let bk = buckets.get(key);
+        if (!bk) { bk = { e, alpha: Math.round(alpha * 8) / 8, strong, path: new Path2D() }; buckets.set(key, bk); }
+        bk.path.moveTo(p.x, p.y); bk.path.lineTo(q.x, q.y);
+        if ((strong || e.vuln) && e.t !== 'own' && !REDUCE) dots.push([e, p, q]);
+      }
+      buckets.forEach((bk) => {
+        const e = bk.e;
+        g.globalAlpha = bk.alpha;
+        g.strokeStyle = e.vuln ? '#ff6b6b' : bk.strong ? '#cfe0ff' : e.t === 'use' ? '#e2b98a' : '#8aa2e6';
+        g.lineWidth = (e.vuln ? 2.6 : bk.strong ? 1.6 : e.t === 'own' ? 0.6 : 0.9) / Math.sqrt(k);
         if (e.t === 'use') g.setLineDash([4 / k, 4 / k]); else g.setLineDash([]);
-        g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke();
-        if ((strong || e.vuln) && e.t !== 'own' && !REDUCE) {            // a moving dot shows the direction of the dependency
-          const tt = e.vuln ? (pulse + e.a * 0.13) % 1 : pulse, x = p.x + (q.x - p.x) * tt, y = p.y + (q.y - p.y) * tt;
-          g.setLineDash([]); g.globalAlpha = 1; g.fillStyle = e.vuln ? '#ffd0d0' : '#fff';
-          g.beginPath(); g.arc(x, y, 2.2 / Math.sqrt(k), 0, 6.283); g.fill();
-        }
+        g.stroke(bk.path);
+      });
+      g.setLineDash([]);
+      for (const [e, p, q] of dots) {            // a moving dot shows the direction of the dependency
+        const tt = e.vuln ? (pulse + e.a * 0.13) % 1 : pulse, x = p.x + (q.x - p.x) * tt, y = p.y + (q.y - p.y) * tt;
+        g.globalAlpha = 1; g.fillStyle = e.vuln ? '#ffd0d0' : '#fff';
+        g.beginPath(); g.arc(x, y, 2.2 / Math.sqrt(k), 0, 6.283); g.fill();
       }
       g.setLineDash([]);
       // nodes (functions expand out of their files as you zoom in)
@@ -222,20 +236,34 @@
           if (isSel || isHov) { g.strokeStyle = '#fff'; g.lineWidth = 1.4 / k; g.stroke(); }
         }
       }
-      // labels
+      // labels (greedy collision avoidance: bigger/file nodes win, overlapping ones are skipped)
       g.textBaseline = 'middle';
+      const cand = [];
       for (const n of nodes) {
         let a = lit[n.i];
         if (n.kind === 'func' && !n.vuln) a *= detail;
         if (a <= 0.05) continue;
         const near = (hover >= 0 && (n.i === hover || adj[hover].indexOf(n.i) >= 0)) || sel.has(n.id) || (query && a > 0.5);
-        const show = opts.labelAll || (n.kind === 'file' ? (opts.labelAll || (k > 0.55 && (n.r > 8 || n.deg > 9)) || k > 1.1 || near) : ((k > 1.9 && detail > 0.6) || near && k > 0.9));
+        const show = opts.labelAll || (n.kind === 'file' ? ((k > 0.55 && (n.r > 8 || n.deg > 9)) || k > 1.1 || near) : ((k > 1.9 && detail > 0.6) || near && k > 0.9));
         if (!show) continue;
+        cand.push({ n, a, near, pr: (near ? 1e6 : 0) + (n.kind === 'file' ? 1e3 : 0) + n.r * 10 + n.deg });
+      }
+      cand.sort((p, q) => q.pr - p.pr);
+      const boxes = [];
+      for (const c of cand) {
+        const n = c.n;
         const fs = (n.kind === 'file' ? 11 : 9.5) / Math.max(0.55, Math.sqrt(k));
         g.font = (n.kind === 'file' ? '500 ' : '400 ') + fs + 'px "JetBrains Mono", monospace';
-        g.globalAlpha = Math.min(1, a * (near ? 1 : 0.85));
+        const w = g.measureText(n.label).width, x = n.x + n.r + 4 / k, h = fs * 1.15;
+        let hit = false;
+        if (!c.near) for (const bx of boxes) { if (x < bx[2] && x + w > bx[0] && n.y - h / 2 < bx[3] && n.y + h / 2 > bx[1]) { hit = true; break; } }
+        if (hit) continue;
+        boxes.push([x - 2 / k, n.y - h / 2, x + w + 2 / k, n.y + h / 2]);
+        g.globalAlpha = Math.min(1, c.a * (c.near ? 1 : 0.9));
+        g.lineWidth = 3 / k; g.strokeStyle = 'rgba(8,12,34,.85)'; g.lineJoin = 'round';
+        g.strokeText(n.label, x, n.y);
         g.fillStyle = '#e6edff';
-        g.fillText(n.label, n.x + n.r + 4 / k, n.y);
+        g.fillText(n.label, x, n.y);
       }
       g.restore();
       g.globalAlpha = 1;

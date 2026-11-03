@@ -98,6 +98,7 @@ window.Component = class Component extends DCLogic {
     this.net = window.DCNet.create(host, {
       onSelect: (id) => {
         if (!id) { this.setState({ mod: null }); return; }
+        if (this.state.lv === 'pkg') { this.setState({ sel: id, mod: null, fnSel: null }); return; }
         const n = this.net.node(id);
         const file = n && n.kind === 'func' ? n.parent : id;
         this.setState({ mod: file, sel: this.pkgOf(file), fnSel: n && n.kind === 'func' ? id : null });
@@ -110,6 +111,12 @@ window.Component = class Component extends DCLogic {
       }
     });
     this.netKey = null;
+  }
+  pkgNetData() {
+    const LCK = { core: 'core', analysis: 'analysis', surface: 'surface' };
+    const nodes = PK.map(([n, loc, l]) => ({ id: n, label: n, kind: 'file', layer: LCK[l] || 'core', pkg: n, loc, r: 7 + Math.sqrt(loc / 5971) * 17, title: n + ' · ' + loc.toLocaleString('en-US') + ' lines' }));
+    const edges = PE.map(([a, b, w]) => ({ a, b, t: 'imp', w }));
+    return { nodes, edges };
   }
   netData(withFn) {
     const FN = (window.DCGraphData || {}).fn || {}, USES = (window.DCGraphData || {}).uses || [];
@@ -134,19 +141,20 @@ window.Component = class Component extends DCLogic {
     }
     return { nodes, edges };
   }
-  cur() { return this.state.lv === 'net' && this.net ? this.net : (this.viz || { zoomBy() {}, fit() {} }); }
+  cur() { return this.net || { zoomBy() {}, fit() {} }; }
   pkgOf(id) { const m = MODS.find((x) => x[0] === id); return m ? m[2] : null; }
   // Keeps the canvas in step with the page state after every render.
   componentDidRender() {
     const st = this.state, nv = this.net;
-    if (st.lv === 'net') this.mountNet();
-    if (this.net && st.lv === 'net') {
-      const k = 'net' + st.fn;
-      if (this.netKey !== k) { this.netKey = k; this.net.set(this.netData(st.fn)); }
+    this.mountNet();
+    if (this.net) {
+      const k = st.lv + (st.lv === 'net' && st.fn);
+      if (this.netKey !== k) { this.netKey = k; this.net.set(st.lv === 'pkg' ? this.pkgNetData() : this.netData(st.lv === 'net' && st.fn)); }
       this.net.filter(st.ly === 'all' ? null : (d) => d.layer === st.ly);
       this.net.find(st.q);
       const attack = st.pathSel >= 0 && st.paths[st.pathSel] ? st.paths[st.pathSel].nodes : null;
-      this.net.focus(attack && attack.length ? attack : st.fnSel ? [st.fnSel] : st.mod ? [st.mod] : null);
+      const pkgFiles = st.sel ? MODS.filter((m) => m[2] === st.sel).map((m) => m[0]) : null;
+      this.net.focus(attack && attack.length && st.lv !== 'pkg' ? attack : st.lv === 'pkg' ? (st.sel ? [st.sel] : null) : st.fnSel ? [st.fnSel] : st.mod ? [st.mod] : (st.lv === 'mod' ? pkgFiles : null));
       if (this.fullSeen !== st.full) { this.fullSeen = st.full; setTimeout(() => this.net.fit(), 60); }
       return;
     }
@@ -210,16 +218,17 @@ window.Component = class Component extends DCLogic {
       }
       det.hasDeps = deps.length > 0; det.hasUsers = users.length > 0; det.nDeps = deps.length; det.nUsers = users.length;
     }
-    const heat = st.heat.length ? st.heat : P.map(([n, loc]) => ({
-      n, v: loc.toLocaleString('en-US') + ' lines', w: Math.max(4, (loc / 5971) * 100).toFixed(1), c: '#4a5873',
+    const heat = st.heat.length ? st.heat : P.map(([n, loc, l]) => ({
+      n, v: loc.toLocaleString('en-US') + ' lines', w: Math.max(4, (loc / 5971) * 100).toFixed(1), c: LC[l],
       pick: () => this.setState({ sel: n, mod: null }),
     }));
-    const heatNote = st.heatNote || 'Package size by lines of code. Open with ?run=<id> to color tiles by proven findings.';
+    const heatNote = st.heatNote || 'Package size by lines, colored by layer (dark blue core, light blue analysis, bronze surfaces).';
+    this.__d = { P, LC };
     return {
       det, q: st.q, onQ: (e) => this.setState({ q: e.target.value }),
       heat, heatNote, paths: st.paths, hasPaths: st.paths.length > 0, runId: st.runId,
       zin: () => this.cur().zoomBy(1.35), zout: () => this.cur().zoomBy(1 / 1.35), zfit: () => this.cur().fit(),
-      nDisp: st.lv === 'net' ? 'block' : 'none', gDisp: st.lv === 'net' ? 'none' : 'block', fnDisp: st.lv === 'net' ? 'inline-flex' : 'none',
+      nDisp: 'block', gDisp: 'none', fnDisp: st.lv === 'net' ? 'inline-flex' : 'none',
       fnOpts: [[true, 'Functions on'], [false, 'Files only']].map(([k, l]) => ({ l, cls: 'sb' + (st.fn === k ? ' sb-on' : ''), pick: () => this.setState({ fn: k }) })),
       gfull: st.full ? 'gfull' : '', full: String(st.full), fullL: st.full ? 'Close expanded view' : 'Expand', toggleFull: () => this.setState({ full: !st.full }),
       tot: [{ l: 'Packages', v: '19', u: 'top-level folders' }, { l: 'Modules', v: '120', u: 'Python files' }, { l: 'Imports', v: '317', u: 'internal dependencies' }, { l: 'Lines', v: '29.9k', u: '1,052 functions · 173 classes' }],
@@ -228,4 +237,21 @@ window.Component = class Component extends DCLogic {
       lyOpts: opt([['all', 'All'], ['core', 'Core'], ['analysis', 'Analysis'], ['surface', 'Surfaces']], 'ly')
     };
   }
+
+  // The expanded version of each chart: same data, drawn in full (see fullchart.js).
+  fullSpec(id) {
+    const d = this.__d;
+    if (!d || id !== 'layers') return null;
+    const names = { core: 'Proof core', analysis: 'Analysis', surface: 'Surfaces' };
+    const total = d.P.reduce((t, p) => t + p[1], 0);
+    const groups = ['core', 'surface', 'analysis'].map((l) => {
+      const list = d.P.filter((p) => p[2] === l).sort((a, b) => b[1] - a[1]);
+      const sum = list.reduce((t, p) => t + p[1], 0);
+      return { title: names[l], note: sum.toLocaleString('en-US') + ' lines \u00b7 ' + Math.round(sum / total * 100) + '%', max: 5971,
+        rows: list.map((p) => ({ key: p[0], label: p[0], sub: Math.round(p[1] / total * 1000) / 10 + '% of the code', v: p[1], color: d.LC[l], value: p[1].toLocaleString('en-US') })) };
+    });
+    const rows = d.P.slice().sort((a, b) => b[1] - a[1]).map((p) => ({ key: p[0], label: p[0] + ' \u00b7 ' + names[p[2]], value: p[1].toLocaleString('en-US') + ' lines', n: p[1] }));
+    return { type: 'hbars', title: 'Lines of code by layer', aria: 'Every package by layer', rowH: 30, labelW: 170, groups, rows };
+  }
 };
+

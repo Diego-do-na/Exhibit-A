@@ -325,14 +325,17 @@
     const title = (h3 && h3.textContent.trim()) || 'Chart';
     const desc = btn.getAttribute('data-zoom-desc') || '';
     const points = (btn.getAttribute('data-zoom-points') || '').split('|').filter(Boolean);
-    const clone = card.cloneNode(true);
+    const zid = btn.getAttribute('data-zoom-id');
+    const spec = zid && window.DCPage && typeof window.DCPage.fullSpec === 'function' && window.DCFull ? window.DCPage.fullSpec(zid) : null;
+    const built = spec ? window.DCFull.create(spec) : null;
+    const clone = built ? built.node : card.cloneNode(true);
     const ch3 = clone.querySelector('h3.ct');
-    if (ch3) { let row = ch3.parentElement; while (row && row.parentElement !== clone) row = row.parentElement; if (row) row.remove(); }
+    if (!built && ch3) { let row = ch3.parentElement; while (row && row.parentElement !== clone) row = row.parentElement; if (row) row.remove(); }
     clone.querySelectorAll('[data-zoom]').forEach((b) => b.remove());
     clone.querySelectorAll('[id]').forEach((e) => { if (!e.closest('svg')) e.removeAttribute('id'); });
-    clone.classList.add('zm-clone');
-    const stage = H('div', { class: 'zm-stage' }, clone);
-    const viewport = H('div', { class: 'zm-view', tabindex: '0', 'aria-label': 'Zoomable chart. Scroll to zoom, drag to move.' }, stage);
+    if (!built) clone.classList.add('zm-clone');
+    const stage = H('div', { class: 'zm-stage' }, built ? null : clone);
+    const viewport = built ? H('div', { class: 'zm-view zm-full', tabindex: '0', 'aria-label': 'Expanded chart' }, clone) : H('div', { class: 'zm-view', tabindex: '0', 'aria-label': 'Zoomable chart. Scroll to zoom, drag to move.' }, stage);
     const world = { tx: 0, ty: 0, k: 1 }, base = { tx: 0, ty: 0, k: 1 };
     let raf = 0;
     const readout = H('span', { class: 'zm-k mono', text: '100%' });
@@ -346,13 +349,13 @@
     };
     const zoomAt = (cx, cy, f, ms) => { const k = Math.max(0.4, Math.min(8, world.k * f)), r = k / world.k; go(cx - (cx - world.tx) * r, cy - (cy - world.ty) * r, k, ms); };
     const mid = (f) => { const r = viewport.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, f, 200); };
-    viewport.addEventListener('wheel', (ev) => { ev.preventDefault(); const r = viewport.getBoundingClientRect(); zoomAt(ev.clientX - r.left, ev.clientY - r.top, ev.deltaY < 0 ? 1.15 : 1 / 1.15, 0); }, { passive: false });
+    if (!built) viewport.addEventListener('wheel', (ev) => { ev.preventDefault(); const r = viewport.getBoundingClientRect(); zoomAt(ev.clientX - r.left, ev.clientY - r.top, ev.deltaY < 0 ? 1.15 : 1 / 1.15, 0); }, { passive: false });
     let d0 = null;
-    viewport.addEventListener('pointerdown', (ev) => { d0 = { x: ev.clientX, y: ev.clientY, tx: world.tx, ty: world.ty }; viewport.classList.add('zm-grab'); });
+    if (!built) viewport.addEventListener('pointerdown', (ev) => { d0 = { x: ev.clientX, y: ev.clientY, tx: world.tx, ty: world.ty }; viewport.classList.add('zm-grab'); });
     const onMove = (ev) => { if (d0) { world.tx = d0.tx + ev.clientX - d0.x; world.ty = d0.ty + ev.clientY - d0.y; apply(); } };
     const onUp = () => { d0 = null; viewport.classList.remove('zm-grab'); };
     window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp);
-    viewport.addEventListener('dblclick', () => go(base.tx, base.ty, base.k, 260));
+    if (!built) viewport.addEventListener('dblclick', () => go(base.tx, base.ty, base.k, 260));
 
     const tb = (label, path, fn) => { const b = H('button', { type: 'button', class: 'ib', 'aria-label': label }); b.appendChild(icon(path)); b.addEventListener('click', fn); return b; };
     const closeBtn = tb('Close', ICON.close, close);
@@ -360,6 +363,7 @@
     // rows of its legend and bars), so the numbers always match what is drawn.
     const num = (t) => { const m = /-?\d[\d,]*(?:\.\d+)?\s*(k|%|min|h|s|PRs?|lines)?/i.exec(t.replace(/\$/g, '')); return m ? parseFloat(m[0].replace(/,/g, '')) * (/k$/i.test(m[1] || '') ? 1000 : 1) : NaN; };
     const rows = [];
+    if (built) spec.rows.forEach((r) => rows.push({ label: r.label, value: r.value, n: isFinite(r.n) ? r.n : NaN, mark: null, marks: built.marks(r.key) }));
     clone.querySelectorAll('svg title').forEach((t) => {
       const mark = t.parentElement, txt = t.textContent.trim();
       if (!txt) return;
@@ -388,21 +392,23 @@
     rows.forEach((r) => { if (isFinite(r.n)) groups.set(r.label, (groups.get(r.label) || 0) + (/^\D*\d/.test(r.value) || !r.value ? r.n : (parseFloat((/(-?\d[\d,]*(?:\.\d+)?)\s*$/.exec(r.value) || [0, NaN])[1].toString().replace(/,/g, '')))) || 0); });
     const rolled = groups.size > 1 && groups.size < rows.length;
     const nums = (rolled ? Array.from(groups, ([label, n]) => ({ label, n, value: n.toLocaleString('en-US') })) : rows.filter((r) => isFinite(r.n))).sort((a, b) => b.n - a.n);
+    const nv = (r) => (built && isFinite(r.n) ? (r.n >= 1000 ? r.n.toLocaleString('en-US') : String(Math.round(r.n * 100) / 100)) : (r.value || r.n));
     const stat = (v, l) => H('div', { class: 'zm-stat' }, H('span', { class: 'dsp zm-sv', text: String(v) }), H('span', { class: 'zm-sl', text: l }));
     const stats = H('div', { class: 'zm-stats' }, stat(rows.length, rows.length === 1 ? 'value shown' : 'values shown'),
-      nums.length ? stat(nums[0].value || nums[0].n, 'largest: ' + nums[0].label.slice(0, 22)) : null,
-      nums.length > 1 ? stat(nums[nums.length - 1].value || nums[nums.length - 1].n, 'smallest: ' + nums[nums.length - 1].label.slice(0, 22)) : null);
+      nums.length ? stat(nv(nums[0]), 'largest: ' + nums[0].label.slice(0, 26)) : null,
+      nums.length > 1 ? stat(nv(nums[nums.length - 1]), 'smallest: ' + nums[nums.length - 1].label.slice(0, 26)) : null);
     const stand = nums.length > 1 ? H('ul', { class: 'zm-points' },
       H('li', { text: nums[0].label + ' leads with ' + (nums[0].value || nums[0].n) + '.' }),
       nums.length > 2 ? H('li', { text: nums[1].label + ' follows with ' + (nums[1].value || nums[1].n) + ', then ' + nums[2].label + '.' }) : null,
       H('li', { text: nums[nums.length - 1].label + ' is the smallest at ' + (nums[nums.length - 1].value || nums[nums.length - 1].n) + '.' })) : null;
     const tbody = H('div', { class: 'zm-rows', role: 'list' });
     const rowEls = rows.map((r) => {
-      const el = H('div', { class: 'zm-row', role: 'listitem', tabindex: r.mark ? '0' : '-1' }, H('span', { class: 'zm-rl', text: r.label }), H('span', { class: 'zm-rv mono', text: r.value }));
-      const on = () => { clone.classList.add('zm-has-hot'); if (r.mark) r.mark.classList.add('zm-hot'); el.classList.add('zm-row-hot'); };
-      const off = () => { clone.classList.remove('zm-has-hot'); if (r.mark) r.mark.classList.remove('zm-hot'); el.classList.remove('zm-row-hot'); };
+      const mk = r.marks && r.marks.length ? r.marks : (r.mark ? [r.mark] : []);
+      const el = H('div', { class: 'zm-row', role: 'listitem', tabindex: mk.length ? '0' : '-1' }, H('span', { class: 'zm-rl', text: r.label }), H('span', { class: 'zm-rv mono', text: r.value }));
+      const on = () => { clone.classList.add('zm-has-hot'); mk.forEach((m) => m.classList.add('zm-hot')); el.classList.add('zm-row-hot'); };
+      const off = () => { clone.classList.remove('zm-has-hot'); mk.forEach((m) => m.classList.remove('zm-hot')); el.classList.remove('zm-row-hot'); };
       el.addEventListener('pointerenter', on); el.addEventListener('pointerleave', off); el.addEventListener('focus', on); el.addEventListener('blur', off);
-      if (r.mark) { r.el = el; r.mark.addEventListener('pointerenter', () => { on(); el.scrollIntoView({ block: 'nearest' }); }); r.mark.addEventListener('pointerleave', off); }
+      if (mk.length) { r.el = el; mk.forEach((m) => { m.addEventListener('pointerenter', () => { el.classList.add('zm-row-hot'); el.scrollIntoView({ block: 'nearest' }); }); m.addEventListener('pointerleave', () => el.classList.remove('zm-row-hot')); }); }
       tbody.appendChild(el);
       return el;
     });
@@ -418,10 +424,10 @@
       rows.length > 1 ? H('span', { class: 'lbl', text: 'The numbers' }) : null,
       rows.length > 8 ? filt : null,
       rows.length > 1 ? tbody : null,
-      H('p', { class: 'zm-hint', text: 'Hover a row to find it in the chart, hover the chart to find its row. Scroll to zoom, drag to move, Esc closes.' }));
+      H('p', { class: 'zm-hint', text: (built ? 'Hover a row to find it in the chart, hover the chart to find its row. Esc closes.' : 'Hover a row to find it in the chart, hover the chart to find its row. Scroll to zoom, drag to move, Esc closes.') }));
     const dialog = H('div', { class: 'zm', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
       H('div', { class: 'zm-h' }, H('h2', { class: 'dsp zm-t', text: title }),
-        H('div', { class: 'zm-tools' }, tb('Zoom out', ICON.minus, () => mid(1 / 1.4)), readout, tb('Zoom in', ICON.plus, () => mid(1.4)), tb('Reset zoom', ICON.fit, () => go(base.tx, base.ty, base.k, 260)), closeBtn)),
+        H('div', { class: 'zm-tools' }, ...(built ? [closeBtn] : [tb('Zoom out', ICON.minus, () => mid(1 / 1.4)), readout, tb('Zoom in', ICON.plus, () => mid(1.4)), tb('Reset zoom', ICON.fit, () => go(base.tx, base.ty, base.k, 260)), closeBtn]))),
       H('div', { class: 'zm-body' }, viewport, side));
     const ovl = H('div', { class: 'zm-ovl' }, dialog);
     ovl.addEventListener('mousedown', (ev) => { if (ev.target === ovl) close(); });
@@ -450,7 +456,7 @@
     document.body.appendChild(ovl);
     closeBtn.focus();
     // Open fitted: scale the chart up to fill the viewport, centered.
-    requestAnimationFrame(() => {
+    if (!built) requestAnimationFrame(() => {
       const vw = viewport.clientWidth, vh = viewport.clientHeight, w = clone.offsetWidth + 40, h = clone.offsetHeight + 40;
       if (!w || !h) return;
       const k = Math.max(1, Math.min(vw / w, vh / h, 2.6));

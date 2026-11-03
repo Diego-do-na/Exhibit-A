@@ -105,8 +105,48 @@ window.Component = class Component extends DCLogic {
     const sel = { case: s0.cs, cwe: s0.cwe, eff: EN[s0.eff], held: s0.held ? 'Held-out' : 'Tuning set', n: s0.vs.length, calls: s0.calls, cost: '$' + s0.cost.toFixed(2),
       vs: s0.vs.map((x) => ({ c: VC[x[0]], v: VN[x[0]], r: RS[x[1]] })) };
 
+    this.__d = { C, VC, VN, EN };
     return { tot, outT: st.by === 'effect' ? 'effect' : 'CWE', byOpts: opt([['effect', 'Effect'], ['cwe', 'CWE']], 'by'), scOpts: opt([['abs', 'Count'], ['pct', '%']], 'sc'),
       out, insights, why, gen, cost, cstats, v: st.v, e: st.e, vOpts, eOpts, onV: (ev) => this.setState({ v: ev.target.value }), onE: (ev) => this.setState({ e: ev.target.value }),
       rows, empty: rows.length === 0, sel };
   }
+
+  // The expanded version of each chart: same data, drawn in full (see fullchart.js).
+  fullSpec(id) {
+    const d = this.__d;
+    if (!d) return null;
+    const { C, VC, VN, EN } = d;
+    const legend = ['P', 'I', 'D'].map((k) => ({ name: VN[k], color: VC[k] }));
+    const verdicts = (c) => ['P', 'I', 'D'].map((k) => [k, c.vs.filter((x) => x[0] === k).length]).filter((x) => x[1]).map((x) => x[1] + ' ' + VN[x[0]].toLowerCase()).join(', ');
+    if (id === 'sus') {
+      const cases = C.slice().sort((a, b) => a.cs.localeCompare(b.cs));
+      const rows = cases.map((c) => ({ key: c.cs, label: c.cs, sub: c.cwe + ' \u00b7 ' + EN[c.eff] + (c.held ? ' \u00b7 held-out' : ''),
+        parts: c.vs.map((x) => ({ v: 1, color: VC[x[0]], name: VN[x[0]], text: EN[c.eff], label: x[0] })), value: verdicts(c) }));
+      return { type: 'hbars', title: 'All 44 suspicions', aria: 'Every suspicion by case and verdict', rowH: 40, labelW: 290, legend, groups: [{ rows, max: 4 }],
+        rows: cases.map((c) => ({ key: c.cs, label: c.cs, value: c.cwe + ' \u00b7 ' + verdicts(c), n: c.vs.length })) };
+    }
+    if (id === 'out') {
+      const group = (keyOf) => {
+        const grp = {};
+        C.forEach((c) => { const k = keyOf(c); grp[k] = grp[k] || { P: 0, I: 0, D: 0 }; c.vs.forEach((v) => { grp[k][v[0]]++; }); });
+        return Object.entries(grp).map(([n, o]) => [n, o, o.P + o.I + o.D]).sort((a, b) => b[2] - a[2]);
+      };
+      const mk = (title, ents, pre) => ({ title, rows: ents.map(([n, o, t]) => ({ key: pre + n, label: n, sub: o.P + ' of ' + t + ' proven (' + Math.round(o.P / t * 100) + '%)',
+        parts: ['P', 'I', 'D'].filter((k) => o[k]).map((k) => ({ v: o[k], color: VC[k], name: VN[k], label: String(o[k]) })), value: String(t) })) });
+      const g1 = mk('By effect', group((c) => EN[c.eff]), 'e:'), g2 = mk('By CWE', group((c) => c.cwe), 'c:');
+      const rows = [];
+      [g1, g2].forEach((g) => g.rows.forEach((r) => { const p = r.parts.reduce((t, x) => t + (x.name === 'Proven' ? x.v : 0), 0); rows.push({ key: r.key, label: g.title + ' \u00b7 ' + r.label, value: r.sub, n: Number(r.value) }); }));
+      g1.max = g2.max = Math.max(...g1.rows.concat(g2.rows).map((r) => Number(r.value)));
+      return { type: 'hbars', title: 'Outcome by effect and CWE', aria: 'Verdicts by effect and by weakness class', rowH: 36, labelW: 200, legend, groups: [g1, g2], rows };
+    }
+    if (id === 'cost') {
+      const outc = (c) => (c.vs.some((x) => x[0] === 'P') ? 'P' : c.vs.some((x) => x[0] === 'I') ? 'I' : 'D');
+      const sorted = C.slice().sort((a, b) => b.cost - a.cost);
+      const rows = sorted.map((c) => ({ key: c.cs, label: c.cs, sub: c.calls + ' model calls \u00b7 ' + c.cwe, v: c.cost, color: VC[outc(c)], value: '$' + c.cost.toFixed(3) }));
+      return { type: 'hbars', title: 'Spend per case', aria: 'Model spend for each case, highest first', rowH: 40, labelW: 290, legend, groups: [{ rows, max: sorted[0].cost }],
+        rows: sorted.map((c) => ({ key: c.cs, label: c.cs, value: '$' + c.cost.toFixed(3) + ' \u00b7 ' + c.calls + ' calls', n: c.cost })) };
+    }
+    return null;
+  }
 };
+

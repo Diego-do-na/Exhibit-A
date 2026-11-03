@@ -5,6 +5,7 @@
 <title>Exhibit A · Code graph</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="dashboard.css">
+<script src="views/fullchart.js"></script>
 <script src="views/viz.js"></script>
 <script src="views/graphdata.js"></script>
 <script src="views/netgraph.js"></script>
@@ -41,11 +42,11 @@
       <header data-style="padding: 12px 4px 0">
         <span class="lbl">src/exhibit_a · ast only</span>
         <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Code graph</h1>
-        <p class="lead" data-style="font-size: 19px">How the engine is put together: which packages exist, how much code each holds, and which ones the rest of the system depends on.</p>
+        <p class="lead" data-style="font-size: 19px">Which packages exist, how big each is, and what depends on what.</p>
       </header>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Architecture</h2><p class="lead">The code splits into three layers. The proof core runs exploits and judges them, the analysis layer decides where to look, and the surfaces present the results to people and to CI.</p></div></div>
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Architecture</h2><p class="lead">Three layers: proof core, analysis and surfaces.</p></div></div>
         <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
           <sc-for list="{{tot}}" as="k" hint-placeholder-count="4">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
@@ -56,7 +57,7 @@
           </sc-for>
         </div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 18px">
-          <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Lines of code by layer</h3><button type="button" class="ib" data-zoom data-zoom-desc="How the 29.9k lines of Python split across the three layers of the engine." data-zoom-points="Proof core: oracle, sandbox, loop, models, ledger and schemas, 12,603 lines.|Surfaces: CLI, dashboard, reports, live view and the GitHub Action gate, 9,030 lines.|Analysis: call graph, advisories, findings, triage, audit, attestation and scan, 8,260 lines." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+          <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Lines of code by layer</h3><button type="button" class="ib" data-zoom data-zoom-id="layers" data-zoom-desc="How the 29.9k lines of Python split across the three layers of the engine." data-zoom-points="Proof core: oracle, sandbox, loop, models, ledger and schemas, 12,603 lines.|Surfaces: CLI, dashboard, reports, live view and the GitHub Action gate, 9,030 lines.|Analysis: call graph, advisories, findings, triage, audit, attestation and scan, 8,260 lines." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
           <div data-style="display: flex; height: 48px; gap: 3px">
             <sc-for list="{{layers}}" as="l"><div data-style="width: {{l.pct}}%; background: {{l.c}}; color: {{l.fg}}; display: flex; align-items: center; padding: 0 16px; font-family: 'JetBrains Mono', monospace; font-size: 14px">{{l.pctL}}</div></sc-for>
           </div>
@@ -72,7 +73,7 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">The graph</h2><p class="lead">Every package and every import between them. Select a package to trace what it depends on and what depends on it.</p></div></div>
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">The graph</h2><p class="lead">Each file is a node and its functions orbit it. Hover or select to trace connections.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
           <div class="card {{gfull}}" data-style="flex: 3 1 620px; min-width: 0; display: flex; flex-direction: column; overflow: hidden">
             <div data-style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid rgba(13,27,62,.08)">
@@ -127,7 +128,7 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Hotspots</h2><p class="lead">The schemas are the backbone: the graph schema alone is imported by 16 other modules. The oracle is both the largest module and one of the most depended on, which is why it carries the heaviest test coverage.</p></div></div>
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Hotspots</h2><p class="lead">The schemas are the backbone; the oracle is both the largest module and among the most depended on.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <sc-for list="{{hot}}" as="h">
             <div class="card" data-style="flex: 1 1 300px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 6px">
@@ -150,13 +151,13 @@
               </button>
             </sc-for>
           </div>
-          <div class="heat-legend">
+          <sc-if value="{{runId}}"><div class="heat-legend">
             <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #7a86a1"></span>no proven finding</span>
             <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #6a8fd8"></span>low</span>
             <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #b7834f"></span>medium</span>
             <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #a5703f"></span>high</span>
             <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #8f2f2f"></span>critical</span>
-          </div>
+          </div></sc-if>
         </div>
         <sc-if value="{{hasPaths}}" hint-placeholder-val="{{ false }}">
           <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
