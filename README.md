@@ -28,7 +28,9 @@ A finding is `proven` only if all five hold ([SPEC section 4](SPEC.md)):
 4. The result is stable across N repeated runs (default 3).
 5. After the fix, the exploit passes and the baseline still passes; defender bypass variants fail, or the surviving one is reported with `fix_incomplete`.
 
-Other verdicts: `discarded_unproven`, `invalid_test`, `flaky`, `env_failure`. A green result means **"nothing could be proven", never "safe"**. The sandbox is **isolated and resource-limited**, never "100% safe".
+Other verdicts: `discarded_unproven`, `invalid_test`, `flaky`, `env_failure`. A green result means **"nothing could be proven," never "safe"** and never "100% secure." The sandbox is **isolated and resource-limited**, never "100% safe".
+
+Known scope limit / Architecture note: The Starlette oracle currently runs as an isolated process on the host. Full containerized isolation for this specific oracle is targeted for v1.1.
 
 Declared residual limits of the oracle (each pinned by a strict xfail in `tests/test_oracle_residual.py`):
 

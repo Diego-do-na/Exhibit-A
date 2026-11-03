@@ -10,7 +10,9 @@ exploit test, run in an isolated sandbox, fails for the right reason. The verifi
 engine is the product. Everything else (CLI, GitHub Action, live view) is a thin surface
 on top of it.
 
-A green result means "nothing could be proven", never "safe".
+A green result means "nothing could be proven", never "safe" and never "100% secure".
+
+Known scope limit / Architecture note: The Starlette oracle currently runs as an isolated process on the host. Full containerized isolation for this specific oracle is targeted for v1.1.
 
 ## 2. What the product is
 
