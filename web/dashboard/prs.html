@@ -48,6 +48,8 @@
         <div data-style="display: flex; gap: 8px; flex-wrap: wrap">
           <label for="ag" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Author</label>
           <select id="ag" class="sel" value="{{agent}}" onChange="{{onAgent}}" data-options="{{agOpts}}"></select>
+          <label for="ak" data-style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Author type</label>
+          <select id="ak" class="sel" value="{{kind}}" onChange="{{onKind}}" data-options="{{kindOpts}}"></select>
         </div>
       </header>
 
@@ -145,7 +147,7 @@
                   <sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
                     <button type="button" class="{{r.cls}}" onClick="{{r.pick}}" aria-label="{{r.aria}}">
                       <span class="mono" data-style="font-size: 13px; color: #2c4fc4">{{r.id}}</span>
-                      <span data-style="display: flex; gap: 8px; align-items: center; min-width: 0"><span data-style="flex: none; width: 8px; height: 8px; background: {{r.c}}"></span><span data-style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.t}}</span></span>
+                      <span data-style="display: flex; gap: 8px; align-items: center; min-width: 0"><span data-style="flex: none; width: 8px; height: 8px; background: {{r.c}}"></span><span data-style="flex: none; font-size: 11px; color: #45587c" title="{{r.ty}}">{{r.ty}}</span><span data-style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.t}}</span></span>
                       <span data-style="font-size: 13px; color: #3d4b68">{{r.when}}</span>
                       <span class="mono" data-style="font-size: 13px; text-align: right">{{r.ch}}</span>
                       <span class="mono" data-style="font-size: 13px; text-align: right; color: #3d4b68">{{r.cyc}}</span>
@@ -176,7 +178,19 @@
       </section>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
-        <div class="sec-h"><span class="sec-n">05</span><div><h2 class="sec-t">Where each author merged</h2><p class="lead">Each author's most-merged package, from the same 134 rows.</p></div></div>
+        <div class="sec-h"><span class="sec-n">05</span><div><h2 class="sec-t">By author</h2><p class="lead">Pull requests, lines changed, median cycle and test-touch rate per author. Type comes from the single mapping in views/prdata.js; anything unlisted is unattributed, never guessed.</p></div></div>
+        <div class="card" data-style="padding: 8px 22px 14px">
+          <sc-for list="{{authorRows}}" as="p">
+            <div data-style="display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr) 90px 90px 90px; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid rgba(13,27,62,.08)">
+              <span data-style="display: flex; gap: 8px; align-items: center"><span data-style="flex: none; width: 8px; height: 8px; background: {{p.c}}"></span><span class="mono" data-style="font-size: 13px">{{p.a}}</span><span data-style="font-size: 11px; color: #45587c">{{p.ty}}</span></span>
+              <span data-style="height: 10px; background: rgba(13,27,62,.08)"><span data-style="display: block; height: 10px; width: {{p.pct}}%; background: {{p.c}}"></span></span>
+              <span class="mono" data-style="font-size: 13px; text-align: right">{{p.n}} PRs</span>
+              <span class="mono" data-style="font-size: 13px; text-align: right">{{p.lines}} lines</span>
+              <span class="mono" data-style="font-size: 13px; text-align: right">{{p.med}} · {{p.testsPct}}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div class="sec-h"><span class="sec-n">06</span><div><h2 class="sec-t">Where each author merged</h2><p class="lead">Each author's most-merged package, from the same 134 rows.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 8px">
           <sc-for list="{{pkgmap}}" as="p">
             <span data-style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(13,27,62,.14); background: rgba(255,255,255,.7); font-size: 14px"><span data-style="width: 9px; height: 9px; border-radius: 50%; background: {{p.c}}"></span>{{p.a}} · {{p.n}} PRs · mostly {{p.area}} ({{p.an}})</span>

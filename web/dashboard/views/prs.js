@@ -3,10 +3,10 @@ window.Component = class Component extends DCLogic {
   constructor(props) {
     super(props);
     let pre = ''; try { pre = new URLSearchParams(window.location.search).get('pr') || ''; } catch (e) { /* no query */ }
-    this.state = { q: '', agent: 'all', sort: 'new', sel: pre || 'T131', y: 'lines' };
+    this.state = { q: '', agent: 'all', kind: 'all', sort: 'new', sel: pre || 'T131', y: 'lines' };
   }
   renderVals() {
-    const COL = { claude: '#0f2557', Muse: '#2c4fc4', Copilot: '#6a8fd8', assistant: '#9aa3e0', unlogged: '#c3cbd8', gemini: '#4b3fa0', grok: '#b7834f', agy: '#d9b98f', 'cursor-agent': '#7f97b8', 'claude-cloud': '#4a5873' };
+    const COL = window.XA_AUTHOR_COLORS || { claude: '#0f2557', Muse: '#2c4fc4', Copilot: '#6a8fd8', assistant: '#9aa3e0', unlogged: '#c3cbd8', gemini: '#4b3fa0', grok: '#b7834f', agy: '#d9b98f', 'cursor-agent': '#7f97b8', 'claude-cloud': '#4a5873' };
     const D = window.XA_PRS || [];
     const DI = { '10-27': 0, '10-28': 1, '10-29': 2, '10-30': 3, '10-31': 4, '11-01': 5 };
     const MON = { '10': 'Oct', '11': 'Nov' };
@@ -18,7 +18,9 @@ window.Component = class Component extends DCLogic {
       whenL: MON[when.slice(0, 2)] + ' ' + parseInt(when.slice(3, 5), 10) + ', ' + when.slice(6) }));
     const st = this.state;
     const q = st.q.trim().toLowerCase();
-    const byAgent = all.filter((r) => st.agent === 'all' || r.a === st.agent);
+    const kindOf = (a) => window.XA_authorType ? window.XA_authorType(a) : 'unattributed';
+    const byKind = all.filter((r) => st.kind === 'all' || kindOf(r.a) === st.kind || (st.kind === 'unattributed' && kindOf(r.a) === 'unattributed'));
+    const byAgent = byKind.filter((r) => st.agent === 'all' || r.a === st.agent);
     const cmp = { new: (a, b) => b.min - a.min, old: (a, b) => a.min - b.min, big: (a, b) => b.ch - a.ch, slow: (a, b) => b.cy - a.cy };
     const list = byAgent.filter((r) => !q || (r.id + ' ' + r.t + ' ' + r.a + ' ' + r.area).toLowerCase().includes(q)).sort(cmp[st.sort]);
 
@@ -79,7 +81,7 @@ window.Component = class Component extends DCLogic {
     const cm = Math.max(1, ...cc.map((h) => h.n));
     const cyh = cc.map((h, i) => ({ ...h, pct: (h.n / cm * 78).toFixed(1), c: ['#0f2557', '#2c4fc4', '#6a8fd8', '#9aa3e0', '#b7834f'][i] }));
 
-    const rows = list.map((r) => ({ id: r.id, t: r.t, c: COL[r.a], when: r.whenL, ch: fmt(r.ch), cyc: cyc(r.cy), aria: r.id + ' ' + r.t,
+    const rows = list.map((r) => ({ id: r.id, t: r.t, a: r.a, ty: kindOf(r.a), isAgent: kindOf(r.a) === 'agent', c: COL[r.a], when: r.whenL, ch: fmt(r.ch), cyc: cyc(r.cy), aria: r.id + ' ' + r.t,
       cls: 'prow' + (st.sel === r.id ? ' prow-on' : ''), pick: () => this.setState({ sel: r.id }) }));
     const t0 = Math.max(1, s0.ch);
     const sizeOf = (x) => x < 50 ? 'XS' : x < 200 ? 'S' : x < 500 ? 'M' : x < 1500 ? 'L' : 'XL';
@@ -100,7 +102,17 @@ window.Component = class Component extends DCLogic {
     });
 
     this.__d = { all, COL, BK, CK, yv, ymax, yt, ytitle, ykey: st.y, cyc, fmt };
+    const kindOpts = [{ k: 'all', l: 'All types' }, { k: 'agent', l: 'Agents' }, { k: 'human', l: 'Humans' }, { k: 'unattributed', l: 'Unattributed' }];
+    const byA = {}; byAgent.forEach((r) => { const k = r.a; (byA[k] = byA[k] || []).push(r); });
+    const maxN = Math.max(1, ...Object.values(byA).map((v) => v.length));
+    const authorRows = Object.entries(byA).sort((a, b) => b[1].length - a[1].length).map(([a, v]) => {
+      const cys = v.map((r) => r.cy).sort((x, y) => x - y);
+      return { a, ty: kindOf(a), isAgent: kindOf(a) === 'agent', isHuman: kindOf(a) === 'human', c: COL[a] || '#4a5873', n: v.length,
+        pct: (v.length / maxN * 100).toFixed(1), lines: fmt(v.reduce((s, r) => s + r.ch, 0)), med: cyc(cys[Math.floor(cys.length / 2)]),
+        testsPct: Math.round(v.filter((r) => r.ts > 0).length / v.length * 100) + '%' };
+    });
     return { tot, minor, lead1, shown: list.length + ' of 134 shown', agent: st.agent, agOpts, onAgent: (e) => this.setState({ agent: e.target.value }),
+      kind: st.kind, kindOpts, onKind: (e) => this.setState({ kind: e.target.value }), authorRows,
       sort: st.sort, sortOpts, onSort: (e) => this.setState({ sort: e.target.value }), yOpts, tl, hist, cyh, rows, sel, pkgmap,
       q: st.q, onQ: (e) => this.setState({ q: e.target.value }) };
   }

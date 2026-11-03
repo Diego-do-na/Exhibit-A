@@ -7,6 +7,7 @@ window.XA_PRS = [["T001","Scaffold + JSON schemas","10-27 08:21","unlogged",2,9,
    "unattributed" and is never guessed to be human or agent. For repos
    connected through the GitHub API, a login of type Bot or ending in [bot]
    is an agent; anything else is human only when the API says so. */
+window.XA_AUTHOR_COLORS = { claude: '#0f2557', Muse: '#2c4fc4', Copilot: '#6a8fd8', assistant: '#9aa3e0', unlogged: '#c3cbd8', gemini: '#4b3fa0', grok: '#b7834f', agy: '#d9b98f', 'cursor-agent': '#7f97b8', 'claude-cloud': '#4a5873' };
 window.XA_AUTHOR_TYPES = {
   claude: 'agent', Muse: 'agent', Copilot: 'agent', grok: 'agent',
   agy: 'agent', gemini: 'agent', 'cursor-agent': 'agent', 'claude-cloud': 'agent'
