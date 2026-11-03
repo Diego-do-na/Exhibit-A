@@ -14,6 +14,7 @@ from exhibit_a.sandbox.image_node import (
     INSTALL_DIR,
     TAG_REPOSITORY,
     TSX_VERSION,
+    TYPESCRIPT_VERSION,
     build_node_image,
     dockerfile,
     image_tag,
@@ -79,7 +80,7 @@ def test_node_dockerfile_content_golden():
         "ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_AUDIT=false\n"
         "RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\n"
         f"WORKDIR {INSTALL_DIR}\n"
-        f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION}\n"
+        f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION} {TYPESCRIPT_VERSION}\n"
         f'ENV PATH="{INSTALL_DIR}/node_modules/.bin:${{PATH}}"\n'
         f'ENV NODE_PATH="{INSTALL_DIR}/node_modules"\n'
     )
@@ -90,7 +91,7 @@ def test_node_dockerfile_content_golden():
         "ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_AUDIT=false\n"
         "RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\n"
         f"WORKDIR {INSTALL_DIR}\n"
-        f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION}\n"
+        f"RUN npm install --save-dev --save-exact --ignore-scripts {TSX_VERSION} {TYPESCRIPT_VERSION}\n"
         "RUN npm install --save-exact --ignore-scripts 'express@4.19.2' 'lodash@4.17.21'\n"
         f'ENV PATH="{INSTALL_DIR}/node_modules/.bin:${{PATH}}"\n'
         f'ENV NODE_PATH="{INSTALL_DIR}/node_modules"\n'
