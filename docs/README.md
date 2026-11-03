@@ -57,6 +57,7 @@ One line per document. Paths are relative to the repository root.
 - [design/architecture.md](design/architecture.md) — system architecture, component contracts, and the loop diagram in prose.
 - [design/code-graph.md](design/code-graph.md) — SCAN/SLICE code graph, reachability, and slicing: entry points from the graph, never from the model.
 - [design/dashboard.md](design/dashboard.md) — local read-only dashboard: sources, threat model, views.
+- [design/dashboard-api.md](design/dashboard-api.md) — dashboard API: every endpoint with a real example, per-source costs, "not recorded" rule.
 - [design/first-cve.md](design/first-cve.md) — first real CVE end to end: Starlette CVE-2023-29159 proven through the loop.
 
 ## reference/ — CLI and runtime details
