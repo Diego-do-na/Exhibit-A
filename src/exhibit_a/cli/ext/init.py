@@ -25,7 +25,7 @@ from ..style import OK, SKIP, WARN, kv, next_steps, section, status
 CHECKOUT_ACTION = "actions/checkout"
 CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"  # actions/checkout v7.0.1
 EXHIBIT_A_ACTION = "diego-do-na/Exhibit-A"
-EXHIBIT_A_ACTION_SHA = "9d881359c6181f5b8d5b44a4c2b554a351e0cf19"  # origin/main (stdin JS graph, init secrets)
+EXHIBIT_A_ACTION_SHA = "c2b721d1fc34b2e008508aaff1cd0b39fd791c73"  # origin/main (ledger PR number)
 
 DEFAULT_PATH = ".github/workflows/exhibit-a.yml"
 
