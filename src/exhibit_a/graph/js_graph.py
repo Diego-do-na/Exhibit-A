@@ -22,6 +22,19 @@ MAX_OUTPUT_BYTES = 10 * 1024 * 1024
 TYPESCRIPT_PACKAGE = "typescript@5.7.2"
 
 
+def _staging_parent() -> Path:
+    """Directory holding the staged copy the container bind-mounts.
+
+    Mirrors the sandbox runner: mounts staged under ``$HOME/.cache`` stay
+    bind-able on every file-sharing layer, while arbitrary worktree paths
+    have failed silently on CI with an empty graph and
+    ``cannot read directory``.
+    """
+    parent = Path.home() / ".cache" / "exhibit-a" / "js-graph"
+    parent.mkdir(parents=True, exist_ok=True)
+    return parent
+
+
 def _validate(raw: object) -> CodeGraph:
     if not isinstance(raw, dict) or raw.get("schema_version") != "1":
         raise ValueError("invalid JavaScript graph schema")
@@ -41,10 +54,10 @@ def build_js_graph(root: str | Path, *, image: str | None = None, timeout: float
     if not root.is_dir():
         raise ValueError(f"repository is not a directory: {root}")
     tag = image or build_node_image([TYPESCRIPT_PACKAGE])
-    # Colima/Docker may not share arbitrary system temp paths. Stage a bounded copy under the
-    # repository worktree (a shared path), then mount that copy read-only into the sandbox.
+    # Stage a bounded copy under $HOME/.cache (a reliably shared path, same as
+    # the sandbox runner), then mount that copy read-only into the sandbox.
     # The prefix is not hidden: some file-sharing layers skip dot-directories.
-    with tempfile.TemporaryDirectory(prefix="exhibit-a-js-stage-", dir=Path.cwd()) as staged_dir:
+    with tempfile.TemporaryDirectory(prefix="exhibit-a-js-stage-", dir=_staging_parent()) as staged_dir:
         staged_root = Path(staged_dir) / "repo"
         shutil.copytree(root, staged_root, symlinks=True)
         command = [

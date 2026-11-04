@@ -57,7 +57,7 @@ function walkFiles(root) {
     // on some bind-mount/overlay filesystems (GitHub-hosted runners included). Both
     // methods then return false and every source file is skipped silently.
     try { names = fs.readdirSync(dir); }
-    catch (e) { skipped.push({file: path.relative(root, dir) || ".", reason: "cannot read directory"}); return; }
+    catch (e) { skipped.push({file: path.relative(root, dir) || ".", reason: "cannot read directory" + (e && e.code ? " (" + e.code + ")" : "")}); return; }
     for (const name of names.slice().sort()) {
       if (files.length >= MAX_FILES || total >= MAX_TOTAL_BYTES) break;
       if (name.startsWith(".") || SKIP.has(name)) continue;

@@ -86,6 +86,19 @@ def test_js_builder_walks_with_lstat_not_dirent_type():
     assert "entry.isFile()" not in source
 
 
+def test_js_graph_stages_where_mounts_stay_bindable(tmp_path, monkeypatch):
+    import exhibit_a.graph.js_graph as js_graph
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    parent = js_graph._staging_parent()
+    assert parent.is_dir()
+    assert parent == tmp_path / ".cache" / "exhibit-a" / "js-graph"
+    builder = (Path(__file__).resolve().parent.parent / "src/exhibit_a/graph/js/graph_builder.js").read_text(
+        encoding="utf-8"
+    )
+    assert "e.code" in builder
+
+
 @pytest.mark.docker
 def test_typescript_graph_runs_in_node_sandbox(tmp_path):
     (tmp_path / "helpers.ts").write_text(
