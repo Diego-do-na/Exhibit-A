@@ -89,34 +89,19 @@ def test_init_writes_profile_and_graph_summary(tmp_path, monkeypatch, capsys):
     assert "needs: analyze" in text
 
 
-def test_init_meta_base_url_renders_env_block(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    _tiny_python_repo(tmp_path)
-    assert main(["init", "--meta-base-url", "https://meta.example/v1/"]) == 0
-    text = (tmp_path / ".github" / "workflows" / "exhibit-a.yml").read_text(encoding="utf-8")
-    assert "META_BASE_URL: https://meta.example/v1" in text
-    assert "__META_ENV__" not in text
-    assert "META_BASE_URL" not in workflow_text()
-
-
-def test_init_rejects_non_https_meta_base_url(tmp_path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)
-    _tiny_python_repo(tmp_path)
-    assert main(["init", "--meta-base-url", "http://plain"]) == 2
-    assert "https://" in capsys.readouterr().err
-
-
 def test_init_model_renders_into_workflow_and_rejects_spaces(tmp_path, monkeypatch, capsys):
     import yaml
 
     monkeypatch.chdir(tmp_path)
     _tiny_python_repo(tmp_path)
-    assert main(["init", "--model", "muse-spark-1.3", "--meta-base-url", "https://meta.example/v1"]) == 0
+    assert main(["init", "--model", "muse-wonder-1.0"]) == 0
     text = (tmp_path / ".github" / "workflows" / "exhibit-a.yml").read_text(encoding="utf-8")
-    assert "model: muse-spark-1.3" in text
+    assert "model: muse-wonder-1.0" in text
+    assert "META_BASE_URL" not in text
+    assert "__WITH_EXTRA__" not in text
     parsed = yaml.safe_load(text)
     exhibit = parsed["jobs"]["analyze"]["steps"][1]
-    assert exhibit["with"]["model"] == "muse-spark-1.3"
+    assert exhibit["with"]["model"] == "muse-wonder-1.0"
     assert "MODEL_API_KEY" not in text
     capsys.readouterr()
     assert main(["init", "--model", "not a model"]) == 2

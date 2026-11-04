@@ -154,21 +154,6 @@ DIFF_LIMIT = 40
 EXHIBIT_DIR = ".exhibit-a"
 
 
-def _check_meta_base_url(value: str | None) -> str | None:
-    """Validate ``--meta-base-url``; the key travels with the endpoint, so http is refused."""
-    if value is None:
-        return None
-    url = value.strip().rstrip("/")
-    if (
-        len(url) <= len("https://x")
-        or len(url) > 208
-        or not url.startswith("https://")
-        or any(char.isspace() for char in url)
-    ):
-        raise ValueError("init: --meta-base-url must be an https:// URL without spaces")
-    return url
-
-
 def _check_model(value: str | None) -> str | None:
     """Validate ``--model``: a single registry model id, never a sentence."""
     if value is None:
@@ -184,13 +169,11 @@ def _check_model(value: str | None) -> str | None:
     return model
 
 
-def workflow_text(meta_base_url: str | None = None, model: str | None = None) -> str:
+def workflow_text(model: str | None = None) -> str:
     """Return the workflow YAML with current SHA pins substituted."""
     extra = ""
     if model is not None:
         extra += f"\n          model: {model}"
-    if meta_base_url is not None:
-        extra += f"\n        env:\n          META_BASE_URL: {meta_base_url}"
     return (
         WORKFLOW_TEMPLATE
         .replace("__CHECKOUT_ACTION__", CHECKOUT_ACTION)
@@ -367,12 +350,11 @@ def _maybe_store_secrets(repo: Path) -> None:
 def cmd_init(args: argparse.Namespace) -> int:
     target = Path(getattr(args, "path", None) or DEFAULT_PATH)
     try:
-        meta_url = _check_meta_base_url(getattr(args, "meta_base_url", None))
         model = _check_model(getattr(args, "model", None))
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2
-    wanted = workflow_text(meta_url, model)
+    wanted = workflow_text(model)
     force = bool(getattr(args, "force", False))
     update = bool(getattr(args, "update", False))
     if target.exists():
@@ -429,12 +411,6 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
         help="Replace a differing workflow after copying it to FILE.bak.",
     )
     parser.add_argument("--force", action="store_true", help="Overwrite an existing workflow file.")
-    parser.add_argument(
-        "--meta-base-url",
-        default=None,
-        metavar="URL",
-        help="Model base URL written into the workflow (META_BASE_URL). Must be https://.",
-    )
     parser.add_argument(
         "--model",
         default=None,
