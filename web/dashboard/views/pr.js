@@ -32,6 +32,7 @@ window.Component = class Component extends DCLogic {
       area: row.area || '', cycle: 0, kind: row.author_kind || 'unclassified',
       color: row.author_color || '#4a5873', url: row.url || '',
       runId: row.run_id || '', proven: row.proven || 0,
+      runs: Array.isArray(row.runs) ? row.runs : [],
     };
   }
   prBadge(row) {
@@ -773,6 +774,19 @@ window.Component = class Component extends DCLogic {
     const closed = ghState === 'CLOSED';
     const hasRun = !!(selPr && selPr.runId);
     const provenN = (selPr && selPr.proven) || 0;
+    // Every recorded run for this PR, newest first: the detection stays visible
+    // next to the fix even after the latest head goes green.
+    const runList = ((selPr && selPr.runs) || []).map((h) => {
+      const n = parseInt(h.proven, 10) || 0;
+      return {
+        href: 'pr.html?run=' + encodeURIComponent(h.run_id || ''),
+        label: n > 0 ? ('PROVEN: ' + n + ' proven finding' + (n === 1 ? '' : 's')) : (h.headline || h.status || 'Recorded run'),
+        sub: [String(h.run_id || ''), this.stamp(h.started_at), String(h.commit || '').slice(0, 12)].filter(Boolean).join(' · '),
+        isProven: n > 0,
+      };
+    });
+    const hasRuns = runList.length > 0;
+    const provenRunHref = (runList.find((h) => h.isProven) || {}).href || '';
     const eaPending = { l: 'Exhibit A check', d: 'Not evaluated for this pull request', state: 'neutral', neutral: true, bg: '#8b98b3' };
     const eaStep = !hasRun ? eaPending
       : (provenN > 0
@@ -808,7 +822,7 @@ window.Component = class Component extends DCLogic {
     } : null;
     let pr = selPr && !selPr.missing
       ? { crumb: selPr.id, title: selPr.title, meta: selPr.id + ' · ' + selPr.author + ' · ' + selPr.when + ' · ' + selPr.files + ' files · ' + selPr.area,
-          lead: 'Pull request #' + selPr.id + ' from gh pr list --state all. Its recorded metadata is below.', author: selPr.author, authorType: selPr.kind || 'unclassified', when: selPr.when, state: selPr.state || 'OPEN', files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: (selPr.area || '').replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'listed files', cycle: selPr.cycle, unevaluated: !hasRun, hasRun, runHref: hasRun ? ('pr.html?run=' + encodeURIComponent(selPr.runId)) : '', ...enriched }
+          lead: 'Pull request #' + selPr.id + ' from gh pr list --state all. Its recorded metadata is below.', author: selPr.author, authorType: selPr.kind || 'unclassified', when: selPr.when, state: selPr.state || 'OPEN', files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: (selPr.area || '').replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'listed files', cycle: selPr.cycle, unevaluated: !hasRun, hasRun, runHref: hasRun ? ('pr.html?run=' + encodeURIComponent(selPr.runId)) : '', hasRuns, runList, provenRunHref, ...enriched }
       : selPr
         ? { crumb: selPr.id, title: selPr.id, meta: selPr.id + ' · not in gh pr list --state all for this source', lead: 'No pull request with this number is in the current source. List them with gh pr list --state all.', state: '', unevaluated: true, hasRun: false, runHref: '' }
         : { crumb: 'nested-pamphlets', title: 'Allow nested folders in pamphlet names', meta: 'examples/action-demo · nested-pamphlets → main · patch 01-path-traversal',

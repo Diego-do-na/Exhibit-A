@@ -374,6 +374,10 @@
             <h3 class="ct">Exhibit A check</h3>
             <p data-style="font-size: 15px; line-height: 1.6; color: #26365a">A recorded run exists for this pull request. Open it for the ledger analysis; this page stays the GitHub metadata.</p>
             <div><a href="{{pr.runHref}}">Open the recorded run →</a></div>
+            <sc-if value="{{pr.hasRuns}}">
+            <div class="mono" data-style="font-size: 13px; color: #45587c">Every recorded run for this pull request, newest first — the detection stays next to the fix.</div>
+            <sc-for list="{{pr.runList}}" as="h"><div data-style="display: flex; gap: 8px; align-items: baseline; padding: 6px 0"><a href="{{h.href}}" data-style="white-space: nowrap">{{h.label}}</a><span class="mono" data-style="font-size: 12px; color: #45587c">{{h.sub}}</span></div></sc-for>
+            </sc-if>
           </div>
           </sc-if>
           <div data-style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap">

@@ -226,6 +226,49 @@ def test_api_prs_attaches_ledger_cost_and_model(tmp_path):
     assert prs[0]["run_id"] == "r1"
 
 
+def test_pr_row_keeps_every_run_newest_first(tmp_path):
+    from exhibit_a.dashboard.model import run_row
+
+    old = (
+        json.dumps({"ts": "2026-11-03T14:00:00Z", "run_id": "r-old", "type": "pr_opened",
+                    "payload": {"repo": "acme/app", "pr": "21"}}) + "\n"
+        + json.dumps({"ts": "2026-11-03T14:00:01Z", "run_id": "r-old", "type": "verdict",
+                      "payload": {"suspicion_id": "S1", "verdict": "proven", "reason_code": ""}}) + "\n"
+    )
+    new = (
+        json.dumps({"ts": "2026-11-03T15:00:00Z", "run_id": "r-new", "type": "pr_opened",
+                    "payload": {"repo": "acme/app", "pr": "21"}}) + "\n"
+    )
+    write_run(tmp_path, "r-old", old, {"schema_version": "1", "status": "completed", "pr": "21"})
+    write_run(tmp_path, "r-new", new, {"schema_version": "1", "status": "completed", "pr": "21"})
+    source = LocalRunsSource(tmp_path)
+    rows = [run_row(source.load_run("r-old")), run_row(source.load_run("r-new"))]
+    prs = parse_pr_list(json.dumps([gh_pr(21, "traversal", "diego")]).encode(), repo="acme/app")
+    attach_run_metrics(prs, rows)
+    # Aggregates still sum across runs; the primary run keeps first-match order.
+    assert prs[0]["proven"] == 1
+    assert prs[0]["run_id"] == "r-old"
+    history = prs[0]["runs"]
+    assert [h["run_id"] for h in history] == ["r-new", "r-old"]
+    assert history[1]["proven"] == 1
+    assert all(set(h) == {"run_id", "proven", "status", "headline", "started_at", "commit"} for h in history)
+
+
+def test_pr_row_without_runs_carries_empty_history():
+    prs = parse_pr_list(json.dumps([gh_pr(22, "docs", "diego")]).encode(), repo="acme/app")
+    attach_run_metrics(prs, [])
+    assert prs[0]["runs"] == []
+    assert prs[0]["run_id"] == ""
+
+
+def test_pr_view_lists_every_recorded_run_for_one_pr():
+    js = (Path(__file__).resolve().parent.parent / "web" / "dashboard" / "views" / "pr.js").read_text(encoding="utf-8")
+    html = (Path(__file__).resolve().parent.parent / "web" / "dashboard" / "pr.html").read_text(encoding="utf-8")
+    assert "runList" in js and "provenRunHref" in js
+    assert "runList" in html
+    assert "not recorded" not in js and "not recorded" not in html
+
+
 def test_two_local_sources_do_not_cross_run_strings(tmp_path):
     a_dir = tmp_path / "a"
     b_dir = tmp_path / "b"

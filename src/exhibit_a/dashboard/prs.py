@@ -270,6 +270,7 @@ def parse_pr_list(raw: bytes, *, repo: str = "", mapping: dict[str, str] | None 
             "tokens_out": None,
             "proven": 0,
             "run_id": "",
+            "runs": [],
         })
     return rows
 
@@ -337,7 +338,12 @@ def enrich_pr_rows(
 
 
 def attach_run_metrics(prs: list[dict[str, Any]], run_rows: Iterable[dict[str, Any]]) -> None:
-    """Fill models, cost, tokens and proven from recorded runs of the same PR number."""
+    """Fill models, cost, tokens, proven and the per-run history from recorded runs.
+
+    A pull request can have several runs (vulnerable head, then fixed head).
+    ``runs`` keeps every matched run newest-first so the PR page can show the
+    detection alongside the fix instead of only the latest head.
+    """
     by_pr: dict[str, list[dict[str, Any]]] = {}
     for row in run_rows:
         number = str(row.get("pr") or "").lstrip("#")
@@ -373,6 +379,20 @@ def attach_run_metrics(prs: list[dict[str, Any]], run_rows: Iterable[dict[str, A
         pr["tokens_out"] = tokens_out if have_tokens else None
         pr["proven"] = proven
         pr["run_id"] = run_id
+        history = [
+            {
+                "run_id": str(row.get("run_id") or ""),
+                "proven": int(row.get("proven") or 0),
+                "status": str(row.get("status") or ""),
+                "headline": str(row.get("headline") or ""),
+                "started_at": str(row.get("started_at") or ""),
+                "commit": str(row.get("commit") or ""),
+            }
+            for row in matched
+            if str(row.get("run_id") or "")
+        ]
+        history.sort(key=lambda h: (h["started_at"], h["run_id"]), reverse=True)
+        pr["runs"] = history
 
 
 def build_author_rows(prs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
