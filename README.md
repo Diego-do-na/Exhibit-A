@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/banner.svg" alt="Exhibit A: proof before accusation" width="100%"></p>
+
 # Exhibit A
 
 **Proof before accusation: Exhibit A only reports vulnerabilities it can prove.**
@@ -34,11 +36,17 @@ uses the same engine on a pull-request diff. A green result means
 You do not clone Exhibit A into the app you want to scan. Install the
 package, then run the CLI from that app's directory.
 
-1. Install the CLI (GitHub; this package is not on PyPI yet):
+1. Install the CLI **once per machine**, globally and isolated from your other
+   projects (GitHub; this package is not on PyPI yet). It needs Python 3.11+:
 
    ```bash
-   python -m pip install "git+https://github.com/Diego-do-na/Exhibit-A.git"
+   pipx install "git+https://github.com/Diego-do-na/Exhibit-A.git"
+   exhibit-a --version
    ```
+
+   Without pipx: `python -m pip install "git+https://github.com/Diego-do-na/Exhibit-A.git"`.
+   Installing puts the `exhibit-a` command on your machine; `exhibit-a init`
+   (step 2) configures **each repository** you want to protect.
 
 2. In the application repository, write the workflow:
 

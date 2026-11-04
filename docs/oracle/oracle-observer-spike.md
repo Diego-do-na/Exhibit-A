@@ -16,7 +16,7 @@ Colima**, so every aarch64/Colima statement is REASONED or UNVERIFIED and flagge
 
 ## 1. The problem, restated precisely
 
-A-1 (from `docs/sprint-review.md`) is really two separate weaknesses, and keeping them
+A-1 is really two separate weaknesses, and keeping them
 apart is the whole point of this spike:
 
 - **Fact forgery / suppression.** The oracle's "the canary was read" comes from an events

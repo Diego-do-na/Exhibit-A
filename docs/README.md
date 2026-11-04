@@ -3,9 +3,7 @@
 One line per document. Paths are relative to the repository root.
 
 - [common.md](common.md) — shared append-only per-task log (merge=union); read the last ~40 lines before starting a task.
-- [release-checklist.md](release-checklist.md) — final Docker, CI, tag, cold-clone, secrets, and repository-cleanliness gates.
 - [GUIDE.md](GUIDE.md) — Spanish walkthrough of the project, verified against `main` on 2026-10-28.
-- [sprint-review.md](sprint-review.md) — closing review of the sprint: what was built, what is pending, proposed patches.
 - [how-this-was-built.md](how-this-was-built.md) — factual account of the spec-first, multi-agent build workflow.
 - [related-work.md](related-work.md) — positioning against static analyzers, LLM scanners, and exploit tools: what is reported, what is proven, and what Exhibit A does not do.
 - [README.md](README.md) — this index.
@@ -22,8 +20,6 @@ One line per document. Paths are relative to the repository root.
 
 ## plan/ — closure planning
 
-- [plan/closure-tasks.md](plan/closure-tasks.md) — Closure tasks T145-T152 with merge order and cut rule.
-- [plan/verification.md](plan/verification.md) — T145 evidence: every sandbox, SCAN, SLICE and CLI claim with its command and result.
 
 ## ci/ — continuous integration
 
@@ -72,7 +68,6 @@ One line per document. Paths are relative to the repository root.
 - [reference/sandbox.md](reference/sandbox.md) — sandbox isolation: image, limits, what the flags do and do not guarantee.
 - [reference/sandbox-write-effect.md](reference/sandbox-write-effect.md) — write-effect sandbox plumbing: no canary file, tmpfs `outside/` dir, post-run dump.
 - [reference/demo.md](reference/demo.md) — demo storyboard: red-to-green in 2-3 minutes via `scripts/demo.sh --offline` or `--live`.
-- [reference/sprint2-acceptance.md](reference/sprint2-acceptance.md) — sprint 2 acceptance criteria and verification status.
 - [reference/variants.md](reference/variants.md) — variant hunting: after a proof, list and prove the same bug on other graph paths.
 - [reference/dependency-proofs.md](reference/dependency-proofs.md) — `exhibit-a deps`: advisory reachability through the call graph, sandbox proof, verified upgrade, `deps.json`.
 - [reference/proof-bundles.md](reference/proof-bundles.md) — re-verifiable proof bundles: offline `verify` and sandbox `reproduce` with no model call.
