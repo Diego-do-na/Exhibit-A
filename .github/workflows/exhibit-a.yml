@@ -32,9 +32,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: exhibit-a / verify
+  analyze:
+    name: exhibit-a / analyze
     # Same-repository PRs only. Fork PRs are out of scope: see fork-guard.
+    # Always reports success when the engine ran (fail-on: never). The
+    # companion verify job, which has no environment, turns red on proven.
     if: >-
       vars.EXHIBIT_A_ENABLED == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -46,6 +48,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: write  # only for the summary comment; drop with comment: "false"
+    outputs:
+      proven: ${{ steps.exhibit.outputs.proven }}
     steps:
       - name: Check out the PR head
         # actions/checkout v7.0.1
@@ -96,7 +100,7 @@ jobs:
           model: muse-wonder-1.0
           api-key: ${{ secrets.EXHIBIT_A_API_KEY }}  # environment secret
           api-key-env: META_API_KEY
-          fail-on: proven
+          fail-on: never
           working-directory: .exhibit-a-scope
           base-sha: ${{ steps.scope.outputs.base }}
           head-sha: ${{ steps.scope.outputs.head }}
@@ -112,6 +116,36 @@ jobs:
           PROVEN: ${{ steps.exhibit.outputs.proven }}
           RISK: ${{ steps.exhibit.outputs.risk }}
         run: echo "status=$STATUS proven=$PROVEN risk=$RISK"
+
+  verify:
+    name: exhibit-a / verify
+    needs: analyze
+    if: >-
+      always() &&
+      vars.EXHIBIT_A_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail when a finding is proven
+        env:
+          ANALYZE: ${{ needs.analyze.result }}
+          PROVEN: ${{ needs.analyze.outputs.proven }}
+        run: |
+          set -euo pipefail
+          if [[ "$ANALYZE" != success ]]; then
+            echo "::error title=Exhibit A::analyze did not succeed ($ANALYZE)"
+            exit 1
+          fi
+          [[ "$PROVEN" =~ ^[0-9]+$ ]] || {
+            echo "::error title=Exhibit A::proven count missing"
+            exit 1
+          }
+          if [[ "$PROVEN" != 0 ]]; then
+            echo "::error title=Exhibit A::$PROVEN proven finding(s)"
+            exit 1
+          fi
 
   fork-guard:
     name: exhibit-a / fork-guard

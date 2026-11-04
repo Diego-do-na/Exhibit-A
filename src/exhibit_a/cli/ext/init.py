@@ -54,8 +54,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: exhibit-a / verify
+  analyze:
+    name: exhibit-a / analyze
     if: >-
       vars.EXHIBIT_A_ENABLED == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -65,6 +65,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    outputs:
+      proven: ${{ steps.exhibit.outputs.proven }}
     steps:
       - name: Check out the PR head
         uses: __CHECKOUT_ACTION__@__CHECKOUT_SHA__
@@ -73,12 +75,44 @@ jobs:
           fetch-depth: 0
 
       - name: Exhibit A
+        id: exhibit
         uses: __EXHIBIT_A_ACTION__@__EXHIBIT_A_SHA__
         with:
           api-key: ${{ secrets.EXHIBIT_A_API_KEY }}
           profile: compact
+          fail-on: never
           comment: "true"
           suggest-fixes: "true"
+
+  verify:
+    name: exhibit-a / verify
+    needs: analyze
+    if: >-
+      always() &&
+      vars.EXHIBIT_A_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail when a finding is proven
+        env:
+          ANALYZE: ${{ needs.analyze.result }}
+          PROVEN: ${{ needs.analyze.outputs.proven }}
+        run: |
+          set -euo pipefail
+          if [[ "$ANALYZE" != success ]]; then
+            echo "::error title=Exhibit A::analyze did not succeed ($ANALYZE)"
+            exit 1
+          fi
+          [[ "$PROVEN" =~ ^[0-9]+$ ]] || {
+            echo "::error title=Exhibit A::proven count missing"
+            exit 1
+          }
+          if [[ "$PROVEN" != 0 ]]; then
+            echo "::error title=Exhibit A::$PROVEN proven finding(s)"
+            exit 1
+          fi
 
   fork-guard:
     name: exhibit-a / fork-guard

@@ -244,8 +244,15 @@ def test_init_writes_sha_pinned_workflow_and_prints_manual_steps(tmp_path, capsy
     assert "comment:" in text and "true" in text
     assert "environment: exhibit-a" in text
     assert "vars.EXHIBIT_A_ENABLED" in text
+    assert "name: exhibit-a / analyze" in text
     assert "name: exhibit-a / verify" in text
+    assert "fail-on: never" in text
+    assert "needs: analyze" in text
     assert "name: exhibit-a / fork-guard" in text
+    jobs = text.split("jobs:")[1]
+    analyze, rest = jobs.split("verify:", 1)
+    assert "environment: exhibit-a" in analyze
+    assert "environment:" not in rest.split("fork-guard:")[0]
     assert "on:" in text and "pull_request:" in text
     assert re.search(r"^\s+pull_request_target\s*:", text, re.M) is None
     assert f"{EXHIBIT_A_ACTION}@main" not in text

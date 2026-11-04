@@ -13,7 +13,8 @@ see `sandbox.md`); this document covers the CI layer around it.
 | Trigger is `pull_request`, never `pull_request_target` | workflow `on:` | `pull_request_target` runs in the base repository's context with secrets and a write token; checking out the PR head there hands both to untrusted code. |
 | Same-repository PRs only | `verify` job `if:` | Fork PRs are out of scope (below). |
 | Failing `fork-guard` job | workflow | A skipped job reports success to branch protection; without a failing twin, fork PRs would pass the required check silently. |
-| Protected `environment: exhibit-a` with required reviewers | `verify` job | The key is an environment secret, released only after a human approves this run, after looking at the PR (including any change to workflows). |
+| Protected `environment: exhibit-a` with required reviewers | `analyze` job | The key is an environment secret, released only after a human approves this run, after looking at the PR (including any change to workflows). `fail-on: never` so this job stays green. |
+| Required `exhibit-a / verify` without an environment | `verify` job | Reads `analyze` outputs and fails when `proven > 0`. Branch protection requires this check, not `analyze`. |
 | `permissions: {}` at the top; job gets `contents: read` and `pull-requests: write` (comment only) | workflow | Least privilege for `GITHUB_TOKEN`. Drop `pull-requests: write` when `comment: "false"`. The fork guard gets none. |
 | `persist-credentials: false` | `actions/checkout` | The token is not left in `.git/config` for later steps or PR code to read. |
 | Key only in one step | `action.yml` "Run Exhibit A" | The key is an input materialised only in that step's environment, copied to the provider's variable and unset under its input name. Other steps, including the comment and upload steps, never have it. It is never printed. |

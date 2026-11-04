@@ -53,10 +53,13 @@ Security design and its reasons: [github-action-security.md](github-action-secur
    place; a human comment quoting the marker is never edited.
 6. **Artifact**: `ledger.jsonl`, `result.json`, `summary.md` only. Not the clone,
    not the logs, not the diff.
-7. **Gate**: exit 1 if `fail-on: proven` and at least one suspicion's latest
-   `verdict` event is `proven`. A missing result (an earlier step crashed) and
-   `status: not_run` also fail, even with `fail-on: never`, because then nothing
-   was verified.
+7. **Gate**: the Action's own step exits 1 if `fail-on: proven` and at least
+   one suspicion's latest `verdict` event is `proven`. The two-job template
+   sets `fail-on: never` on `analyze` so the environment job stays green, then
+   `verify` (no environment) fails when the `proven` output is greater than
+   zero. A missing result (an earlier step crashed) and `status: not_run`
+   still fail `analyze`, even with `fail-on: never`, because then nothing was
+   verified.
 
 ## Inputs
 
@@ -209,7 +212,7 @@ create `triage/`.
    `EXHIBIT_A_API_KEY`: a dedicated key used only for this, with a hard spend
    cap set at the provider.
 4. **Enable.** Settings, Secrets and variables, Actions, Variables: add the
-   repository variable `EXHIBIT_A_ENABLED` = `true`. Until then both jobs are
+   repository variable `EXHIBIT_A_ENABLED` = `true`. Until then the jobs are
    skipped.
 5. **Actions policy.** Settings, Actions, General:
    - Workflow permissions: "Read repository contents and packages permissions".
@@ -224,11 +227,30 @@ create `triage/`.
    and confirm the run.
 8. **Required checks.** Settings, Rules (or Branches), on the default branch:
    require status checks `exhibit-a / verify` **and** `exhibit-a / fork-guard`.
-   Both are needed: a skipped job reports success, so `verify` alone would let
-   fork PRs pass unanalysed.
+   Do not require `exhibit-a / analyze`: that job holds the environment secret
+   and always reports success (`fail-on: never`). `verify` has no environment
+   and fails when `proven > 0`. Both required checks are needed: a skipped job
+   reports success, so `verify` alone would let fork PRs pass unanalysed.
 
-Caveat: if `EXHIBIT_A_ENABLED` is later removed, both jobs skip and the
+Caveat: if `EXHIBIT_A_ENABLED` is later removed, the jobs skip and the
 required checks pass. Treat the variable as part of the protected setup.
+
+## Two-job template and the testbed
+
+`exhibit-a init` writes two jobs plus the fork guard:
+
+| Job | Environment | Exit |
+|---|---|---|
+| `exhibit-a / analyze` | `exhibit-a` (API key) | Always success when the engine ran (`fail-on: never`). |
+| `exhibit-a / verify` | none | Fails when `analyze` did not succeed or `proven > 0`. |
+| `exhibit-a / fork-guard` | none | Fails on fork PRs so the required check cannot skip-pass. |
+
+The Exhibit A repository workflow (`.github/workflows/exhibit-a.yml`) follows
+the same split. The separate `exhibit-a-testbed` repository still has a
+single-job copy from an earlier init: re-run `exhibit-a init --update` there
+(or copy the template) so its Action also analyses in `environment: exhibit-a`
+and fails `exhibit-a / verify` only when a finding is proven. Do not push
+that change from this session.
 
 ## Limits
 

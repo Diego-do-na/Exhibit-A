@@ -79,6 +79,11 @@ def test_init_writes_profile_and_graph_summary(tmp_path, monkeypatch, capsys):
     assert ".exhibit-a/graph-summary.json" in out
     assert "exhibit-a dashboard" in out
     assert "gh secret set EXHIBIT_A_API_KEY --env exhibit-a" in out
+    text = (tmp_path / ".github" / "workflows" / "exhibit-a.yml").read_text(encoding="utf-8")
+    assert "name: exhibit-a / analyze" in text
+    assert "fail-on: never" in text
+    assert "name: exhibit-a / verify" in text
+    assert "needs: analyze" in text
 
 
 def test_compact_graph_summary_matches_artifact_schema_keys():

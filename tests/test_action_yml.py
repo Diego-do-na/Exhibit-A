@@ -166,7 +166,7 @@ def test_no_step_interpolates_untrusted_values_into_scripts() -> None:
 
 def test_workflow_stays_inert_unless_enabled() -> None:
     workflow = _load_workflow()
-    for job in ("verify", "fork-guard"):
+    for job in ("analyze", "verify", "fork-guard"):
         condition = workflow["jobs"][job]["if"]
         assert "EXHIBIT_A_ENABLED" in condition
 
@@ -182,7 +182,7 @@ def test_workflow_checkout_is_pinned_to_a_full_sha() -> None:
     workflow = _load_workflow()
     checkout = next(
         step
-        for step in workflow["jobs"]["verify"]["steps"]
+        for step in workflow["jobs"]["analyze"]["steps"]
         if "actions/checkout@" in step.get("uses", "")
     )
     ref = checkout["uses"].split("@", 1)[1]
@@ -192,7 +192,8 @@ def test_workflow_checkout_is_pinned_to_a_full_sha() -> None:
 def test_workflow_keeps_minimal_permissions_and_fork_guard() -> None:
     workflow = _load_workflow()
     assert workflow["permissions"] == {}
-    assert workflow["jobs"]["verify"]["permissions"]["contents"] == "read"
+    assert workflow["jobs"]["analyze"]["permissions"]["contents"] == "read"
+    assert workflow["jobs"]["verify"]["permissions"] == {}
     guard = "\n".join(
         str(step.get("run", "")) for step in workflow["jobs"]["fork-guard"]["steps"]
     )
@@ -256,8 +257,8 @@ def test_sarif_steps_generate_and_upload() -> None:
     assert upload_step["with"]["sarif_file"] == "results.sarif"
 
 
-def _verify_steps() -> dict[str, dict]:
-    steps = _load_workflow()["jobs"]["verify"]["steps"]
+def _analyze_steps() -> dict[str, dict]:
+    steps = _load_workflow()["jobs"]["analyze"]["steps"]
     return {step.get("id", step.get("name")): step for step in steps}
 
 
@@ -268,14 +269,14 @@ def test_workflow_runs_only_for_the_demo_directory() -> None:
 
 
 def test_workflow_uses_compact_profile_and_a_small_budget() -> None:
-    with_ = _verify_steps()["exhibit"]["with"]
+    with_ = _analyze_steps()["exhibit"]["with"]
     assert with_["profile"] == "compact"
     assert 0 < float(with_["budget-usd"]) <= 2
-    assert with_["fail-on"] == "proven"
+    assert with_["fail-on"] == "never"
 
 
 def test_workflow_analyses_the_scoped_repository_not_the_whole_checkout() -> None:
-    steps = _verify_steps()
+    steps = _analyze_steps()
     with_ = steps["exhibit"]["with"]
     assert with_["working-directory"] == ".exhibit-a-scope"
     assert with_["base-sha"] == "${{ steps.scope.outputs.base }}"
@@ -289,10 +290,26 @@ def test_workflow_analyses_the_scoped_repository_not_the_whole_checkout() -> Non
     assert names.index("scope") < names.index("exhibit")
 
 
+def test_workflow_splits_analyze_and_verify_jobs() -> None:
+    jobs = _load_workflow()["jobs"]
+    assert jobs["analyze"]["environment"] == "exhibit-a"
+    assert jobs["analyze"]["name"] == "exhibit-a / analyze"
+    assert jobs["verify"]["name"] == "exhibit-a / verify"
+    assert "environment" not in jobs["verify"]
+    assert jobs["verify"]["needs"] == "analyze"
+    gate = jobs["verify"]["steps"][0]
+    assert "${{" not in gate["run"]
+    assert gate["env"]["PROVEN"] == "${{ needs.analyze.outputs.proven }}"
+    assert gate["env"]["ANALYZE"] == "${{ needs.analyze.result }}"
+    assert jobs["analyze"]["outputs"]["proven"] == "${{ steps.exhibit.outputs.proven }}"
+
+
 def test_workflow_secret_is_referenced_by_name_only() -> None:
     text = WORKFLOW_YML.read_text(encoding="utf-8")
     assert "${{ secrets.EXHIBIT_A_API_KEY }}" in text
-    assert _load_workflow()["jobs"]["verify"]["environment"] == "exhibit-a"
+    jobs = _load_workflow()["jobs"]
+    assert jobs["analyze"]["environment"] == "exhibit-a"
+    assert "environment" not in jobs["verify"]
 
 
 # -- ledger artifact for the dashboard (docs/ci/artifact-schema.md) --------------------
