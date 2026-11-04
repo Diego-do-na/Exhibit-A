@@ -74,6 +74,7 @@ from .model import (
     build_repo_index,
     build_trends,
     event_view,
+    fix_hunks_outside_pr_diff,
     group_by_repo,
     run_detail,
     run_row,
@@ -535,13 +536,35 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 return
             self._json({**build_repo_detail(rid, group), "runs_considered": len(entries), "runs_total": total})
 
+        def _run_page(self, data: Any) -> dict[str, Any]:
+            """Run detail plus a PR diff from the ledger, the folder, or ``gh pr diff``."""
+            detail = run_detail(data)
+            if detail.get("pr_diff"):
+                return detail
+            getter = getattr(state.source, "pull_request_diff", None)
+            number = str((detail.get("run") or {}).get("pr") or "").lstrip("#")
+            if not callable(getter) or not number.isdigit():
+                return detail
+            try:
+                text = getter(number) or ""
+            except SourceError:
+                text = ""
+            if not text:
+                return detail
+            detail["pr_diff"] = text
+            detail["pr_diff_source"] = "gh pr diff"
+            patch = (detail.get("artifacts") or {}).get("fix_patch")
+            if patch:
+                detail["fix_outside_pr_diff"] = fix_hunks_outside_pr_diff(patch, text)
+            return detail
+
         def _run(self, run_id: str, tail: str, query: dict[str, str]) -> None:
             data = self._load(run_id)
             if data is None:
                 self._error(404, "unknown run")
                 return
             if tail == "":
-                self._json(run_detail(data))
+                self._json(self._run_page(data))
                 return
             if data.error:
                 self._error(422, f"run could not be read: {data.error}")

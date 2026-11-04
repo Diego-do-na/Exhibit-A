@@ -59,12 +59,14 @@
 
       <sc-if value="{{mode.isAnalysis}}">
       <section data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
+        <sc-if value="{{hasRisk}}">
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
           <span class="lbl">Risk level</span>
           <span class="dsp" data-style="font-size: 44px; font-weight: 500; letter-spacing: -.03em; line-height: 1; color: {{risk.c}}">{{risk.l}}</span>
           <div data-style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px"><sc-for list="{{risk.bars}}" as="b"><div data-style="height: 6px; background: {{b.c}}"></div></sc-for></div>
           <span data-style="font-size: 14px; color: #3d4b68; line-height: 1.45">{{risk.d}}</span>
         </div>
+        </sc-if>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
           <span class="lbl">Verdict</span>
           <span class="dsp" data-style="font-size: 44px; font-weight: 500; letter-spacing: -.03em; line-height: 1">{{verdict.l}}</span>
@@ -97,18 +99,18 @@
               <span class="dsp" data-style="font-size: 18px; font-weight: 500">{{live.title}}</span>
               <span class="mono" data-style="font-size: 13px; color: #3d4b68">{{live.clock}}</span>
             </div>
+            <sc-if value="{{live.player}}">
             <div data-style="display: flex; gap: 8px; align-items: center">
               <button type="button" class="ib" aria-label="{{live.playL}}" data-ev-click="{{live.toggle}}"><sc-if value="{{live.playing}}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14"></rect><rect x="14" y="5" width="4" height="14"></rect></svg></sc-if><sc-if value="{{live.paused}}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5v14l12-7z"></path></svg></sc-if></button>
               <button type="button" class="ib" aria-label="Replay" data-ev-click="{{live.replay}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path></svg></button>
               <div class="seg" role="group" aria-label="Speed"><sc-for list="{{live.speeds}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
             </div>
+            </sc-if>
           </div>
           <div data-style="height: 4px; background: rgba(13,27,62,.08)"><div data-style="height: 100%; width: {{live.pct}}%; background: #2c4fc4; transition: width .4s"></div></div>
-          <sc-if value="{{live.scrub}}" hint-placeholder-val="{{ false }}">
+          <sc-if value="{{live.player}}">
             <div class="scrub">
-              <span class="mono" data-style="font-size: 12px; color: #3d4b68">Scrub the ledger</span>
-              <input type="range" min="0" max="{{live.scrub.max}}" value="{{live.scrub.val}}" data-ev-change="{{live.scrub.onScrub}}" aria-label="Scrub the ledger timeline">
-              <span class="scrub-now">{{live.scrub.label}}</span>
+              <span class="mono" data-style="font-size: 12px; color: #3d4b68">Replay the demo</span>
             </div>
           </sc-if>
           <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
@@ -154,6 +156,7 @@
         </div>
       </section>
 
+      <sc-if value="{{hasDiff}}">
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">What the pull request changes</h2><p class="lead">{{diffLead}}</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
@@ -168,6 +171,13 @@
           </div>
         </div>
       </section>
+      </sc-if>
+      <sc-if value="{{noDiff}}">
+      <section data-style="display: flex; flex-direction: column; gap: 22px">
+        <div class="sec-h"><span class="sec-n">02</span><div><h2 class="sec-t">What the pull request changes</h2><p class="lead">{{diffLead}}</p></div></div>
+        <div class="card" data-style="padding: 22px"><div class="mono" data-style="font-size: 14px">gh pr diff</div></div>
+      </section>
+      </sc-if>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Blast radius</h2><p class="lead">The full code graph, with the possibly damaged route for this pull request marked in red so its impact is visible in context. Path view: the route itself, step by step.</p></div></div>
@@ -210,7 +220,6 @@
                 </sc-for>
               </div>
               </sc-if>
-              <sc-if value="{{fixMissing}}"><span data-style="font-size: 14px; color: #3d4b68">fix.patch: not recorded for this run. The run folder or artifact carries no fix.patch.</span></sc-if>
             </div>
             <div class="card" data-style="flex: 2 1 340px; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 16px">
               <h3 class="ct">Already verified in the sandbox</h3>
@@ -259,19 +268,16 @@
       </section>
       </sc-if>
 
-      <sc-if value="{{mode.isRun}}">
+      <sc-if value="{{hasXtest}}">
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">05</span><div><h2 class="sec-t">Exploit test</h2><p class="lead">The recorded test, rendered as text. It is never executed by this page.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
           <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap"><span class="mono" data-style="font-size: 14px">{{xtestTitle}}</span></div>
-          <sc-if value="{{notXtestMissing}}">
           <div class="code">
             <sc-for list="{{xtest}}" as="r">
               <div class="cl"><span class="gut">{{r.n}}</span><span class="gut"></span><span></span><span class="mono" data-style="font-size: 13px">{{r.t}}</span></div>
             </sc-for>
           </div>
-          </sc-if>
-          <sc-if value="{{xtestMissing}}"><span data-style="font-size: 14px; color: #3d4b68">test_exploit.py: not recorded for this run. The run folder or artifact carries no exploit test.</span></sc-if>
         </div>
       </section>
       </sc-if>

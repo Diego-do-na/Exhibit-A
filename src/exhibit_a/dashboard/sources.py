@@ -832,6 +832,7 @@ class GitHubSource:
         self._listed: tuple[float, dict[str, tuple[RunRef, _Artifact]]] | None = None
         self._prs: tuple[float, list[dict[str, Any]]] | None = None
         self._authors: tuple[float, dict[str, str]] | None = None
+        self._diffs: tuple[float, dict[str, str]] | None = None
 
     def _call(self, argv: list[str], max_bytes: int = 4 * 1024 * 1024) -> bytes:
         return self._gh(argv, self._timeout, max_bytes)
@@ -922,6 +923,30 @@ class GitHubSource:
         with self._lock:
             self._prs = (self._clock(), rows)
         return rows
+
+    def pull_request_diff(self, number: str) -> str:
+        """``gh pr diff`` for this repository, cached. Untrusted text, never applied."""
+        digits = str(number or "").lstrip("#")
+        if not digits.isdigit() or len(digits) > 12:
+            return ""
+        with self._lock:
+            if self._diffs is not None and self._clock() - self._diffs[0] < LIST_TTL:
+                cached = self._diffs[1].get(digits)
+                if cached is not None:
+                    return cached
+        try:
+            raw = self._call(
+                ["pr", "diff", digits, "--repo", self.repo],
+                MAX_DIFF_BYTES,
+            )
+            text = raw.decode("utf-8", errors="replace")[:MAX_DIFF_BYTES]
+        except (GhError, UnicodeDecodeError):
+            text = ""
+        with self._lock:
+            store = dict(self._diffs[1]) if self._diffs is not None else {}
+            store[digits] = text
+            self._diffs = (self._clock(), store)
+        return text
 
     def load_run(self, run_id: str) -> RunData:
         if not run_id.isdigit() or len(run_id) > 20:

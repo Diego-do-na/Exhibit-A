@@ -299,3 +299,44 @@ def test_economics_page_is_dynamic_and_marks_gaps():
     assert "exhibit-a run --pr-diff BASE..HEAD" in html
     assert "data-ev-click" in html  # toggles stay
     assert "title=\"{{" in html or "title='{{" in html or 'title="{{' in html  # tooltips stay
+
+
+def test_run_page_serves_payload_diff_and_hides_placeholder_copy(tmp_path):
+    from exhibit_a.dashboard.model import FIX_OUTSIDE_PR_DIFF, fix_hunks_outside_pr_diff
+    from exhibit_a.dashboard.sources import LocalRunsSource
+
+    diff = "--- a/memos.py\n+++ b/memos.py\n@@ -1,1 +1,2 @@\n keep\n+added line\n"
+    first = {
+        "ts": "2026-11-03T14:04:00Z", "run_id": "pr-b30106f658c3", "type": "pr_opened",
+        "role": "", "model": "", "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0,
+        "latency_ms": 0,
+        "payload": {"repo": "acme/app", "pr": "15", "title": "traversal", "diff": diff},
+    }
+    folder = write_memos_run(tmp_path)
+    (folder / "ledger.jsonl").write_text(json.dumps(first) + "\n" + (folder / "ledger.jsonl").read_text())
+    _, _, body = api(make_state(LocalRunsSource(tmp_path)), "/api/runs/run-memos")
+    assert body["pr_diff"].startswith("--- a/memos.py")
+    assert body["pr_diff_source"] == "ledger"
+    assert body["fix_outside_pr_diff"] is False
+    outside = "--- a/other.py\n+++ b/other.py\n@@ -1 +1 @@\n-a\n+b\n"
+    assert fix_hunks_outside_pr_diff(outside, diff) is True
+    assert FIX_OUTSIDE_PR_DIFF.startswith("GitHub cannot attach a suggestion")
+    js = (WEB_DIR / "views" / "pr.js").read_text(encoding="utf-8")
+    html = (WEB_DIR / "pr.html").read_text(encoding="utf-8")
+    assert "not recorded" not in js and "not recorded" not in html
+    assert "Scrub the ledger" not in html and "Scrub the ledger" not in js
+    assert "live.player" in html
+    assert "gh pr diff" in html
+
+
+def test_github_run_fills_pr_diff_from_gh():
+    from exhibit_a.dashboard.sources import GitHubSource
+    from test_dashboard_sources import FakeGh
+
+    diff = b"--- a/pings.py\n+++ b/pings.py\n@@ -1 +1 @@\n-old\n+new\n"
+    responses = make_testbed_responses()
+    responses["pr diff 1 Diego-do-na/exhibit-a-testbed"] = diff
+    source = GitHubSource("Diego-do-na/exhibit-a-testbed", gh=FakeGh(responses))
+    _, _, body = api(make_state(source), "/api/runs/41650269331")
+    assert body["pr_diff"].startswith("--- a/pings.py")
+    assert body["pr_diff_source"] == "gh pr diff"

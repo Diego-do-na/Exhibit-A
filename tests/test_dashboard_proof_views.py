@@ -43,12 +43,13 @@ def test_every_page_loads_the_command_palette():
     assert "/api/runs" in code and "codegraph" in code
 
 
-def test_pr_page_scrubs_the_real_ledger_and_explains_a_clean_run():
+def test_pr_page_lists_the_real_ledger_and_explains_a_clean_run():
     js = read("views/pr.js")
     assert "/api/runs/" in js and "/events?limit=" in js
-    assert "onScrub" in js and 'type="range"' in read("pr.html")
-    assert "safe" in js and "discarded" in js
     html = read("pr.html")
+    assert "Scrub the ledger" not in html and 'type="range"' not in html
+    assert "live.player" in html and "chronological" in js
+    assert "safe" in js and "discarded" in js
     assert "why-safe" in html and "Why nothing could be proven" in html
     assert "Green is not safe" in html
 

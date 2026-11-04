@@ -79,7 +79,7 @@ window.Component = class Component extends DCLogic {
     } catch (e) { /* empty PR list stays */ }
   }
   componentDidMount() {
-    this.iv = setInterval(() => this.tick(), 250);
+    if (!this.runParam()) this.iv = setInterval(() => this.tick(), 250);
     this.loadRun();
     this.loadPrs();
     const demo = !this.runParam() && !this.prParam();
@@ -157,18 +157,18 @@ window.Component = class Component extends DCLogic {
     else this.setState({ acc, el });
   }
   money(v) {
-    if (v == null || v === '') return 'not recorded';
+    if (v == null || v === '') return '';
     const n = Number(v);
-    if (!isFinite(n)) return 'not recorded';
+    if (!isFinite(n)) return '';
     return '$' + n.toFixed(n !== 0 && Math.abs(n) < 0.01 ? 6 : 4).replace(/0+$/, '').replace(/\.$/, '');
   }
   int(v) {
-    if (v == null || v === '') return 'not recorded';
+    if (v == null || v === '') return '';
     return Number(v).toLocaleString('en-US');
   }
   text(v, fb) {
     const t = (v == null ? '' : String(v)).trim();
-    return t || fb || 'not recorded';
+    return t || fb || '';
   }
   // Unified-diff text (untrusted run artifact) -> display rows. Rendered as
   // text only, never executed; hunk headers and counts are derived, not parsed.
@@ -195,7 +195,7 @@ window.Component = class Component extends DCLogic {
     return rows;
   }
   // Recorded loop stages (from /api/runs/<id>) -> timeline rows for a run
-  // whose event stream could not be loaded. Anything missing stays 'not recorded'.
+  // whose event stream could not be loaded. Missing stages are omitted.
   stageRows(detail) {
     const stages = (detail && detail.stages) || [];
     const desc = { BASELINE: 'project tests on a clean clone', SUSPECT: 'adversary proposes suspicions', EXPLOIT: 'test writer turns one into a test',
@@ -233,24 +233,23 @@ window.Component = class Component extends DCLogic {
     const done = s.pos != null && evtRows ? Math.max(0, Math.min(N, s.pos)) : Math.min(rawDone, N);
     const RC = { github: '#c3cbd8', 'ci.gate': '#d9b98f', graph: '#9aa3e0', sandbox: '#8fb4ff', adversary: '#e8b07a', test_writer: '#8fb4ff', oracle: '#ffffff', fixer: '#a7c0ff', defender: '#a7c0ff', attest: '#c3cbd8' };
     const fmtT = (x) => '+' + String(Math.floor(x / 60)).padStart(2, '0') + ':' + (x % 60).toFixed(1).padStart(4, '0');
+    const runDone = isRun ? N : done;
     const live = {
-      playing: s.playing && done < N, paused: !(s.playing && done < N), playL: s.playing ? 'Pause' : 'Play', running: done < N,
+      player: !isRun,
+      playing: !isRun && s.playing && done < N, paused: isRun || !(s.playing && done < N), playL: s.playing ? 'Pause' : 'Play', running: !isRun && done < N,
       toggle: () => this.setState({ playing: !s.playing }),
       replay: () => this.setState({ step: 0, acc: 0, el: 0, stamps: [], playing: true, status: 'pending', cstep: 0, pos: evtRows ? 0 : null }),
       speeds: [1, 2, 4].map((v) => ({ l: v + '×', cls: 'sb' + (s.speed === v ? ' sb-on' : ''), pick: () => this.setState({ speed: v }) })),
-      pct: (done / N * 100).toFixed(1), clock: fmtT(status === 'pending' ? s.el : 16.5),
-      title: done >= N ? 'Analysis complete' : 'Analyzing · ' + String(S[done][1]).toLowerCase().slice(0, 90),
-      dot: done >= N ? '#2c4fc4' : '#a5703f', dotCls: done >= N ? '' : 'pulse',
-      next: done < N ? S[done][2] + ' …' : '',
-      src: evtRows ? 'ledger.jsonl · event ' + done + ' of ' + N : (isRun ? 'ledger.jsonl · recorded stages (event stream unavailable)' : 'ledger.jsonl · live demo (open with ?run= for the real ledger)'),
-      stages: S.map((x, i) => ({ k: x[0], n: String(x[1]).slice(0, 80), done: i < done, cls: i === done ? 'pulse' : '',
-        bg: i < done ? (i === 7 ? '#a5703f' : '#2c4fc4') : 'transparent', bd: i < done ? (i === 7 ? '#a5703f' : '#2c4fc4') : i === done ? '#2c4fc4' : 'rgba(13,27,62,.25)',
-        op: i <= done ? 1 : 0.45, fw: i === done ? 600 : 400 })),
-      log: S.slice(0, done).map((x, i) => ({ t: x[4] || fmtT(s.stamps[i] ?? (i + 1) * 1.5), r: x[2], rc: RC[x[2]] || '#e6ecfa', m: x[3], mc: i === 7 ? '#f0c08f' : '#e6ecfa' })),
-      scrub: evtRows ? {
-        max: N, val: done, label: 'event ' + done + ' of ' + N,
-        onScrub: (e) => this.setState({ pos: parseInt(e.target.value, 10), step: parseInt(e.target.value, 10), playing: false }),
-      } : null,
+      pct: (runDone / Math.max(1, N) * 100).toFixed(1), clock: isRun ? (N + ' events') : fmtT(status === 'pending' ? s.el : 16.5),
+      title: isRun ? 'Recorded ledger' : (done >= N ? 'Analysis complete' : 'Analyzing · ' + String(S[done][1]).toLowerCase().slice(0, 90)),
+      dot: (isRun || done >= N) ? '#2c4fc4' : '#a5703f', dotCls: (isRun || done >= N) ? '' : 'pulse',
+      next: !isRun && done < N ? S[done][2] + ' …' : '',
+      src: isRun ? ('ledger.jsonl · ' + N + ' events, chronological') : 'ledger.jsonl · live demo (open with ?run= for the real ledger)',
+      stages: S.map((x, i) => ({ k: x[0], n: String(x[1]).slice(0, 80), done: i < runDone, cls: (!isRun && i === done) ? 'pulse' : '',
+        bg: i < runDone ? (i === 7 ? '#a5703f' : '#2c4fc4') : 'transparent', bd: i < runDone ? (i === 7 ? '#a5703f' : '#2c4fc4') : i === done ? '#2c4fc4' : 'rgba(13,27,62,.25)',
+        op: i <= runDone ? 1 : 0.45, fw: i === done ? 600 : 400 })),
+      log: S.slice(0, runDone).map((x, i) => ({ t: x[4] || fmtT(s.stamps[i] ?? (i + 1) * 1.5), r: x[2], rc: RC[x[2]] || '#e6ecfa', m: x[3], mc: i === 7 ? '#f0c08f' : '#e6ecfa' })),
+      scrub: null,
     };
     let proven = s.evts ? (s.provenCount || 0) > 0 : done >= 8;
     let dec = status === 'approved'
@@ -295,7 +294,7 @@ window.Component = class Component extends DCLogic {
     let merge = status === 'approved' ? { l: 'Ready', d: 'Fix committed; checks green on the new head.' } : status === 'committing' ? { l: 'Updating', d: 'Bot commit in progress.' } : { l: 'Blocked', d: 'Not merged. Waiting for the fix to be approved.' };
     if (isRun) {
       // Real-data mode: every card comes from the recorded run detail.
-      // Anything the ledger and artifacts do not record reads 'not recorded'.
+      // Missing values hide the card; the page never invents a placeholder label.
       const items = (D ? (D.proven || []) : []);
       const firstP = items[0] || null;
       proven = (R.proven || 0) > 0;
@@ -331,7 +330,7 @@ window.Component = class Component extends DCLogic {
       const rk = String(R.risk || '').toLowerCase();
       const reasons = R.risk_reasons && typeof R.risk_reasons === 'object' ? Object.entries(R.risk_reasons).map(([k, v]) => k + ': ' + v).join('; ') : '';
       risk = R.risk ? { l: R.risk[0].toUpperCase() + R.risk.slice(1), c: rk === 'high' ? '#a5703f' : '#2c4fc4', bars: riskBars[rk] || riskBars.low, d: reasons || 'Recorded by the CI risk gate.' }
-        : { l: 'Not recorded', c: '#4a5873', bars: [{ c: 'rgba(13,27,62,.12)' }, { c: 'rgba(13,27,62,.12)' }, { c: 'rgba(13,27,62,.12)' }], d: 'The run recorded no risk classification.' };
+        : { l: '', c: '', bars: [], d: '' };
       if (firstP) {
         verdict = { l: 'Proven', d: [firstP.class, ev0.cwe, eff0.type].filter((x) => x && x !== 'unknown').join(' · ') + ' observed by the oracle.' };
       } else {
@@ -339,9 +338,9 @@ window.Component = class Component extends DCLogic {
         const parts = ['proven', 'discarded_unproven', 'invalid_test', 'flaky', 'env_failure'].filter((k) => (v[k] || 0) > 0).map((k) => v[k] + ' ' + k.replace(/_/g, ' '));
         verdict = { l: (R.proven || 0) > 0 ? 'Proven' : (R.headline || 'Nothing could be proven'), d: parts.length ? parts.join(' · ') : 'The run recorded no verdicts.' };
       }
-      const toks = (R.tokens_in != null && R.tokens_out != null) ? this.int(R.tokens_in + R.tokens_out) + ' tokens' : 'tokens not recorded';
-      const models = (R.models && R.models.length) ? R.models.join(', ') : 'model not recorded';
-      merge = { l: this.text(R.status, 'recorded'), d: this.money(R.cost_usd) + ' · ' + toks + ' · ' + models };
+      const toks = (R.tokens_in != null && R.tokens_out != null) ? this.int(R.tokens_in + R.tokens_out) + ' tokens' : '';
+      const models = (R.models && R.models.length) ? R.models.join(', ') : '';
+      merge = { l: this.text(R.status, 'recorded'), d: [this.money(R.cost_usd), toks, models].filter(Boolean).join(' · ') };
     }
     const stt = status === 'approved'
       ? { l: 'Ready', s: 'Fix committed', cls: 'state-done', isDone: true, bg: 'rgba(44,79,196,.12)', fg: '#16307a', bd: 'rgba(44,79,196,.3)' }
@@ -394,7 +393,7 @@ window.Component = class Component extends DCLogic {
     if (isRun) {
       // No ATT&CK mapping is recorded in the ledger: never invent one.
       attack = []; hasAttack = false;
-      mitNote = 'ATT&CK mapping not recorded for this run.';
+      mitNote = '';
       rtags = {};
       const seen = new Set();
       for (const it of ((D && D.proven) || []).concat((D && D.discarded) || [])) {
@@ -406,12 +405,12 @@ window.Component = class Component extends DCLogic {
         const where = (it.file || '') + (it.line ? ':' + it.line : '');
         rtags[key] = { cat: cwe ? 'Weakness · recorded' : 'Recorded effect', name: (cwe ? cwe + ' · ' : '') + (it.class || 'recorded suspicion'),
           desc: [it.hypothesis || it.reason || 'Recorded in the ledger.'],
-          here: [where, it.entry_point ? 'entry point ' + it.entry_point : '', ev.effect && ev.effect.type ? 'effect ' + ev.effect.type : ''].filter(Boolean).join(' · ') || 'not recorded',
+          here: [where, it.entry_point ? 'entry point ' + it.entry_point : '', ev.effect && ev.effect.type ? 'effect ' + ev.effect.type : ''].filter(Boolean).join(' · ') || '',
           mitL: 'Recorded evidence', mit: [], world: [] };
       }
       weak = Object.keys(rtags).map((id) => mk(id, (rtags[id].name || id).slice(0, 60)));
       hasWeak = weak.length > 0;
-      if (!hasWeak) mitNote = 'Neither weakness nor effect data was recorded for this run.';
+      if (!hasWeak) mitNote = '';
     }
     const T = s.tag ? ((isRun && rtags) ? (rtags[s.tag] || null) : TAGS[s.tag]) : null;
     const tag = T ? { open: true, id: s.tag, cat: T.cat, name: T.name, desc: T.desc, here: T.here, mitL: T.mitL, mit: T.mit.map(([id, t]) => ({ id, t })),
@@ -454,14 +453,23 @@ window.Component = class Component extends DCLogic {
     let blastPaths = [], blastNote = '', hasBlast = false, noBlast = false;
     if (isRun) {
       const files = R.files_touched || [];
-      chg = { l: files.length ? files.length + (files.length === 1 ? ' file' : ' files') : 'not recorded',
-        sub: files.length ? files.slice(0, 6).join(', ') + (files.length > 6 ? ' (+' + (files.length - 6) + ' more)' : '') : 'The run recorded no touched files.',
-        counts: 'line counts not recorded' };
-      diffFile = files.length ? files[0] + (files.length > 1 ? ' (+' + (files.length - 1) + ' more)' : '') : 'not recorded';
-      diffCounts = 'not recorded';
-      diffLead = files.length ? 'The recorded run touches ' + files.length + (files.length === 1 ? ' file' : ' files') + '. Line-level diffs are not recorded, so only the file list is shown.'
-        : 'The run recorded no pull-request diff; only the touched files above (if any) are shown.';
-      prDiff = files.map((f) => ({ bg: 'transparent', sc: '#7a86a1', tc: '#26365a', s: ' ', o: '', n: '', t: String(f).slice(0, 200), vuln: false }));
+      const rawDiff = (D && D.pr_diff) || '';
+      const diffSrc = (D && D.pr_diff_source) || '';
+      chg = { l: files.length ? files.length + (files.length === 1 ? ' file' : ' files') : (rawDiff ? 'diff' : ''),
+        sub: files.length ? files.slice(0, 6).join(', ') + (files.length > 6 ? ' (+' + (files.length - 6) + ' more)' : '') : (rawDiff ? 'from ' + (diffSrc || 'the recorded diff') : ''),
+        counts: '' };
+      if (rawDiff) {
+        prDiff = this.diffRows(rawDiff);
+        const adds = prDiff.filter((r) => r.s === '+').length, dels = prDiff.filter((r) => r.s === '−').length;
+        diffFile = files[0] || (diffSrc === 'gh pr diff' ? 'gh pr diff' : 'payload.diff');
+        diffCounts = '+' + adds + ' −' + dels;
+        diffLead = 'Line-level diff from ' + (diffSrc === 'gh pr diff' ? 'gh pr diff' : (diffSrc === 'ledger' ? 'the pr_opened ledger payload' : 'the run folder')) + '. Highlighted as text only.';
+      } else {
+        prDiff = [];
+        diffFile = '';
+        diffCounts = '';
+        diffLead = 'No pull-request diff for this run. Produce one with gh pr diff or record payload.diff on pr_opened.';
+      }
       const patch = D && D.artifacts ? D.artifacts.fix_patch : null;
       if (patch) {
         fixDiff = this.diffRows(patch);
@@ -470,14 +478,14 @@ window.Component = class Component extends DCLogic {
         fixCounts = '+' + adds + ' −' + dels;
       } else {
         fixDiff = []; fixMissing = true;
-        fixTitle = 'fix.patch · not recorded'; fixCounts = 'not recorded';
+        fixTitle = ''; fixCounts = '';
       }
       const xt = D && D.artifacts ? D.artifacts.exploit_test : null;
       if (xt) {
         xtest = String(xt).split('\n').slice(0, 200).map((t, i) => ({ n: String(i + 1), t: t.slice(0, 200) }));
       } else {
         xtestMissing = true;
-        xtestTitle = 'test_exploit.py · not recorded';
+        xtestTitle = '';
       }
       const evx = ((D && D.proven) || [])[0];
       const evd = evx ? (evx.evidence || {}) : {};
@@ -501,11 +509,32 @@ window.Component = class Component extends DCLogic {
         blastNote = '';
         hasBlast = true;
       } else {
-        path = [];
-        blastPaths = [];
-        hasBlast = false;
-        noBlast = true;
-        blastNote = (g.reason || 'No code graph was recorded for this run') + '.';
+        const frames = (evd.provenance && evd.provenance.frames) || [];
+        const obs = evd.observed_location || {};
+        const entry = (evd.provenance && evd.provenance.entry_point) || evx && evx.entry_point || '';
+        const sinkFile = (obs.file || evx && evx.file || '') + (obs.line || (evx && evx.line) ? ':' + (obs.line || evx.line) : '');
+        const effect = (evd.effect && (evd.effect.label || evd.effect.type)) || '';
+        if (entry || sinkFile || effect) {
+          const nodes = [];
+          if (entry) nodes.push({ k: 'Entry', n: entry, d: 'entry point the oracle matched', lc: '#2c4fc4', bd: 'rgba(44,79,196,.4)', arrow: true });
+          frames.slice(0, 6).forEach((f, i, a) => {
+            nodes.push({ k: f.function || 'frame', n: (f.file || '') + (f.line ? ':' + f.line : ''), d: f.function || '', lc: '#4a5873', bd: 'rgba(13,27,62,.12)', arrow: true });
+          });
+          if (sinkFile) nodes.push({ k: 'Sink', n: sinkFile, d: effect || 'oracle-observed location', lc: '#a5703f', bd: 'rgba(165,112,63,.5)', arrow: !!effect });
+          if (effect) nodes.push({ k: 'Effect', n: effect, d: (evd.effect && evd.effect.path) || '', lc: '#a5703f', bd: 'rgba(165,112,63,.5)', arrow: false });
+          if (nodes.length) nodes[nodes.length - 1].arrow = false;
+          path = nodes;
+          blastPaths = [{ n: '1', entry: entry || 'entry', sink: sinkFile || 'sink', effect: effect, nodes: nodes.map((x) => x.n).filter(Boolean).join(' → ') }];
+          hasBlast = true;
+          noBlast = false;
+          blastNote = '';
+        } else {
+          path = [];
+          blastPaths = [];
+          hasBlast = false;
+          noBlast = true;
+          blastNote = 'No blast radius: the ledger has no proven entry, sink or effect for this run, and no code graph was built. Compute one with exhibit-a scan --graph.';
+        }
       }
       // Recorded graph summary (artifact-schema.md): reachability proposals,
       // shown only when no proven path exists and labeled as proposals.
@@ -531,8 +560,11 @@ window.Component = class Component extends DCLogic {
       const frag = hash < 0 ? '' : disc.slice(hash);
       const sid = String((R && R.suggestion_id) || (D && D.suggestion_id) || '').replace(/[^0-9]/g, '');
       const anchor = frag || (sid ? '#discussion_r' + sid : '');
-      sugg = disc ? { show: true, hide: false, href: base + '/files' + anchor } : { show: false, hide: false, href: '' };
-      suggNote = disc ? '' : 'No pull-request link was recorded for this run, so there is no suggestion to open. Nothing is pushed from this page.';
+      const outside = !!(D && D.fix_outside_pr_diff);
+      sugg = disc && !outside ? { show: true, hide: false, href: base + '/files' + anchor } : { show: false, hide: false, href: '' };
+      suggNote = outside
+        ? 'GitHub cannot attach a suggestion outside the PR diff...'
+        : (disc ? '' : '');
     }
 
     const CS = ['Suggestion applied by the author with Commit suggestion (GitHub creates the commit)', 'Proof loop re-run on the new head: exploit gets 404, nothing proven', 'Baseline 5 / 5 and bypass variants 3 / 3 blocked', 'Checks green · merge unblocked'];
@@ -618,20 +650,22 @@ window.Component = class Component extends DCLogic {
       const short = String(R.commit || '').slice(0, 12);
       const metaBits = [R.repo || '', R.pr ? 'PR #' + String(R.pr).replace(/^#/, '') : '', R.branch || '', short || '', R.started_at || ''].filter(Boolean);
       const firstP0 = ((D && D.proven) || [])[0] || null;
-      const toks0 = (R.tokens_in != null && R.tokens_out != null) ? this.int(R.tokens_in + R.tokens_out) + ' tokens' : 'tokens not recorded';
+      const toks0 = (R.tokens_in != null && R.tokens_out != null) ? this.int(R.tokens_in + R.tokens_out) + ' tokens' : '';
+      const cost0 = this.money(R.cost_usd);
+      const models0 = ((R.models || []).length && R.models.join(', ')) || '';
       pr = { crumb: String(runId).slice(0, 40),
         title: firstP0 ? (firstP0.class || 'proven finding') + ' in ' + (firstP0.file || 'recorded file') : (R.headline || 'Run ' + runId),
-        meta: metaBits.length ? metaBits.join(' · ') : 'not recorded',
-        lead: (R.headline || 'Recorded run') + ' · ' + this.money(R.cost_usd) + ' · ' + toks0 + ' · ' + (((R.models || []).length && R.models.join(', ')) || 'model not recorded') + '.' };
+        meta: metaBits.join(' · '),
+        lead: [R.headline || 'Recorded run', cost0, toks0, models0].filter(Boolean).join(' · ') + '.' };
     }
     const bv = s.bv;
     const mode = { isAnalysis: !!runId || !selPr, isPr: !!selPr && !runId, isDemo: !runId && !selPr, isRun: !!runId };
     return { mode, pr, bPath: (!isRun && bv === 'path') ? 'block' : 'none', bNet: (!isRun && bv === 'net') ? 'block' : 'none',
       bvOpts: [['path', 'Path'], ['net', 'Graph']].map(([k, l]) => ({ l, cls: 'sb' + (bv === k ? ' sb-on' : ''), pick: () => this.setState({ bv: k }) })),
       st: isRun ? { l: this.text(R.status, 'recorded'), s: R.headline || 'Recorded run', cls: 'state-open', isOpen: true, bg: 'rgba(165,112,63,.14)', fg: '#7d5229', bd: 'rgba(165,112,63,.4)' } : st,
-      risk, verdict, merge: mergeOut, attack, weak, hasAttack, hasWeak, mitNote, tag, stop: (e) => e.stopPropagation(), live, dec: vdec || dec, proof: vproof || proof, showFixSection, whyPanel,
-      prDiff, fixDiff, fixTitle, fixCounts, fixMissing, notFixMissing: !fixMissing,
-      xtest, xtestMissing, notXtestMissing: !xtestMissing, xtestTitle, expect, path, chg, diffLead, diffFile, diffCounts, sugg, suggNote, blastPaths, blastNote, hasBlast, noBlast, safe: s.safe,
+      risk, hasRisk: !!(risk && risk.l), verdict, merge: mergeOut, attack, weak, hasAttack, hasWeak, mitNote, tag, stop: (e) => e.stopPropagation(), live, dec: vdec || dec, proof: vproof || proof, showFixSection: showFixSection && !(isRun && fixMissing), whyPanel,
+      prDiff, fixDiff, fixTitle, fixCounts, fixMissing, notFixMissing: !fixMissing, hasDiff: isRun ? prDiff.length > 0 : true, noDiff: isRun && prDiff.length === 0,
+      xtest, xtestMissing, notXtestMissing: !xtestMissing, hasXtest: isRun && !xtestMissing, xtestTitle, expect, path, chg, diffLead, diffFile, diffCounts, sugg, suggNote, blastPaths, blastNote, hasBlast, noBlast, safe: s.safe,
       fx, commitSteps, after, confirm: s.confirm, askApprove: () => this.setState({ confirm: true }), cancel: () => this.setState({ confirm: false }), doCommit,
       reset: () => this.setState({ status: 'pending', cstep: 0 }) };
   }

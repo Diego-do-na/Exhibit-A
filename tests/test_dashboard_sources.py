@@ -245,6 +245,14 @@ class FakeGh:
                 if idx + 1 < len(argv):
                     repo = argv[idx + 1]
             return f"pr list {repo}"
+        if argv[:2] == ["pr", "diff"]:
+            repo = ""
+            if "--repo" in argv:
+                idx = argv.index("--repo")
+                if idx + 1 < len(argv):
+                    repo = argv[idx + 1]
+            number = argv[2] if len(argv) > 2 else ""
+            return f"pr diff {number} {repo}"
         return " ".join(argv)
 
     def __call__(self, argv, timeout, max_bytes):

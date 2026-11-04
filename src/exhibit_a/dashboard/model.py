@@ -53,6 +53,11 @@ MAX_STRING = 2000
 MAX_ITEMS = 200
 MAX_DEPTH = 8
 MAX_FRAMES = 60
+#: Unified diffs shown on the run page (ledger payload.diff or ``gh pr diff``).
+MAX_PR_DIFF = 200_000
+FIX_OUTSIDE_PR_DIFF = (
+    "GitHub cannot attach a suggestion outside the PR diff..."
+)
 
 _GRAPH_CACHE: dict[str, tuple[str, dict[str, Any]]] = {}
 EFFECTS = tuple(get_args(Effect))
@@ -106,6 +111,53 @@ def _text(value: Any, limit: int = 300) -> str:
 
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _diff_text(value: Any) -> str:
+    """Keep a unified diff as text (NUL-stripped, capped). Never applied."""
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    return value.replace("\x00", "")[:MAX_PR_DIFF]
+
+
+def diff_files(text: str) -> set[str]:
+    """Paths named on ``+++`` lines of a unified diff."""
+    files: set[str] = set()
+    for line in (text or "").splitlines():
+        if line.startswith("+++ b/"):
+            path = line[6:].strip()
+        elif line.startswith("+++ ") and not line.startswith("+++ /dev/null"):
+            path = line[4:].strip()
+            if path.startswith("b/"):
+                path = path[2:]
+        else:
+            continue
+        if path and path != "/dev/null":
+            files.add(path[:400])
+    return files
+
+
+def fix_hunks_outside_pr_diff(fix_patch: str, pr_diff: str) -> bool:
+    """True when the fix names a file the pull request diff does not change."""
+    fix_files = diff_files(fix_patch)
+    pr_files = diff_files(pr_diff)
+    if not fix_files or not pr_files:
+        return False
+    return bool(fix_files - pr_files)
+
+
+def pr_diff_of(data: RunData) -> tuple[str, str]:
+    """Return ``(diff, source)`` from the run folder or the ``pr_opened`` payload."""
+    folder = _diff_text(data.diff)
+    if folder:
+        return folder, "file"
+    for event in data.events:
+        if event.type == EventType.PR_OPENED:
+            payload = _diff_text(event.payload.get("diff"))
+            if payload:
+                return payload, "ledger"
+            break
+    return "", ""
 
 
 def _int(value: Any) -> int | None:
@@ -917,6 +969,8 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
     duplicate_ids = {item["id"] for item in items if item["verdict"] == VerdictValue.PROVEN.value} - primary_ids
     steps = trace_events(events)
     artifacts = data.artifacts
+    pr_diff, pr_diff_source = pr_diff_of(data)
+    fix_patch = artifacts.get("fix.patch")
     return {
         "run": row,
         "stages": _stages(events),
@@ -942,6 +996,11 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
         # Validated graph-summary.json (artifact-schema.md); None means the run
         # folder or artifact does not carry one ("not recorded").
         "graph_summary": data.graph_summary or None,
+        "pr_diff": pr_diff or None,
+        "pr_diff_source": pr_diff_source,
+        "fix_outside_pr_diff": bool(
+            pr_diff and fix_patch and fix_hunks_outside_pr_diff(fix_patch, pr_diff)
+        ),
     }
 
 
