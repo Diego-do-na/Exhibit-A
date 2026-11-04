@@ -3,6 +3,7 @@
 One line per document. Paths are relative to the repository root.
 
 - [common.md](common.md) — shared append-only per-task log (merge=union); read the last ~40 lines before starting a task.
+- [release-checklist.md](release-checklist.md) — final Docker, CI, tag, cold-clone, secrets, and repository-cleanliness gates.
 - [GUIDE.md](GUIDE.md) — Spanish walkthrough of the project, verified against `main` on 2026-10-28.
 - [sprint-review.md](sprint-review.md) — closing review of the sprint: what was built, what is pending, proposed patches.
 - [how-this-was-built.md](how-this-was-built.md) — factual account of the spec-first, multi-agent build workflow.
@@ -33,6 +34,7 @@ One line per document. Paths are relative to the repository root.
 - [ci/audit.md](ci/audit.md) — Repository audit: ranked graph reach paths, budget-capped loop, audit.json/audit.md, weekly workflow.
 - [ci/fix-pr.md](ci/fix-pr.md) — Verified fix pull requests: review suggestions and automated PR branches.
 - [ci/replay-determinism.md](ci/replay-determinism.md) — Why batch replay verdicts flipped under load, and the warm-up/sample and replay-timeout fixes.
+- [ci/artifact-schema.md](ci/artifact-schema.md) — GitHub Action artifact contents and schema.
 
 ## bench/ — benchmark and costs
 
@@ -74,3 +76,8 @@ One line per document. Paths are relative to the repository root.
 - [reference/dependency-proofs.md](reference/dependency-proofs.md) — `exhibit-a deps`: advisory reachability through the call graph, sandbox proof, verified upgrade, `deps.json`.
 - [reference/proof-bundles.md](reference/proof-bundles.md) — re-verifiable proof bundles: offline `verify` and sandbox `reproduce` with no model call.
 - [reference/sbom-vex.md](reference/sbom-vex.md) — `exhibit-a sbom`: CycloneDX 1.5 SBOM with VEX states derived from Exhibit A evidence.
+
+## demo/ and video/
+
+- [demo/runbook.md](demo/runbook.md) — recording and operating runbook for the live demonstration.
+- [video/script.md](video/script.md) — synchronized three-minute demonstration script.
