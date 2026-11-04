@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" role="img" aria-label="Exhibit A: proof before accusation">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1b3e"/>
+      <stop offset="1" stop-color="#2c4fc4"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="320" rx="20" fill="url(#bg)"/>
+  <path d="M170 236 L240 84 L310 236 M198 190 H282" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="380" y="176" fill="#ffffff" font-family="'SF Mono','Menlo','Consolas',monospace" font-size="92" font-weight="700" letter-spacing="10">EXHIBIT A</text>
+  <text x="384" y="224" fill="#dbe4f8" font-family="'SF Mono','Menlo','Consolas',monospace" font-size="30" letter-spacing="4">proof before accusation</text>
+</svg>
