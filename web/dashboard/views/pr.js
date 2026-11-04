@@ -785,7 +785,7 @@ window.Component = class Component extends DCLogic {
         : { l: 'Merged', d: 'Not merged', state: 'pending', done: false, bg: 'rgba(13,27,62,.18)' };
     const testsStep = merged
       ? { l: 'Tests green', d: 'Merged only with green tests (project rule)', state: 'done', done: true, bg: '#2c4fc4' }
-      : { l: 'Tests green', d: 'Required checks are not recorded here', state: 'neutral', neutral: true, bg: '#8b98b3' };
+      : { l: 'Tests green', d: 'See GitHub checks for this pull request', state: 'neutral', neutral: true, bg: '#8b98b3' };
     const enriched = selPr && !selPr.missing ? {
       life: [
         { l: 'Opened', d: selPr.created || selPr.when, state: 'done', done: true, bg: '#2c4fc4' },
