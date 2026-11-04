@@ -22,7 +22,7 @@ from ..style import OK, WARN, kv, next_steps, section, status
 CHECKOUT_ACTION = "actions/checkout"
 CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"  # actions/checkout v7.0.1
 EXHIBIT_A_ACTION = "diego-do-na/Exhibit-A"
-EXHIBIT_A_ACTION_SHA = "f581c0215112be1ddd583b3c3ac5ac1296e1d91c"  # origin/main (T153+T154)
+EXHIBIT_A_ACTION_SHA = "b23f87bca14d2ddf8e454cb113a39f2cc45063c8"  # origin/main (T153+T154+dashboard/TS fixes)
 
 DEFAULT_PATH = ".github/workflows/exhibit-a.yml"
 
