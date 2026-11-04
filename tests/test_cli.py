@@ -12,7 +12,7 @@ import pytest
 
 from exhibit_a.cli import main
 from exhibit_a.cli import dashboard as dashboard_cli
-from exhibit_a.cli.banner import TAGLINE, load_logo, print_banner
+from exhibit_a.cli.banner import TAGLINE, identity_line, load_logo, print_banner
 from exhibit_a.cli.ext.init import (
     CHECKOUT_ACTION,
     CHECKOUT_SHA,
@@ -120,10 +120,10 @@ def test_ledger_corrupt_file_returns_error(tmp_path, capsys) -> None:
     assert "cannot read" in capsys.readouterr().err
 
 
-def test_no_subcommand_exits_with_usage_error() -> None:
-    with pytest.raises(SystemExit) as exc:
-        main([])
-    assert exc.value.code == 2
+def test_no_subcommand_exits_with_usage_error(capsys) -> None:
+    assert main([]) == 2
+    captured = capsys.readouterr()
+    assert "usage:" in captured.out.lower()
 
 
 def test_unknown_subcommand_exits_with_usage_error() -> None:
@@ -298,6 +298,8 @@ def test_banner_prints_on_init_and_dashboard_start_only_when_interactive(
     captured = capsys.readouterr()
     assert TAGLINE in captured.err
     assert TAGLINE not in captured.out
+    assert load_logo().splitlines()[0] in captured.err
+    assert identity_line() not in captured.err
 
     calls: list = []
     _fake_dashboard_server(monkeypatch, calls)
@@ -305,7 +307,8 @@ def test_banner_prints_on_init_and_dashboard_start_only_when_interactive(
     (tmp_path / "runs" / "run-1").mkdir(parents=True)
     assert main(["dashboard", "--no-open"]) == 0
     captured = capsys.readouterr()
-    assert TAGLINE in captured.err
+    assert identity_line() in captured.err
+    assert load_logo().splitlines()[0] not in captured.err
     assert "127.0.0.1" in captured.out
     assert "never hosted" in captured.out
 
@@ -328,9 +331,11 @@ def test_banner_disabled_by_no_banner_no_color_and_non_tty(tmp_path, monkeypatch
 def test_banner_never_on_json_or_machine_output(tmp_path, monkeypatch, capsys):
     _tty(monkeypatch)
     assert main(["scan"]) == 0
-    raw = capsys.readouterr().out
-    json.loads(raw)
-    assert TAGLINE not in raw
+    captured = capsys.readouterr()
+    json.loads(captured.out)
+    assert TAGLINE not in captured.out
+    assert TAGLINE not in captured.err
+    assert identity_line() not in captured.err
 
     index = tmp_path / "runs.jsonl"
     index.write_text("{}\n", encoding="utf-8")
@@ -400,4 +405,82 @@ def test_print_banner_writes_the_logo_when_enabled(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert TAGLINE in captured.err
     assert captured.out == ""
+
+
+def test_banner_is_not_duplicated_on_init_or_dashboard(tmp_path, monkeypatch, capsys):
+    _tty(monkeypatch)
+    target = tmp_path / "wf.yml"
+    assert main(["init", "--path", str(target)]) == 0
+    err = capsys.readouterr().err
+    logo = load_logo().rstrip("\n")
+    assert err.count(logo) == 1
+    assert identity_line() not in err
+
+    calls: list = []
+    _fake_dashboard_server(monkeypatch, calls)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs" / "run-1").mkdir(parents=True)
+    assert main(["dashboard", "--no-open"]) == 0
+    captured = capsys.readouterr()
+    assert captured.err.count(identity_line()) == 1
+    assert logo not in captured.err
+    assert "|                        EXHIBIT A" not in captured.err
+
+
+def test_init_and_dashboard_snapshots_are_colorless(tmp_path, monkeypatch, capsys):
+    snapshots = ROOT / "tests" / "cli_snapshots"
+    target = tmp_path / "wf.yml"
+    assert main(["init", "--path", str(target)]) == 0
+    init_out = capsys.readouterr().out
+    assert "\x1b[" not in init_out
+    expected_init = snapshots.joinpath("init.txt").read_text(encoding="utf-8")
+    assert init_out.replace(str(target), "wf.yml") == expected_init
+
+    calls: list = []
+    _fake_dashboard_server(monkeypatch, calls)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs" / "run-1").mkdir(parents=True)
+    assert main(["dashboard", "--no-open"]) == 0
+    dash_out = capsys.readouterr().out
+    assert "\x1b[" not in dash_out
+    expected_dash = snapshots.joinpath("dashboard.txt").read_text(encoding="utf-8")
+    assert dash_out == expected_dash
+
+
+def test_human_commands_print_the_one_line_identity(tmp_path, monkeypatch, capsys):
+    _tty(monkeypatch)
+    assert main(["run"]) == 2
+    captured = capsys.readouterr()
+    assert identity_line() in captured.err
+    assert load_logo().rstrip("\n") not in captured.err
+
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "verdict.json").write_text("{}", encoding="utf-8")
+    out = tmp_path / "finding.md"
+    code = main(["report", str(package), "--out", str(out)])
+    captured = capsys.readouterr()
+    assert code in (0, 1)
+    if code == 0:
+        assert "report" in captured.out
+        assert identity_line() in captured.err
+
+    assert main(["doctor", "--env"]) in (0, 1)
+    captured = capsys.readouterr()
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", captured.out)
+    assert "[ok] python:" in plain or "[fail] python:" in plain
+    assert identity_line() in captured.err
+
+    assert main(["audit", "--repo", str(tmp_path / "missing")]) == 2
+    captured = capsys.readouterr()
+    assert identity_line() in captured.err
+
+
+def test_flag_version_prints_the_full_logo_when_interactive(monkeypatch, capsys):
+    _tty(monkeypatch)
+    assert main(["--version"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("exhibit-a ")
+    assert load_logo().splitlines()[0] in captured.err
+    assert identity_line() not in captured.err
 

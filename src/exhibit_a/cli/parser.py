@@ -62,7 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not print the ASCII banner.",
     )
-    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Print the Exhibit A version and exit.",
+    )
+    sub = parser.add_subparsers(dest="command", required=False, metavar="COMMAND")
 
     scan = sub.add_parser(
         "scan",

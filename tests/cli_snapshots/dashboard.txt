@@ -1,0 +1,7 @@
+dashboard
+  bind             127.0.0.1 (never hosted)
+  source           local:runs
+
+Next steps
+  exhibit-a dashboard --source local:<dir>
+  exhibit-a dashboard --source github:<owner/repo>

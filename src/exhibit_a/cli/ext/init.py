@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ..banner import print_banner
+from ..style import kv, next_steps, section
 
 # Full commit SHAs (tags are mutable). Update these constants when bumping
 # actions/checkout or the Exhibit A Action, then re-run ``exhibit-a init --force``.
@@ -98,16 +98,16 @@ jobs:
           exit 1
 """
 
-MANUAL_STEPS = """\
-Next steps (manual):
-  1. Create the 'exhibit-a' environment, then its secret:
-       gh secret set EXHIBIT_A_API_KEY --env exhibit-a
-  2. Enable the workflow with repository variable EXHIBIT_A_ENABLED=true:
-       gh variable set EXHIBIT_A_ENABLED --body true
-  3. Require status checks 'exhibit-a / verify' and 'exhibit-a / fork-guard'
-     on the default branch (Settings > Rules / branch protection).
-Merges are blocked only with branch protection; a repository admin can bypass.
-"""
+INIT_NEXT_STEPS = (
+    "gh secret set EXHIBIT_A_API_KEY --env exhibit-a",
+    "gh variable set EXHIBIT_A_ENABLED --body true",
+)
+INIT_NEXT_NOTE = (
+    "Enable the workflow with repository variable EXHIBIT_A_ENABLED=true.\n"
+    "Require status checks 'exhibit-a / verify' and 'exhibit-a / fork-guard' "
+    "on the default branch (Settings > Rules / branch protection).\n"
+    "Merges are blocked only with branch protection; a repository admin can bypass."
+)
 
 
 def workflow_text() -> str:
@@ -128,9 +128,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 2
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(workflow_text(), encoding="utf-8", newline="\n")
-    print_banner(args)
-    print(f"init: wrote {target}")
-    print(MANUAL_STEPS, end="" if MANUAL_STEPS.endswith("\n") else "\n")
+    section("init")
+    kv("wrote", str(target))
+    next_steps(INIT_NEXT_STEPS, note=INIT_NEXT_NOTE)
     return 0
 
 

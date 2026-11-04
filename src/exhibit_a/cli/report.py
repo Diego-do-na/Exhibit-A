@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from ..report import render_html, render_markdown
+from .style import kv, section
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -19,6 +20,8 @@ def cmd_report(args: argparse.Namespace) -> int:
         )
         if args.out:
             Path(args.out).write_text(rendered, encoding="utf-8")
+            section("report")
+            kv("wrote", args.out)
         else:
             print(rendered)
     except (OSError, UnicodeError, ValueError) as exc:

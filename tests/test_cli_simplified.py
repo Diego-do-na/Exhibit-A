@@ -60,8 +60,8 @@ def test_init_writes_workflow_without_secrets_and_refuses_overwrite(tmp_path, ca
 def test_doctor_env_reports_host_checks(capsys):
     code = main(["doctor", "--env"])
     out = capsys.readouterr().out
-    assert "PASS python:" in out
-    assert "exhibit-a:" in out
+    assert "[ok] python:" in out
+    assert "exhibit-a" in out
     assert "docker CLI:" in out
     assert code in (0, 1)  # 0 when a docker CLI is installed, 1 otherwise
 

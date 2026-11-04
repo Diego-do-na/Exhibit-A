@@ -842,16 +842,22 @@ LOOP_STAGES = ("BASELINE", "SUSPECT", "EXPLOIT", "RUN", "VERDICT", "FIX", "VERIF
 
 
 def _print_phases(ledger: Ledger, run_id: str) -> None:
-    """Verbose detail: how many ledger events each loop phase recorded."""
-    from ..ledger.trace import trace_events
+    """Verbose detail: how many ledger events each loop phase recorded.
 
+    Progress is tty-only so piped ``run -v`` output stays a parseable log.
+    """
+    from ..ledger.trace import trace_events
+    from .style import progress, progress_enabled
+
+    if not progress_enabled():
+        return
     counts: dict[str, int] = {}
     for step in trace_events(list(ledger.replay(run_id))):
         counts[step.stage] = counts.get(step.stage, 0) + 1
     for stage in LOOP_STAGES:
-        print(f"phase {stage}: {counts.get(stage, 0)} event(s)")
+        progress(f"phase {stage}: {counts.get(stage, 0)} event(s)")
     for stage in sorted(set(counts) - set(LOOP_STAGES)):
-        print(f"phase {stage}: {counts[stage]} event(s)")
+        progress(f"phase {stage}: {counts[stage]} event(s)")
 
 
 def cmd_run(args: argparse.Namespace) -> int:

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import get_args
 
 from exhibit_a.audit.audit import collect_targets, run_audit
+from exhibit_a.cli.style import kv, section
 
 #: Low default spend cap when ``--budget-usd`` is omitted on a live audit.
 DEFAULT_BUDGET_USD = 1.0
@@ -37,11 +38,12 @@ def _print_targets(repo: str | Path, out: str | Path | None = None) -> int:
 
     graph, targets = collect_targets(repo)
     _ = graph
+    section("audit")
     for i, target in enumerate(targets, 1):
         best = target.paths[0]
         print(f"{i}. {target.sink_key} [{target.effect}/{target.vuln_class}]")
-        print(f"   file: {target.source_file} paths: {len(target.paths)}")
-        print(f"   best: {render(best)}")
+        kv("file", f"{target.source_file} paths: {len(target.paths)}")
+        kv("best", render(best))
     if out is not None:
         out_path = Path(out)
         out_path.mkdir(parents=True, exist_ok=True)

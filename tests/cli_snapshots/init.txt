@@ -1,0 +1,9 @@
+init
+  wrote            wf.yml
+
+Next steps
+  gh secret set EXHIBIT_A_API_KEY --env exhibit-a
+  gh variable set EXHIBIT_A_ENABLED --body true
+Enable the workflow with repository variable EXHIBIT_A_ENABLED=true.
+Require status checks 'exhibit-a / verify' and 'exhibit-a / fork-guard' on the default branch (Settings > Rules / branch protection).
+Merges are blocked only with branch protection; a repository admin can bypass.

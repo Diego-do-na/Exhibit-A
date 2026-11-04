@@ -15,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .banner import print_banner
+from .style import kv, next_steps, section
 
 USAGE_COMMANDS = (
     "  exhibit-a dashboard --source local:<dir>\n"
@@ -129,8 +129,15 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         )
         return 2
     if not getattr(args, "export", None):
-        print_banner(args)
-        print("dashboard: opening locally on 127.0.0.1 (never hosted)")
+        section("dashboard")
+        kv("bind", "127.0.0.1 (never hosted)")
+        kv("source", source)
+        next_steps(
+            (
+                "exhibit-a dashboard --source local:<dir>",
+                "exhibit-a dashboard --source github:<owner/repo>",
+            )
+        )
     forwarded = ["--source", source, "--port", str(getattr(args, "port", 0))]
     if getattr(args, "export", None):
         forwarded.extend(["--export", args.export])

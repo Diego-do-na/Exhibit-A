@@ -190,3 +190,4 @@ Protocol:
 - T153 grok: P0-2 /api/graph from scan --graph on a matching checkout (cached by commit; Exhibit-A Proof-core/Analysis/Surfaces, other repos first-level folders); else graph-summary.json; testbed fixture + two checkouts do not cross; pending: P0-3 real run page
 - T153 grok: P0-3 run page uses payload.diff or gh pr diff (text only), chronological ledger without the scrub player, blast radius from ledger evidence plus graph, cards hide when empty, no "not recorded"; pending: P0-4 zero emojis + PROVEN/NOT PROVEN title
 - T153 grok: P0-4 zero emojis in md/yml/html/js and CLI strings (docs/common.md exempt); titles "Exhibit A: PROVEN: …" / "NOT PROVEN: …"; pending: P1-1 CLI banner and layout
+- T153 grok: P1-1 CLI logo only on no-args/--version/init, one-line identity elsewhere, [ok]/[warn]/[fail]/[skip], Next steps, color/progress tty-only, colorless init/dashboard snapshots; pending: P1-2 idempotent init

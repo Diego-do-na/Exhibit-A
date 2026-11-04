@@ -275,13 +275,13 @@ def test_doctor_cli_prints_isolation_and_seccomp_profile(capsys: pytest.CaptureF
     out = capsys.readouterr().out
     assert code == 0, out
     for expected in (
-        "PASS runtime:",
-        "PASS network:",
-        "PASS capabilities:",
-        "PASS seccomp:",
-        "PASS user:",
-        "PASS filesystem:",
-        "PASS limits:",
+        "[ok] runtime:",
+        "[ok] network:",
+        "[ok] capabilities:",
+        "[ok] seccomp:",
+        "[ok] user:",
+        "[ok] filesystem:",
+        "[ok] limits:",
         "seccomp_profile:",
         "defaultAction=SCMP_ACT_ERRNO",
         "declared_mounts:",
@@ -391,7 +391,7 @@ def test_doctor_exits_nonzero_when_any_isolation_is_weaker(
     code = cli_main(["doctor"])
     out = capsys.readouterr().out
     assert code == 1, out
-    assert f"FAIL {failed_check}:" in out
+    assert f"[fail] {failed_check}:" in out
 
 
 # --- 5. Escape-attempt tests in the sandbox (docker-marked) -----------------------------------

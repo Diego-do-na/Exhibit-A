@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from exhibit_a import __version__
+from exhibit_a.cli.style import FAIL, OK, SKIP, kv, section, status
 from exhibit_a.sandbox.runner import (
     CPUS_LIMIT,
     DECLARED_MOUNTS,
@@ -244,12 +245,16 @@ def environment_report() -> dict[str, Any]:
 
 def _print_environment(report: dict[str, Any]) -> None:
     py = report["python"]
-    print(f"{'PASS' if py['ok'] else 'FAIL'} python: {py['version']} (needs 3.11+)")
-    print(f"exhibit-a: {report['exhibit_a']}")
+    section("Environment")
+    status(OK if py["ok"] else FAIL, f"python: {py['version']} (needs 3.11+)")
+    kv("exhibit-a", report["exhibit_a"])
     docker = report["docker_cli"]
-    print(f"{'PASS' if docker['ok'] else 'FAIL'} docker CLI: {docker['path'] or 'not found on PATH'}")
+    status(OK if docker["ok"] else FAIL, f"docker CLI: {docker['path'] or 'not found on PATH'}")
     for name, present in report["provider_keys"].items():
-        print(f"{'PASS' if present else 'INFO'} provider key {name}: {'set' if present else 'not set (replay still works)'}")
+        if present:
+            status(OK, f"provider key {name}: set")
+        else:
+            status(SKIP, f"provider key {name}: not set (replay still works)")
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -270,10 +275,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         return 0 if report["passed"] else 1
 
     _print_environment(env)
-    print("Exhibit A sandbox self-check (isolated and resource-limited):")
+    section("Sandbox")
+    print("isolated and resource-limited")
     for check in report["checks"]:
-        status = "PASS" if check["passed"] else "FAIL"
-        print(f"{status} {check['name']}: {check['detail']}")
+        status(OK if check["passed"] else FAIL, f"{check['name']}: {check['detail']}")
 
     prof = report["seccomp_profile"]
     print(
