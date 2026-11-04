@@ -1230,7 +1230,10 @@ def run(
             "--cpus",
             CPUS_LIMIT,
             "--ulimit",
-            f"cpu={max(1, math.ceil(timeout))}",
+            # Wall-clock timeout is the bound that matters. cpu=timeout SIGXCPU-kills a
+            # two-thread busy loop (TOCTOU swap) before the test can finish when --cpus
+            # is not honoured, which CI then records as invalid_test / no_effect.
+            f"cpu={max(1, math.ceil(timeout) * 4)}",
             "-v",
             f"{workspace}:{_WORKSPACE}:rw",
             *extra_args,

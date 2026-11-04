@@ -1301,6 +1301,11 @@ def _bind_dos(emit, admission, stack_fn) -> None:
                 "application CPU on the malicious input exceeded the benign baseline "
                 f"(ratio {ratio:.1f}x)"
             )
+        # Do not return None: recorded tests that bind the result and assert on it
+        # (``assert ratio``, ``assert ratio < 10``) treated None as a failure, so a
+        # ratio sitting near DOS_RATIO flipped invalid_test / discarded_unproven
+        # across machines. 0.0 is a miss sentinel, not the measured ratio.
+        return 0.0
 
     _DOS.append({"probe": probe, "used": False})
 

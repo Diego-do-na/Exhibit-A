@@ -25,11 +25,22 @@ def test_dos_probe_warms_up_and_samples_more():
     warm_up = source.index("timed_call(fn, benign, test_dir)\n        timed_call(fn, malicious, test_dir)")
     sampling = source.index("for _ in range(DOS_SAMPLES):")
     assert warm_up < sampling
+    # Miss returns 0.0, not None, so recorded tests that assert on the
+    # bound result do not flip pass/fail around the 50x threshold.
+    miss = source.index("return 0.0")
+    assert sampling < miss
+
+
+def test_sandbox_cpu_ulimit_outlives_the_wall_clock():
+    import exhibit_a.sandbox.runner as runner
+
+    source = inspect.getsource(runner)
+    assert "ceil(timeout) * 4" in source
 
 
 def test_only_replay_gets_timeout_slack(monkeypatch):
     assert record_meta.RECORD_TIMEOUT_S == 60.0
-    assert record_meta.REPLAY_TIMEOUT_S == 240.0
+    assert record_meta.REPLAY_TIMEOUT_S == 360.0
     calls = {}
 
     def fake_run_case(case, provider, out_dir, meter=None, profile="standard", *, timeout):

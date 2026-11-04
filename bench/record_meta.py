@@ -170,7 +170,7 @@ def load_case(case_id: str) -> Case:
 #: oracle thresholds, sample counts and verdict assertions are unchanged
 #: (docs/ci/replay-determinism.md).
 RECORD_TIMEOUT_S = 60.0
-REPLAY_TIMEOUT_S = 240.0
+REPLAY_TIMEOUT_S = 360.0
 
 
 def run_case(

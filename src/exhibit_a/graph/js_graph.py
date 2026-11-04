@@ -43,13 +43,16 @@ def build_js_graph(root: str | Path, *, image: str | None = None, timeout: float
     tag = image or build_node_image([TYPESCRIPT_PACKAGE])
     # Colima/Docker may not share arbitrary system temp paths. Stage a bounded copy under the
     # repository worktree (a shared path), then mount that copy read-only into the sandbox.
-    with tempfile.TemporaryDirectory(prefix=".exhibit-a-js-stage-", dir=Path.cwd()) as staged_dir:
+    # The prefix is not hidden: some file-sharing layers skip dot-directories.
+    with tempfile.TemporaryDirectory(prefix="exhibit-a-js-stage-", dir=Path.cwd()) as staged_dir:
         staged_root = Path(staged_dir) / "repo"
         shutil.copytree(root, staged_root, symlinks=True)
         command = [
             "docker", "run", "--rm", "-i", "--network", "none", "--read-only",
             "--tmpfs", "/tmp:rw,size=64m,mode=1777", "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges", "-v", f"{staged_root}:/workspace:ro",
+            "--security-opt", "no-new-privileges",
+            "-v", f"{staged_root}:/workspace:ro",
+            "--workdir", "/workspace",
         ]
         with open(BUILDER, "rb") as source:
             data = source.read()
@@ -72,9 +75,11 @@ def build_js_graph(root: str | Path, *, image: str | None = None, timeout: float
             and "node_modules" not in p.parts and not p.name.startswith(".")
         ]
         if sources:
+            detail = f" (skipped={list(graph.skipped)!r})" if graph.skipped else ""
             raise ValueError(
                 "JavaScript graph builder returned no files for a tree "
                 f"with {len(sources)} source file(s); refusing an empty graph"
+                + detail
             )
     return graph
 

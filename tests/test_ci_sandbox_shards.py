@@ -88,7 +88,7 @@ def test_ci_workflow_splits_sandbox_into_four_shards_and_a_gate():
     )
 
     sandbox = workflow["jobs"]["sandbox"]
-    assert sandbox["timeout-minutes"] == 30
+    assert sandbox["timeout-minutes"] == 40
     assert sandbox["strategy"]["fail-fast"] is False
     assert sandbox["strategy"]["matrix"]["shard"] == [1, 2, 3, 4]
     runs = "\n".join(str(step.get("run", "")) for step in sandbox["steps"])

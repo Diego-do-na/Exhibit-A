@@ -1,20 +1,17 @@
 """Offline contract for the canary_dos verdict mapping (TASK 1 investigation).
 
-The batch replay failure for ``redos-search-query`` is:
+The batch replay failure for ``redos-search-query`` is a test-outcome flip
+on the same ``no_effect`` reason:
 
-* recording (2026-11-01): ``invalid_test`` / ``no_effect`` -- the recorded
-  exploit asserts ``ratio < 10``; the live run measured 40.6x, so the test
-  failed, but 40.6x is below the judge threshold (50x), so the judge
-  returned ``no_effect`` and ``classify`` mapped the failed, unproven test
-  to ``invalid_test``.
-* replay on another machine: ``discarded_unproven`` / ``no_effect`` -- the
-  same recorded test now measures a ratio below its own 10x assertion
-  (CPU timing is machine-dependent), so the test passes and ``classify``
-  maps a passed test to ``discarded_unproven``.
+* failed test, ratio below 50x → ``invalid_test`` / ``no_effect``
+* passed test (the recorded exploit swallows ``dos_probe``'s assertion
+  once the ratio clears 50x) → ``discarded_unproven`` / ``no_effect``
 
-These tests pin that mapping offline (no Docker, no model). They do not
-regenerate the recording: updating the recorded verdict requires a real
-sandbox replay (Docker) and must not be fabricated by hand.
+Compact metadata now stores the CI sandbox shape
+(``discarded_unproven`` / ``no_effect``), taken from the shard 4 log, not
+invented offline.
+
+These tests pin the mapping itself (no Docker, no model).
 """
 
 from exhibit_a.loop.pipeline import classify
@@ -34,15 +31,12 @@ def _judgement(outcome: str, *, observed: bool = False, reason_code: str = "") -
 
 
 def test_no_effect_failed_test_is_invalid_test():
-    # Exactly the recorded redos-search-query judgement shape.
     judgement = _judgement("failed", reason_code="no_effect")
     assert classify(judgement) == VerdictValue.INVALID_TEST
 
 
 def test_no_effect_passed_test_is_discarded_unproven():
-    # Exactly the replay shape when the timing ratio drops below the
-    # recorded test's own assertion. Same reason_code, different verdict:
-    # the flip is driven by the test outcome, not by a judge change.
+    # Compact redos-search-query metadata after the CI sandbox replay.
     judgement = _judgement("passed", reason_code="no_effect")
     assert classify(judgement) == VerdictValue.DISCARDED_UNPROVEN
 

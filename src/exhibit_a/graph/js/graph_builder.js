@@ -53,17 +53,24 @@ function walkFiles(root) {
   function visit(dir) {
     if (files.length >= MAX_FILES || total >= MAX_TOTAL_BYTES) return;
     let names;
-    try { names = fs.readdirSync(dir, {withFileTypes: true}); }
-    catch (e) { skipped.push({file: path.relative(root, dir), reason: "cannot read directory"}); return; }
-    for (const entry of names.sort((a, b) => a.name.localeCompare(b.name))) {
+    // Names only: Dirent.isFile()/isDirectory() follow d_type, which is DT_UNKNOWN
+    // on some bind-mount/overlay filesystems (GitHub-hosted runners included). Both
+    // methods then return false and every source file is skipped silently.
+    try { names = fs.readdirSync(dir); }
+    catch (e) { skipped.push({file: path.relative(root, dir) || ".", reason: "cannot read directory"}); return; }
+    for (const name of names.slice().sort()) {
       if (files.length >= MAX_FILES || total >= MAX_TOTAL_BYTES) break;
-      if (entry.name.startsWith(".") || SKIP.has(entry.name) || entry.isSymbolicLink()) continue;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) { visit(full); continue; }
-      if (!entry.isFile() || !EXTENSIONS.has(path.extname(entry.name))) continue;
-      const rel = path.relative(root, full).split(path.sep).join("/");
+      if (name.startsWith(".") || SKIP.has(name)) continue;
+      const full = path.join(dir, name);
       let stat;
-      try { stat = fs.statSync(full); } catch { skipped.push({file: rel, reason: "cannot stat"}); continue; }
+      try { stat = fs.lstatSync(full); } catch {
+        skipped.push({file: path.relative(root, full).split(path.sep).join("/"), reason: "cannot stat"});
+        continue;
+      }
+      if (stat.isSymbolicLink()) continue;
+      if (stat.isDirectory()) { visit(full); continue; }
+      if (!stat.isFile() || !EXTENSIONS.has(path.extname(name))) continue;
+      const rel = path.relative(root, full).split(path.sep).join("/");
       if (stat.size > MAX_FILE_BYTES || total + stat.size > MAX_TOTAL_BYTES) {
         skipped.push({file: rel, reason: "file too large"}); continue;
       }

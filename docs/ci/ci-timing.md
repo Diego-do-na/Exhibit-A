@@ -38,8 +38,9 @@ and resource-limited sandbox.
 
 ## Shards
 
-Four matrix jobs, `fail-fast: false`, `timeout-minutes: 30` (half the old
-60-minute budget; intended as about 2x a ~15 minute shard, capped at 30).
+Four matrix jobs, `fail-fast: false`, `timeout-minutes: 40` (replay of the
+TOCTOU compact case can use the 360 s replay slack; 30 minutes was too
+close to shard 4's ~27 minute wall time).
 
 ```text
 python -m exhibit_a.ci.sandbox_shards --list

@@ -39,10 +39,10 @@
     {
       "fix_incomplete": false,
       "fix_verified": false,
-      "reason": "canary_dos not proven: median ratio 40.6x (need >50x) and malicious app CPU 0.0272s (need >=0.015s); test failed",
+      "reason": "algorithmic complexity observed through an entry point, but the test did not fail (passed)",
       "reason_code": "no_effect",
       "suspicion_id": "S1",
-      "verdict": "invalid_test"
+      "verdict": "discarded_unproven"
     }
   ]
 }

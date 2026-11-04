@@ -75,6 +75,17 @@ def test_js_builder_output_rejects_malformed_and_oversized():
         _validate({"schema_version": "1", "files": ["x" * 11_000_000]})
 
 
+def test_js_builder_walks_with_lstat_not_dirent_type():
+    # Overlay/bind-mount filesystems leave d_type as DT_UNKNOWN, so Dirent.isFile()
+    # is false for real source files. The builder must stat each name instead.
+    source = (Path(__file__).resolve().parent.parent / "src/exhibit_a/graph/js/graph_builder.js").read_text(
+        encoding="utf-8"
+    )
+    assert "lstatSync" in source
+    assert "withFileTypes" not in source
+    assert "entry.isFile()" not in source
+
+
 @pytest.mark.docker
 def test_typescript_graph_runs_in_node_sandbox(tmp_path):
     (tmp_path / "helpers.ts").write_text(
