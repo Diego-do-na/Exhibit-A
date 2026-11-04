@@ -103,6 +103,22 @@ def test_hostile_payload_shapes_make_the_run_unreadable_not_partial():
     assert detail["run"]["status"] == "unreadable" and detail["proven"] == [] and detail["discarded"] == []
 
 
+def test_scan_done_labels_use_recorded_status_not_unknown_placeholders():
+    derived = Event.model_validate({"ts": "t", "run_id": "r", "type": "scan_done",
+                                    "payload": {"status": "derived_effects", "effects": ["canary_read"]}})
+    sliced = Event.model_validate({"ts": "t", "run_id": "r", "type": "scan_done",
+                                   "payload": {"status": "sliced", "source_file": "notes.py",
+                                               "paths": [{"path": "a -> b"}, {"path": "c -> d"}]}})
+    empty = Event.model_validate({"ts": "t", "run_id": "r", "type": "scan_done",
+                                  "payload": {"status": "no_suspicions", "source_file": "notes.py"}})
+    for event in (derived, sliced, empty):
+        line = event_line(event)
+        assert "unknown language" not in line and "unknown test command" not in line
+    assert "canary_read" in event_line(derived)
+    assert "notes.py" in event_line(sliced) and "2" in event_line(sliced)
+    assert "notes.py" in event_line(empty)
+
+
 def test_mistyped_payload_values_do_not_crash():
     weird = {"suspicion_id": ["S1"], "verdict": {"x": 1}, "run": "1", "of": None, "event": "not a dict", "name": 5}
     for kind in ("pr_opened", "scan_done", "baseline_done", "suspicion_raised", "exploit_written", "run_started",

@@ -230,6 +230,19 @@ def event_line(event: Event) -> str:
         label = f"#{pr.lstrip('#')}" if pr.lstrip("#").isdigit() else pr
         return f"PR opened: {' '.join(x for x in (label, _text(p.get('title'), 160)) if x) or 'unknown'}"
     if kind == "scan_done":
+        status = _text(p.get("status"), 32)
+        if status == "derived_effects":
+            effects = ", ".join(_text(e, 32) for e in (p.get("effects") or []) if _text(e, 32))[:120]
+            return f"Scan: effects derived ({effects or 'no labelled effects'})"
+        if status == "sliced":
+            paths = p.get("paths") if isinstance(p.get("paths"), list) else []
+            where = _text(p.get("source_file"), 160)
+            return f"Scan: sliced to {len(paths)} reach path{'s' if len(paths) != 1 else ''}" + (f" in {where}" if where else "")
+        if status == "no_suspicions":
+            where = _text(p.get("source_file"), 160)
+            return "Scan: no suspicions" + (f" in {where}" if where else "")
+        if status:
+            return f"Scan: {status}"
         return f"Scan: {_text(p.get('language')) or 'unknown language'} / {_text(p.get('test_cmd')) or 'unknown test command'}"
     if kind == "baseline_done":
         if "ok" in p:
