@@ -162,6 +162,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Model name to use for every role (overrides EXHIBIT_A_MODEL).",
     )
     run.add_argument(
+        "--pr",
+        default=None,
+        metavar="N",
+        help="Pull request number recorded in the ledger (lets dashboards match the run).",
+    )
+    run.add_argument(
         "--lang",
         choices=("auto", "python", "javascript", "typescript"),
         default="auto",

@@ -90,6 +90,13 @@ def test_engine_passes_provider_and_model_from_inputs() -> None:
     assert '--model "$IN_MODEL"' in run
 
 
+def test_engine_passes_pr_number_from_event() -> None:
+    engine_step = _step(_load_action(), "Run Exhibit A")
+    assert "pull_request.number" in engine_step["env"]["EVENT_PR_NUMBER"]
+    run = engine_step["run"]
+    assert '--pr "$EVENT_PR_NUMBER"' in run
+
+
 # -- exit-code mapping (docs/reference/cli-exit-codes.md) --------------------------------
 
 

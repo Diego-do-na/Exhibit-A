@@ -224,6 +224,37 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+def test_pr_diff_records_the_pr_number_in_the_ledger(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(run_mod, "_live_roles", _no_model)
+    monkeypatch.setattr(run_mod, "_pr_roles", _no_model)
+    monkeypatch.setattr(run_mod, "SandboxRunner", _no_model)
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "unreachable", repo)
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+    helpers = repo / "helpers.py"
+    helpers.write_text(helpers.read_text().replace("open(value).read()", "open(value).read(64)"))
+    _git(repo, "commit", "-q", "-am", "head")
+    head = _git(repo, "rev-parse", "HEAD")
+    out = tmp_path / "out"
+    code = main(["run", "--repo", str(repo), "--pr-diff", f"{base}..{head}",
+                 "--out", str(out), "--slice", "--pr", "20"])
+    assert code == 0
+    events = _events(out / "ledger.jsonl")
+    assert events[0]["type"] == "pr_opened"
+    assert events[0]["payload"]["pr"] == "20"
+
+
+def test_pr_diff_rejects_a_non_numeric_pr_number(tmp_path, capsys):
+    out = tmp_path / "out"
+    code = main(["run", "--repo", str(tmp_path), "--pr-diff", "a..b",
+                 "--out", str(out), "--pr", "NOPE"])
+    assert code == 2
+    assert "--pr must be a pull request number" in capsys.readouterr().err
+
+
 def test_pr_diff_with_nothing_reachable_makes_no_model_call(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(run_mod, "_live_roles", _no_model)
     monkeypatch.setattr(run_mod, "_pr_roles", _no_model)

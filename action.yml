@@ -273,6 +273,7 @@ runs:
         IN_HEAD_SHA: ${{ inputs.head-sha }}
         EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         set -uo pipefail
         key="$EXHIBIT_A_API_KEY"
@@ -301,6 +302,7 @@ runs:
           # into shell unquoted, so a crafted value cannot inject commands.
           args+=(--pr-diff "$base..$head" --provider "$IN_PROVIDER" --profile "$IN_PROFILE" --slice)
           [[ -n "$IN_MODEL" ]] && args+=(--model "$IN_MODEL")
+          [[ "$EVENT_PR_NUMBER" =~ ^[0-9]+$ ]] && args+=(--pr "$EVENT_PR_NUMBER")
         fi
         [[ "$IN_REPLAY" == "true" ]] && args+=(--replay)
         [[ -n "$IN_BUDGET" ]] && args+=(--budget-usd "$IN_BUDGET")

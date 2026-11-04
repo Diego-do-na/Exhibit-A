@@ -469,6 +469,10 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
     if not repo.is_dir():
         print(f"run: repository does not exist: {repo}", file=sys.stderr)
         return 2
+    pr_number = getattr(args, "pr", None)
+    if pr_number is not None and (not str(pr_number).isdigit() or len(str(pr_number)) > 10):
+        print("run: --pr must be a pull request number", file=sys.stderr)
+        return 2
     started = time.monotonic()
     try:
         spec = str(args.pr_diff)
@@ -513,6 +517,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
         ledger = Ledger(out / "ledger.jsonl")
         run_id = f"pr-{head[:12]}"
         base = spec.split("..", 1)[0] if ".." in spec else ""
+        pr_number = getattr(args, "pr", None)
         meta = _run_meta(args, base=base, head=head)
         ledger.append(Event(
             ts=datetime.now(timezone.utc).isoformat(),
@@ -528,6 +533,7 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
                 "model": meta["model"],
                 "budget_usd": meta["budget_usd"],
                 "language": language,
+                **({"pr": str(pr_number)} if pr_number is not None else {}),
             },
         ))
         if not changed:
