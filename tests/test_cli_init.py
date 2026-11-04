@@ -106,6 +106,23 @@ def test_init_rejects_non_https_meta_base_url(tmp_path, monkeypatch, capsys):
     assert "https://" in capsys.readouterr().err
 
 
+def test_init_model_renders_into_workflow_and_rejects_spaces(tmp_path, monkeypatch, capsys):
+    import yaml
+
+    monkeypatch.chdir(tmp_path)
+    _tiny_python_repo(tmp_path)
+    assert main(["init", "--model", "muse-spark-1.3", "--meta-base-url", "https://meta.example/v1"]) == 0
+    text = (tmp_path / ".github" / "workflows" / "exhibit-a.yml").read_text(encoding="utf-8")
+    assert "model: muse-spark-1.3" in text
+    parsed = yaml.safe_load(text)
+    exhibit = parsed["jobs"]["analyze"]["steps"][1]
+    assert exhibit["with"]["model"] == "muse-spark-1.3"
+    assert "MODEL_API_KEY" not in text
+    capsys.readouterr()
+    assert main(["init", "--model", "not a model"]) == 2
+    assert "--model" in capsys.readouterr().err
+
+
 def test_github_slug_parses_ssh_and_https_remotes(tmp_path, monkeypatch):
     import subprocess as sp
 

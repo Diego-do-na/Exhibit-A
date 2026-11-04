@@ -25,7 +25,7 @@ from ..style import OK, SKIP, WARN, kv, next_steps, section, status
 CHECKOUT_ACTION = "actions/checkout"
 CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"  # actions/checkout v7.0.1
 EXHIBIT_A_ACTION = "diego-do-na/Exhibit-A"
-EXHIBIT_A_ACTION_SHA = "b23f87bca14d2ddf8e454cb113a39f2cc45063c8"  # origin/main (T153+T154+dashboard/TS fixes)
+EXHIBIT_A_ACTION_SHA = "9d881359c6181f5b8d5b44a4c2b554a351e0cf19"  # origin/main (stdin JS graph, init secrets)
 
 DEFAULT_PATH = ".github/workflows/exhibit-a.yml"
 
@@ -85,7 +85,7 @@ jobs:
           profile: compact
           fail-on: never
           comment: "true"
-          suggest-fixes: "true"__META_ENV__
+          suggest-fixes: "true"__WITH_EXTRA__
 
   verify:
     name: exhibit-a / verify
@@ -169,19 +169,35 @@ def _check_meta_base_url(value: str | None) -> str | None:
     return url
 
 
-def workflow_text(meta_base_url: str | None = None) -> str:
+def _check_model(value: str | None) -> str | None:
+    """Validate ``--model``: a single registry model id, never a sentence."""
+    if value is None:
+        return None
+    model = value.strip()
+    if (
+        not model
+        or len(model) > 64
+        or any(char.isspace() for char in model)
+        or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for char in model)
+    ):
+        raise ValueError("init: --model must be a single model id without spaces")
+    return model
+
+
+def workflow_text(meta_base_url: str | None = None, model: str | None = None) -> str:
     """Return the workflow YAML with current SHA pins substituted."""
-    if meta_base_url is None:
-        meta_env = ""
-    else:
-        meta_env = f"\n        env:\n          META_BASE_URL: {meta_base_url}"
+    extra = ""
+    if model is not None:
+        extra += f"\n          model: {model}"
+    if meta_base_url is not None:
+        extra += f"\n        env:\n          META_BASE_URL: {meta_base_url}"
     return (
         WORKFLOW_TEMPLATE
         .replace("__CHECKOUT_ACTION__", CHECKOUT_ACTION)
         .replace("__CHECKOUT_SHA__", CHECKOUT_SHA)
         .replace("__EXHIBIT_A_ACTION__", EXHIBIT_A_ACTION)
         .replace("__EXHIBIT_A_SHA__", EXHIBIT_A_ACTION_SHA)
-        .replace("__META_ENV__", meta_env)
+        .replace("__WITH_EXTRA__", extra)
     )
 
 
@@ -352,10 +368,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     target = Path(getattr(args, "path", None) or DEFAULT_PATH)
     try:
         meta_url = _check_meta_base_url(getattr(args, "meta_base_url", None))
+        model = _check_model(getattr(args, "model", None))
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2
-    wanted = workflow_text(meta_url)
+    wanted = workflow_text(meta_url, model)
     force = bool(getattr(args, "force", False))
     update = bool(getattr(args, "update", False))
     if target.exists():
@@ -417,5 +434,11 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
         default=None,
         metavar="URL",
         help="Model base URL written into the workflow (META_BASE_URL). Must be https://.",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        metavar="ID",
+        help="Model id written into the workflow (must match the provider registry).",
     )
     parser.set_defaults(func=cmd_init)
