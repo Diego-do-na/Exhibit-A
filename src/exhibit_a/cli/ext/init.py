@@ -68,6 +68,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      security-events: write
     outputs:
       proven: ${{ steps.exhibit.outputs.proven }}
     steps:
