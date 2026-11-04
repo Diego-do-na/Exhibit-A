@@ -83,7 +83,7 @@
           <sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
               <span class="lbl kpi-l"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="{{k.i}}"></path></svg>{{k.l}}</span>
-              <div data-style="display: flex; align-items: baseline; gap: 10px"><span class="dsp" data-style="font-size: 56px; font-weight: 500; letter-spacing: -.04em; line-height: .9">{{k.v}}</span><span data-style="font-size: 14px; color: #3d4b68">{{k.u}}</span></div>
+              <div data-style="display: flex; flex-direction: column; gap: 6px; min-width: 0"><span class="dsp" data-style="font-size: 48px; font-weight: 500; letter-spacing: -.04em; line-height: .95; overflow-wrap: anywhere">{{k.v}}</span><span data-style="font-size: 14px; color: #3d4b68">{{k.u}}</span></div>
               <div data-style="height: 4px; border-radius: 2px; background: rgba(13,27,62,.08)"><div data-style="height: 100%; width: {{k.p}}%; border-radius: 2px; background: {{k.c}}"></div></div>
               <p data-style="margin: 0; font-size: 14px; line-height: 1.5; color: #3d4b68">{{k.d}}</p>
             </div>
@@ -99,7 +99,7 @@
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <div class="card" data-style="flex: 3 1 560px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px">
             <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
-              <h3 class="ct">Merges per day</h3>
+              <h3 class="ct">Runs per day</h3>
               <div data-style="display: flex; gap: 8px; align-items: center">
                 <div class="seg" role="group" aria-label="Metric"><sc-for list="{{velOpts}}" as="o"><button type="button" class="{{o.cls}}" data-ev-click="{{o.pick}}">{{o.l}}</button></sc-for></div>
                 <button type="button" class="ib" data-zoom data-zoom-id="vel" data-zoom-desc="Recorded runs per day for this source, stacked by outcome. The toggle switches between run counts and recorded spend." data-zoom-points="Each bar is one day and each colored segment one outcome, named in the legend.|Every number comes from the recorded runs of this source." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button>
@@ -187,12 +187,12 @@
         <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">The runs today</h2><p class="lead">{{secLead4}}</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <div class="card" data-style="flex: 3 1 520px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 4px">
-            <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px"><h3 class="ct">Latest merges</h3><a href="prs.html" data-style="font-size: 14px; text-decoration: none; min-height: 40px; display: inline-flex; align-items: center">View all</a></div>
+            <div data-style="display: flex; justify-content: space-between; align-items: center; gap: 12px"><h3 class="ct">Latest runs</h3><a href="prs.html" data-style="font-size: 14px; text-decoration: none; min-height: 40px; display: inline-flex; align-items: center">View all</a></div>
             <sc-for list="{{latest}}" as="p">
-              <button type="button" class="mrow" data-ev-click="{{p.go}}" aria-label="{{p.aria}}" data-style="display: grid; width: 100%; text-align: left; font: inherit; color: inherit; background: transparent; border-left: 0; border-right: 0; border-bottom: 0; cursor: pointer; border-radius: 4px; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 8px; border-top: 1px solid rgba(13,27,62,.08)">
-                <span class="mono" data-style="font-size: 13px; color: #2c4fc4">{{p.id}}</span>
-                <span data-style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.t}}</span>
-                <span data-style="font-size: 13px; color: #3d4b68">{{p.a}}</span>
+              <button type="button" class="mrow" data-ev-click="{{p.go}}" aria-label="{{p.aria}}" data-style="display: grid; width: 100%; text-align: left; font: inherit; color: inherit; background: transparent; border-left: 0; border-right: 0; border-bottom: 0; cursor: pointer; border-radius: 4px; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 16px; align-items: center; padding: 12px 8px; border-top: 1px solid rgba(13,27,62,.08)">
+                <span class="mono" data-style="font-size: 13px; color: #2c4fc4; white-space: nowrap">{{p.id}}</span>
+                <span data-style="font-size: 15px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.t}}</span>
+                <span data-style="font-size: 13px; color: #3d4b68; white-space: nowrap">{{p.a}}</span>
               </button>
             </sc-for>
             <sc-if value="{{hasMore}}" hint-placeholder-val="{{ false }}">

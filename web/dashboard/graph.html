@@ -174,10 +174,11 @@
         <sc-if value="{{heatEmpty}}">
         <div class="card" data-style="padding: 28px; display: flex; flex-direction: column; gap: 14px">
           <span class="lbl">No recorded graph</span>
-          <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">The code graph comes from the run artifact. Open a run report (graph.html?run=RUN_ID) to see its recorded files and proven attack paths, or compute one for a repository with:</p>
+          <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">Open a recorded run from Pull requests to see its files and proven attack paths, or compute a graph from the repository checkout with:</p>
           <div class="mono" data-style="font-size: 14px; background: rgba(13,27,62,.06); border: 1px solid rgba(13,27,62,.1); border-radius: 4px; padding: 12px 14px">exhibit-a scan --graph</div>
         </div>
         </sc-if>
+        <sc-if value="{{hasHeat}}">
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 14px">
           <div class="heat" role="group" aria-label="Repository heatmap">
             <sc-for list="{{heat}}" as="t">
@@ -194,6 +195,7 @@
             <span data-style="display: inline-flex; gap: 6px; align-items: center"><span data-style="width: 10px; height: 10px; background: #8f2f2f"></span>critical</span>
           </div></sc-if>
         </div>
+        </sc-if>
         <sc-if value="{{hasPaths}}" hint-placeholder-val="{{ false }}">
           <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
             <h3 class="ct">Proven attack paths · {{runId}}</h3>

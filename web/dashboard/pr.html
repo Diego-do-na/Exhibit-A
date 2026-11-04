@@ -316,7 +316,7 @@
         <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
           <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Pull request</h2><p class="lead">{{pr.meta}}</p></div></div>
           <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
-            <div class="card" data-style="padding: 20px 22px"><span class="lbl">State</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">MERGED</div><span data-style="font-size: 14px; color: #3d4b68">{{pr.when}}</span></div>
+            <div class="card" data-style="padding: 20px 22px"><span class="lbl">State</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.state}}</div><span data-style="font-size: 14px; color: #3d4b68">{{pr.when}}</span></div>
             <div class="card" data-style="padding: 20px 22px"><span class="lbl">Author</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.author}}</div><span data-style="font-size: 14px; color: #3d4b68">{{pr.authorType}}</span></div>
             <div class="card" data-style="padding: 20px 22px"><span class="lbl">Change</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.files}} files</div><span class="mono" data-style="font-size: 13px; color: #3d4b68">+{{pr.added}} / −{{pr.removed}} · {{pr.commits}} commits</span></div>
             <div class="card" data-style="padding: 20px 22px"><span class="lbl">Area</span><div class="dsp" data-style="font-size: 34px; font-weight: 500">{{pr.areaShort}}</div><span data-style="font-size: 14px; color: #3d4b68">{{pr.testsLabel}} · cycle {{pr.cycle}} min</span></div>
@@ -342,7 +342,7 @@
             </sc-for>
           </div>
           <div class="card" data-style="padding: 20px 22px; display: flex; flex-direction: column; gap: 12px">
-            <h3 class="ct">Merges per day</h3>
+            <h3 class="ct">PRs per day</h3>
             <div data-style="display: flex; gap: 10px; align-items: flex-end; min-height: 90px">
               <sc-for list="{{pr.days}}" as="d">
                 <div data-style="flex: 1; display: flex; flex-direction: column; gap: 6px; align-items: center">
@@ -363,15 +363,24 @@
             </div>
           </div>
           <div data-style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap">
-            <sc-if value="{{pr.hasPrev}}"><a href="{{pr.prevPr.href}}">← {{pr.prevPr.id}} · earlier merge</a></sc-if>
-            <sc-if value="{{pr.hasNext}}"><a href="{{pr.nextPr.href}}">{{pr.nextPr.id}} · later merge →</a></sc-if>
+            <sc-if value="{{pr.hasPrev}}"><a href="{{pr.prevPr.href}}">← {{pr.prevPr.id}} · earlier PR</a></sc-if>
+            <sc-if value="{{pr.hasNext}}"><a href="{{pr.nextPr.href}}">{{pr.nextPr.id}} · later PR →</a></sc-if>
           </div>
+          <sc-if value="{{pr.unevaluated}}">
           <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
             <h3 class="ct">Exhibit A check: not evaluated</h3>
             <p data-style="font-size: 15px; line-height: 1.6; color: #26365a">This pull request predates the Action or no run was recorded for it. Record one against the pull request diff, or open one of the runs that do exist.</p>
             <div class="mono" data-style="font-size: 13px; background: rgba(13,27,62,.06); border: 1px solid rgba(13,27,62,.1); border-radius: 4px; padding: 12px 14px">exhibit-a run --pr-diff BASE..HEAD</div>
             <div><a href="index.html">Runs that exist →</a></div>
           </div>
+          </sc-if>
+          <sc-if value="{{pr.hasRun}}">
+          <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 12px">
+            <h3 class="ct">Exhibit A check</h3>
+            <p data-style="font-size: 15px; line-height: 1.6; color: #26365a">A recorded run exists for this pull request. Open it for the ledger analysis; this page stays the GitHub metadata.</p>
+            <div><a href="{{pr.runHref}}">Open the recorded run →</a></div>
+          </div>
+          </sc-if>
         </section>
       </sc-if>
     </main></div>

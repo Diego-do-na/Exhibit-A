@@ -118,6 +118,7 @@
         </div>
       </section>
 
+      <sc-if value="{{hasWhy}}">
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Why the oracle said no</h2><p class="lead">Every refusal comes with a recorded reason.</p></div></div>
         <div data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px">
@@ -131,6 +132,7 @@
           </sc-for>
         </div>
       </section>
+      </sc-if>
 
       <section data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Do the fixes hold?</h2><p class="lead">Fix status of the proven findings, as recorded.</p></div></div>

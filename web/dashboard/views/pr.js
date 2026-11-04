@@ -11,20 +11,148 @@ window.Component = class Component extends DCLogic {
   prParam() {
     try { return new URLSearchParams(window.location.search).get('pr') || ''; } catch (e) { return ''; }
   }
+  stamp(value) {
+    return String(value || '').slice(0, 16).replace('T', ' ');
+  }
   prRow() {
     const id = this.prParam();
     if (!id) return null;
     const list = this.state.prs || [];
     const row = list.find((r) => String(r.number) === String(id) || String(r.id) === String(id));
     if (!row) return { id, missing: true };
-    const when = (row.merged_at || row.created_at || '').slice(0, 16).replace('T', ' ');
+    const raw = String(row.state || '').toUpperCase();
+    const merged = raw === 'MERGED' || !!row.merged_at;
+    const state = merged ? 'MERGED' : (raw || 'OPEN');
+    const when = this.stamp(merged ? (row.merged_at || row.created_at) : (row.created_at || row.merged_at));
     return {
-      id: String(row.number || row.id), title: row.title, when,
+      id: String(row.number || row.id), title: row.title, when, state,
+      created: this.stamp(row.created_at), mergedAt: this.stamp(row.merged_at),
       author: row.author, commits: row.commits || 0, files: row.changed_files || (row.files || []).length,
       added: row.additions || 0, removed: row.deletions || 0, tests: false,
       area: row.area || '', cycle: 0, kind: row.author_kind || 'unclassified',
       color: row.author_color || '#4a5873', url: row.url || '',
+      runId: row.run_id || '', proven: row.proven || 0,
     };
+  }
+  prBadge(row) {
+    const state = String((row && row.state) || '').toUpperCase();
+    if (state === 'MERGED') {
+      return { l: 'MERGED', s: row.when || 'Merged into main', cls: 'state-done', isDone: true,
+        bg: 'rgba(44,79,196,.12)', fg: '#16307a', bd: 'rgba(44,79,196,.3)' };
+    }
+    if (state === 'CLOSED') {
+      return { l: 'CLOSED', s: row.when || 'Closed without merge', cls: 'state-done', isDone: true,
+        bg: 'rgba(13,27,62,.07)', fg: '#26365a', bd: 'rgba(13,27,62,.18)' };
+    }
+    return { l: 'OPEN', s: 'Not merged', cls: 'state-open', isOpen: true,
+      bg: 'rgba(165,112,63,.14)', fg: '#7d5229', bd: 'rgba(165,112,63,.4)' };
+  }
+  isAppFrame(file) {
+    const s = String(file || '').replace(/\\/g, '/').toLowerCase();
+    if (!s) return false;
+    if (s.indexOf('site-packages') >= 0 || s.indexOf('dist-packages') >= 0) return false;
+    if (s.indexOf('/_pytest/') >= 0 || s.indexOf('/pluggy/') >= 0) return false;
+    if (s.indexOf('/usr/local/bin/') >= 0) return false;
+    if (/\/lib\/python\d/.test(s)) return false;
+    return true;
+  }
+  baseName(file) {
+    const s = String(file || '').replace(/\\/g, '/');
+    const parts = s.split('/').filter(Boolean);
+    return parts.slice(-2).join('/') || s;
+  }
+  pathChips(detail) {
+    const firstP = ((detail && detail.proven) || [])[0] || {};
+    const ev = firstP.evidence || {};
+    const frames = ((ev.provenance && ev.provenance.frames) || []).filter((f) => this.isAppFrame(f.file));
+    const g = (detail && detail.graph) || {};
+    const gp = ((g.proven_paths || g.paths) || [])[0] || {};
+    const entry = this.text((ev.provenance && ev.provenance.entry_point) || firstP.entry_point || gp.entry || gp.entry_point);
+    const obs = ev.observed_location || {};
+    const sinkFile = obs.file || firstP.file || '';
+    const sinkLine = obs.line || firstP.line;
+    const effect = this.text((ev.effect && (ev.effect.label || ev.effect.type)) || gp.effect);
+    const A = '#a5703f', B = '#2c4fc4', G = '#4a5873';
+    const chip = (id, x, y, kind, label, sub, extra) => Object.assign({ id, x, y, shape: 'chip', w: 164, h: 64, kind, label, sub, kindColor: G, r: 32 }, extra);
+    const nodes = [];
+    let x = 90;
+    const step = 210, y = 200;
+    const push = (id, kind, label, sub, extra) => {
+      nodes.push(chip(id, x, y, kind, String(label || '').slice(0, 28), String(sub || '').slice(0, 36), extra));
+      x += step;
+    };
+    if (entry) push('en', 'Entry point', entry, 'oracle-matched', { kindColor: B, stroke: 'rgba(44,79,196,.45)', note: entry });
+    const seen = {};
+    frames.slice(0, 4).forEach((f, i) => {
+      const loc = this.baseName(f.file) + (f.line ? ':' + f.line : '');
+      if (seen[loc]) return;
+      seen[loc] = 1;
+      push('f' + i, f.function || 'Calls', f.function || loc, loc, { note: loc });
+    });
+    if (sinkFile && this.isAppFrame(sinkFile)) {
+      const loc = this.baseName(sinkFile) + (sinkLine ? ':' + sinkLine : '');
+      if (!seen[loc]) {
+        seen[loc] = 1;
+        push('sk', 'Sink', loc, 'oracle-observed', { kindColor: A, stroke: A, note: loc });
+      }
+    }
+    if (effect) push('ef', 'Effect', effect, (ev.effect && ev.effect.path) || 'observed', { kindColor: A, stroke: A, note: effect });
+    const edges = [];
+    for (let i = 0; i < nodes.length - 1; i += 1) edges.push({ a: nodes[i].id, b: nodes[i + 1].id, hot: true, w: 3 });
+    return { nodes, edges };
+  }
+  paintBlast(detail) {
+    try { this._paintBlast(detail); } catch (e) { /* chip path stays empty */ }
+  }
+  _paintBlast(detail) {
+    const chips = this.pathChips(detail);
+    const host = document.getElementById('blast');
+    if (host && window.DCViz && chips.nodes.length) {
+      if (!this.blast) this.blast = window.DCViz.graph(host, { tools: true });
+      this.blast.set({ key: 'blast-run', layout: 'fixed', nodes: chips.nodes, edges: chips.edges, curve: false });
+    }
+    const nh = document.getElementById('blastnet');
+    if (!nh || !window.DCNet) return;
+    const RED = '#ff6b6b', BLUE = '#7ea6ff';
+    const hotFiles = {};
+    chips.nodes.forEach((n) => {
+      const name = String(n.sub || n.label || '').split(':')[0];
+      if (name) hotFiles[name] = 1;
+    });
+    const g = this.state.repoGraph || {};
+    const FN = g.functions || {};
+    const USES = g.uses || [];
+    let nodes = [], edges = [];
+    if (Object.keys(FN).length) {
+      const seen = {};
+      Object.entries(FN).forEach(([mod, fns]) => {
+        const hot = !!hotFiles[mod] || !!hotFiles[mod.split('.').pop()] || Object.keys(hotFiles).some((f) => mod.indexOf(f.replace(/\.py$/, '')) >= 0 || f.indexOf(mod) >= 0);
+        nodes.push({ id: mod, label: mod.split('.').pop(), kind: 'file', pkg: mod.split('.')[0], loc: (fns || []).reduce((s, f) => s + (f[2] || 0), 0),
+          r: hot ? 13 : 7, color: hot ? RED : BLUE, vuln: hot, title: mod + (hot ? ' · on the proven path' : '') });
+      });
+      USES.forEach((pair) => {
+        const from = pair[0], mod = pair[1];
+        if (!FN[from] || !FN[mod] || from === mod) return;
+        const key = from + '>' + mod;
+        if (seen[key]) return;
+        seen[key] = 1;
+        const hot = !!nodes.find((n) => n.id === from && n.vuln) || !!nodes.find((n) => n.id === mod && n.vuln);
+        edges.push({ a: from, b: mod, t: 'use', vuln: hot });
+      });
+    } else {
+      chips.nodes.forEach((n) => {
+        nodes.push({ id: n.id, label: n.label, kind: 'file', r: 13, color: RED, vuln: true, title: n.note || n.label });
+      });
+      chips.edges.forEach((e) => edges.push({ a: e.a, b: e.b, t: 'use', vuln: true }));
+    }
+    if (!this.bnet) {
+      this.bnet = window.DCNet.create(nh, { labelAll: true, autoFit: true, onHover: (n, x, y) => {
+        if (!this.btip) { this.btip = document.createElement('div'); this.btip.className = 'net-tip'; nh.appendChild(this.btip); }
+        if (!n) { this.btip.classList.remove('net-tip-on'); return; }
+        this.btip.textContent = n.title; this.btip.style.left = Math.round(x + 14) + 'px'; this.btip.style.top = Math.round(y + 14) + 'px'; this.btip.classList.add('net-tip-on');
+      } });
+    }
+    if (nodes.length) this.bnet.set({ nodes, edges });
   }
   async loadRun() {
     const id = this.runParam();
@@ -78,10 +206,17 @@ window.Component = class Component extends DCLogic {
       this.setState({ prs: (body && body.pull_requests) || [], authors: (body && body.authors) || [] });
     } catch (e) { /* empty PR list stays */ }
   }
+  async loadRepoGraph() {
+    try {
+      const res = await fetch('/api/graph', { headers: { Accept: 'application/json' } });
+      if (res.ok) this.setState({ repoGraph: await res.json() });
+    } catch (e) { /* chip path still paints */ }
+  }
   componentDidMount() {
     if (!this.runParam()) this.iv = setInterval(() => this.tick(), 250);
     this.loadRun();
     this.loadPrs();
+    this.loadRepoGraph();
     const demo = !this.runParam() && !this.prParam();
     const host = document.getElementById('blast');
     if (demo && host && window.DCViz) {
@@ -144,6 +279,15 @@ window.Component = class Component extends DCLogic {
   }
   componentDidRender() {
     if (this.bvSeen !== this.state.bv) { this.bvSeen = this.state.bv; if (this.state.bv === 'net' && this.bnet) setTimeout(() => this.bnet.fit(), 80); }
+    if (this.runParam() && this.state.detail) {
+      const key = ((this.state.detail.run && this.state.detail.run.run_id) || '') + ':' + ((this.state.repoGraph && this.state.repoGraph.available) ? 'g' : 'n');
+      if (this.blastKey !== key) {
+        this.blastKey = key;
+        this.paintBlast(this.state.detail);
+      }
+    }
+    const title = this._pageTitle;
+    if (title && document.title !== title) document.title = title;
   }
   componentWillUnmount() { clearInterval(this.iv); this.timers.forEach((t) => clearTimeout(t)); }
   tick() {
@@ -348,10 +492,14 @@ window.Component = class Component extends DCLogic {
         ? { l: 'Updating', s: 'Bot commit in progress', cls: 'state-busy', isBusy: true, bg: 'rgba(13,27,62,.07)', fg: '#26365a', bd: 'rgba(13,27,62,.18)' }
         : { l: 'Open', s: 'Not merged', cls: 'state-open', isOpen: true, bg: 'rgba(165,112,63,.14)', fg: '#7d5229', bd: 'rgba(165,112,63,.4)' };
     const selPrEarly = this.prRow();
-    const st = selPrEarly && !runId
-      ? { l: 'MERGED', s: selPrEarly.when || 'Merged into main', cls: 'state-done', isDone: true, bg: 'rgba(44,79,196,.12)', fg: '#16307a', bd: 'rgba(44,79,196,.3)' }
-      : stt;
-    const mergeOut = selPrEarly && !runId ? { l: 'Merged', d: 'This pull request is already merged into main.' } : merge;
+    const listedPr = selPrEarly && !selPrEarly.missing && !runId;
+    const st = listedPr ? this.prBadge(selPrEarly) : stt;
+    const mergeOut = !listedPr ? merge
+      : (selPrEarly.state === 'MERGED'
+        ? { l: 'Merged', d: 'This pull request is already merged into main.' }
+        : selPrEarly.state === 'CLOSED'
+          ? { l: 'Closed', d: 'This pull request was closed without merging.' }
+          : { l: 'Open', d: 'This pull request is still open.' });
 
     const TAGS = {
       T1190: { cat: 'ATT&CK · Initial access', name: 'Exploit Public-Facing Application',
@@ -517,14 +665,17 @@ window.Component = class Component extends DCLogic {
         if (entry || sinkFile || effect) {
           const nodes = [];
           if (entry) nodes.push({ k: 'Entry', n: entry, d: 'entry point the oracle matched', lc: '#2c4fc4', bd: 'rgba(44,79,196,.4)', arrow: true });
-          frames.slice(0, 6).forEach((f, i, a) => {
-            nodes.push({ k: f.function || 'frame', n: (f.file || '') + (f.line ? ':' + f.line : ''), d: f.function || '', lc: '#4a5873', bd: 'rgba(13,27,62,.12)', arrow: true });
+          frames.filter((f) => this.isAppFrame(f.file)).slice(0, 6).forEach((f) => {
+            const loc = this.baseName(f.file) + (f.line ? ':' + f.line : '');
+            nodes.push({ k: f.function || 'Calls', n: loc, d: f.function || '', lc: '#4a5873', bd: 'rgba(13,27,62,.12)', arrow: true });
           });
-          if (sinkFile) nodes.push({ k: 'Sink', n: sinkFile, d: effect || 'oracle-observed location', lc: '#a5703f', bd: 'rgba(165,112,63,.5)', arrow: !!effect });
+          if (sinkFile) {
+            nodes.push({ k: 'Sink', n: this.baseName(sinkFile), d: effect || 'oracle-observed location', lc: '#a5703f', bd: 'rgba(165,112,63,.5)', arrow: !!effect });
+          }
           if (effect) nodes.push({ k: 'Effect', n: effect, d: (evd.effect && evd.effect.path) || '', lc: '#a5703f', bd: 'rgba(165,112,63,.5)', arrow: false });
           if (nodes.length) nodes[nodes.length - 1].arrow = false;
           path = nodes;
-          blastPaths = [{ n: '1', entry: entry || 'entry', sink: sinkFile || 'sink', effect: effect, nodes: nodes.map((x) => x.n).filter(Boolean).join(' → ') }];
+          blastPaths = [{ n: '1', entry: entry || 'entry', sink: this.baseName(sinkFile) || 'sink', effect: effect, nodes: nodes.map((x) => x.n).filter(Boolean).join(' → ') }];
           hasBlast = true;
           noBlast = false;
           blastNote = '';
@@ -617,12 +768,30 @@ window.Component = class Component extends DCLogic {
     const dayCounts = {};
     allPrs.forEach((r) => { const d = r.when.slice(0, 5); dayCounts[d] = (dayCounts[d] || 0) + 1; });
     const maxDay = Math.max(1, ...Object.values(dayCounts));
+    const ghState = selPr && !selPr.missing ? String(selPr.state || '').toUpperCase() : '';
+    const merged = ghState === 'MERGED';
+    const closed = ghState === 'CLOSED';
+    const hasRun = !!(selPr && selPr.runId);
+    const provenN = (selPr && selPr.proven) || 0;
+    const eaPending = { l: 'Exhibit A check', d: 'Not evaluated for this pull request', state: 'neutral', neutral: true, bg: '#8b98b3' };
+    const eaStep = !hasRun ? eaPending
+      : (provenN > 0
+        ? { l: 'Exhibit A check', d: provenN + ' proven finding' + (provenN === 1 ? '' : 's'), state: 'done', done: true, bg: '#2c4fc4' }
+        : { l: 'Exhibit A check', d: 'Nothing could be proven', state: 'neutral', neutral: true, bg: '#8b98b3' });
+    const mergeStep = merged
+      ? { l: 'Merged', d: (selPr.mergedAt || selPr.when) + ' · into main', state: 'done', done: true, bg: '#2c4fc4' }
+      : closed
+        ? { l: 'Closed', d: selPr.when || 'Closed without merge', state: 'done', done: true, bg: '#4a5873' }
+        : { l: 'Merged', d: 'Not merged', state: 'pending', done: false, bg: 'rgba(13,27,62,.18)' };
+    const testsStep = merged
+      ? { l: 'Tests green', d: 'Merged only with green tests (project rule)', state: 'done', done: true, bg: '#2c4fc4' }
+      : { l: 'Tests green', d: 'Required checks are not recorded here', state: 'neutral', neutral: true, bg: '#8b98b3' };
     const enriched = selPr && !selPr.missing ? {
       life: [
-        { l: 'Opened', d: selPr.when, state: 'done', done: true, bg: '#2c4fc4' },
-        { l: 'Tests green', d: 'Merged only with green tests (project rule)', state: 'done', done: true, bg: '#2c4fc4' },
-        { l: 'Exhibit A check', d: 'Not evaluated for this pull request', state: 'neutral', neutral: true, bg: '#8b98b3' },
-        { l: 'Merged', d: selPr.when + ' · into main', state: 'done', done: true, bg: '#2c4fc4' }
+        { l: 'Opened', d: selPr.created || selPr.when, state: 'done', done: true, bg: '#2c4fc4' },
+        testsStep,
+        eaStep,
+        mergeStep
       ],
       ctx: [
         { l: 'Change size', v: (selPr.added + selPr.removed) + ' lines', d: 'mean ' + avgLines + ' · median ' + medLines + ' across ' + allPrs.length + ' PRs', pct: Math.min(100, Math.round((selPr.added + selPr.removed) / Math.max(1, medLines * 2) * 100)) },
@@ -639,11 +808,11 @@ window.Component = class Component extends DCLogic {
     } : null;
     let pr = selPr && !selPr.missing
       ? { crumb: selPr.id, title: selPr.title, meta: selPr.id + ' · ' + selPr.author + ' · ' + selPr.when + ' · ' + selPr.files + ' files · ' + selPr.area,
-          lead: 'Pull request #' + selPr.id + ' from gh pr list --state all. Its recorded metadata is below.', author: selPr.author, authorType: selPr.kind || 'unclassified', when: selPr.when, files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: (selPr.area || '').replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'listed files', cycle: selPr.cycle, ...enriched }
+          lead: 'Pull request #' + selPr.id + ' from gh pr list --state all. Its recorded metadata is below.', author: selPr.author, authorType: selPr.kind || 'unclassified', when: selPr.when, state: selPr.state || 'OPEN', files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: (selPr.area || '').replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'listed files', cycle: selPr.cycle, unevaluated: !hasRun, hasRun, runHref: hasRun ? ('pr.html?run=' + encodeURIComponent(selPr.runId)) : '', ...enriched }
       : selPr
-        ? { crumb: selPr.id, title: selPr.id, meta: selPr.id + ' · not in gh pr list --state all for this source', lead: 'No pull request with this number is in the current source. List them with gh pr list --state all.' }
+        ? { crumb: selPr.id, title: selPr.id, meta: selPr.id + ' · not in gh pr list --state all for this source', lead: 'No pull request with this number is in the current source. List them with gh pr list --state all.', state: '', unevaluated: true, hasRun: false, runHref: '' }
         : { crumb: 'nested-pamphlets', title: 'Allow nested folders in pamphlet names', meta: 'examples/action-demo · nested-pamphlets → main · patch 01-path-traversal',
-            lead: 'Removes the check that kept requested names inside the shelf. Exhibit A tested what that allows, live, in a sandbox.' };
+            lead: 'Removes the check that kept requested names inside the shelf. Exhibit A tested what that allows, live, in a sandbox.', state: 'OPEN', unevaluated: true, hasRun: false, runHref: '' };
     if (isRun) {
       // Header from the recorded run only: PR, repo, branch, commit, timing,
       // cost and tokens. Nothing here is estimated.
@@ -653,14 +822,20 @@ window.Component = class Component extends DCLogic {
       const toks0 = (R.tokens_in != null && R.tokens_out != null) ? this.int(R.tokens_in + R.tokens_out) + ' tokens' : '';
       const cost0 = this.money(R.cost_usd);
       const models0 = ((R.models || []).length && R.models.join(', ')) || '';
+      const found = (R.proven || 0) > 0;
+      const runTitle = found
+        ? ('PROVEN: ' + (firstP0.class || 'finding') + (firstP0.file ? ' in ' + firstP0.file : ''))
+        : (R.headline || 'NOT PROVEN: Nothing could be proven');
       pr = { crumb: String(runId).slice(0, 40),
-        title: firstP0 ? (firstP0.class || 'proven finding') + ' in ' + (firstP0.file || 'recorded file') : (R.headline || 'Run ' + runId),
+        title: runTitle,
         meta: metaBits.join(' · '),
         lead: [R.headline || 'Recorded run', cost0, toks0, models0].filter(Boolean).join(' · ') + '.' };
+      this._pageTitle = 'Exhibit A · ' + runTitle;
     }
     const bv = s.bv;
     const mode = { isAnalysis: !!runId || !selPr, isPr: !!selPr && !runId, isDemo: !runId && !selPr, isRun: !!runId };
-    return { mode, pr, bPath: (!isRun && bv === 'path') ? 'block' : 'none', bNet: (!isRun && bv === 'net') ? 'block' : 'none',
+    if (!isRun && selPr && !selPr.missing) this._pageTitle = 'Exhibit A · ' + (selPr.state || '') + ' · #' + selPr.id + ' · ' + (selPr.title || '');
+    return { mode, pr, bPath: (bv === 'path') ? 'block' : 'none', bNet: (bv === 'net') ? 'block' : 'none',
       bvOpts: [['path', 'Path'], ['net', 'Graph']].map(([k, l]) => ({ l, cls: 'sb' + (bv === k ? ' sb-on' : ''), pick: () => this.setState({ bv: k }) })),
       st: isRun ? { l: this.text(R.status, 'recorded'), s: R.headline || 'Recorded run', cls: 'state-open', isOpen: true, bg: 'rgba(165,112,63,.14)', fg: '#7d5229', bd: 'rgba(165,112,63,.4)' } : st,
       risk, hasRisk: !!(risk && risk.l), verdict, merge: mergeOut, attack, weak, hasAttack, hasWeak, mitNote, tag, stop: (e) => e.stopPropagation(), live, dec: vdec || dec, proof: vproof || proof, showFixSection: showFixSection && !(isRun && fixMissing), whyPanel,

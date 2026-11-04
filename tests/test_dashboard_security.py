@@ -145,6 +145,25 @@ def test_merged_pr_without_run_shows_empty_state_not_demo():
     assert 'value="{{mode.isAnalysis}}"' in pr_html and 'value="{{mode.isPr}}"' in pr_html
     assert "Recorded demo" in pr_html
     assert "'MERGED'" in pr_js
+    assert "'OPEN'" in pr_js
+    assert "{{pr.state}}" in pr_html
+    assert ">MERGED</div>" not in pr_html
+
+
+def test_overview_latest_runs_keep_id_and_headline_apart():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    assert "Latest runs" in html
+    assert "grid-template-columns: 56px" not in html
+    assert "max-content minmax(0, 1fr) max-content" in html
+
+
+def test_pr_page_badge_follows_github_state():
+    pr_js = (WEB_DIR / "views/pr.js").read_text(encoding="utf-8")
+    assert "prBadge(" in pr_js
+    assert "l: 'OPEN'" in pr_js
+    assert "l: 'CLOSED'" in pr_js
+    assert "Not merged" in pr_js
+    assert "This pull request is still open." in pr_js
 
 
 def test_pr_report_follows_the_selected_pull_request():
@@ -254,6 +273,43 @@ def test_dashboard_visual_protagonists_and_contrast_hooks():
     assert "5" in (WEB_DIR / "findings.html").read_text(encoding="utf-8")
     dark = css.split(":root[data-theme=dark] .proof-step b", 1)[1]
     assert "color" in dark
+
+
+def test_run_page_paints_app_path_chips_not_pytest_frames():
+    pr_js = (WEB_DIR / "views/pr.js").read_text(encoding="utf-8")
+    assert "isAppFrame(" in pr_js and "pathChips(" in pr_js and "paintBlast(" in pr_js
+    assert "site-packages" in pr_js and "/_pytest/" in pr_js
+    assert "bPath: (bv === 'path')" in pr_js
+    assert "'PROVEN: '" in pr_js and "'NOT PROVEN: Nothing could be proven'" in pr_js
+
+
+def test_overview_kpi_value_stacks_above_unit():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    assert "flex-direction: column" in html
+    assert "overflow-wrap: anywhere" in html
+
+
+def test_findings_hide_empty_refusal_section():
+    html = (WEB_DIR / "findings.html").read_text(encoding="utf-8")
+    js = (WEB_DIR / "views/findings.js").read_text(encoding="utf-8")
+    assert 'value="{{hasWhy}}"' in html
+    assert "Nothing refused" not in js
+    assert "hasWhy" in js
+
+
+def test_graph_page_has_no_run_id_placeholder():
+    html = (WEB_DIR / "graph.html").read_text(encoding="utf-8")
+    assert "RUN_ID" not in html
+    assert 'value="{{hasHeat}}"' in html
+
+
+def test_timeline_expand_uses_linear_ticks():
+    js = (WEB_DIR / "views/prs.js").read_text(encoding="utf-8")
+    assert "yTicks: [0, top / 2, top].map" in js
+    assert "yMaxLog" not in js
+    viz = (WEB_DIR / "views/viz.js").read_text(encoding="utf-8")
+    assert "DCFull.create(spec)" in viz
+    assert "catch (err)" in viz
 
 
 def test_dashboard_api_responses_also_carry_strict_csp(tmp_path: Path):

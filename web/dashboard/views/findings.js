@@ -122,7 +122,7 @@ window.Component = class Component extends DCLogic {
       pc: Math.round(cell.n / whyTotal * 100) + '% of refusals',
       d: cell.ids.join(', ') + (cell.n > cell.ids.length ? ' and ' + (cell.n - cell.ids.length) + ' more' : '') + '.',
     }));
-    while (why.length < 1) why.push({ n: 'Nothing refused', v: '0', c: '#4a5873', w: 0, pc: '0% of refusals', d: 'Every recorded suspicion was proven.' });
+    const hasWhy = why.length > 0;
 
     // Fix status of the proven findings (recorded).
     const fixGroups = { verified: 0, bypassed: 0, not_verified: 0 };
@@ -172,7 +172,7 @@ window.Component = class Component extends DCLogic {
     const secLead1 = ready ? ('Of ' + raised + ' suspicions: ' + (m.proven || 0) + ' proven, ' + (m.discarded || 0) + ' refused. Refusing is a feature.') : 'Loading the recorded verdicts for this source.';
     this.__d = { items, VC, VN, EN, verdictsPresent, effectsPresent, vt, runs };
     return { tot, susBars, susTotal, outT: st.by === 'effect' ? 'effect' : 'CWE', byOpts: opt([['effect', 'Effect'], ['cwe', 'CWE']], 'by'), scOpts: opt([['abs', 'Count'], ['pct', '%']], 'sc'),
-      out, insights, why, gen, cost, cstats, v: st.v, e: st.e, vOpts, eOpts, onV: (ev) => this.setState({ v: ev.target.value }), onE: (ev) => this.setState({ e: ev.target.value }),
+      out, insights, why, hasWhy, gen, cost, cstats, v: st.v, e: st.e, vOpts, eOpts, onV: (ev) => this.setState({ v: ev.target.value }), onE: (ev) => this.setState({ e: ev.target.value }),
       rows, empty: rows.length === 0 && ready, sel, repoName, secLead1, ready, emptySource, err: st.err };
   }
 

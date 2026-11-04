@@ -343,7 +343,16 @@ window.Component = class Component extends DCLogic {
       det.hasDeps = deps.length > 0; det.hasUsers = users.length > 0;
       det.nDeps = deps.length; det.nUsers = users.length;
     }
-    const heat = st.heat.length ? st.heat : [];
+    let heat = st.heat.length ? st.heat : [];
+    if (!heat.length && available && PK.length) {
+      const maxL = Math.max(1, ...PK.map((p) => p[1] || 0));
+      heat = PK.slice(0, 40).map((p) => ({
+        n: p[0], v: Number(p[1] || 0).toLocaleString('en-US') + ' lines',
+        w: Math.max(4, ((p[1] || 0) / maxL) * 40).toFixed(1),
+        c: this.layerColor(p[2]),
+        pick: () => this.setState({ sel: p[0], mod: null, pathSel: -1 }),
+      }));
+    }
     const hasRun = !!st.runId || !!this.runParams().run;
     const stats = this.g().stats || {};
     const fmt = (n) => n == null ? '—' : (n >= 10000 ? (n / 1000).toFixed(1) + 'k' : Number(n).toLocaleString('en-US'));
@@ -355,14 +364,14 @@ window.Component = class Component extends DCLogic {
     ] : [];
     const heatNote = st.heatNote || (hasRun
       ? 'The recorded code graph carries no file heat for this run.'
-      : (available ? 'Open a run report to see its recorded files and proven attack paths.'
+      : (available ? 'Tiles are packages of this checkout, sized by lines. Open a recorded run to see its proven files.'
         : 'No code graph for this source yet. Compute one with exhibit-a scan --graph.'));
     const heatEmpty = heat.length === 0;
     this.__d = { P: PK, LC, layers: layerRows };
     const lyKeys = [['all', 'All']].concat([...new Set(PK.map((p) => p[2] || 'core'))].map((k) => [k, k === 'core' ? 'Core' : k === 'analysis' ? 'Analysis' : k === 'surface' ? 'Surfaces' : k]));
     return {
       det, q: st.q, onQ: (e) => this.setState({ q: e.target.value }),
-      heat, heatNote, heatEmpty, hasRun, noRun: !hasRun, paths: st.paths, hasPaths: st.paths.length > 0, runId: st.runId,
+      heat, heatNote, heatEmpty, hasHeat: !heatEmpty, hasRun, noRun: !hasRun, paths: st.paths, hasPaths: st.paths.length > 0, runId: st.runId,
       zin: () => this.cur().zoomBy(1.35), zout: () => this.cur().zoomBy(1 / 1.35), zfit: () => this.cur().fit(),
       nDisp: 'block', gDisp: 'none', fnDisp: st.lv === 'net' ? 'inline-flex' : 'none',
       fnOpts: [[true, 'Functions on'], [false, 'Files only']].map(([k, l]) => ({ l, cls: 'sb' + (st.fn === k ? ' sb-on' : ''), pick: () => this.setState({ fn: k }) })),

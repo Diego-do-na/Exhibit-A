@@ -327,7 +327,10 @@
     const points = (btn.getAttribute('data-zoom-points') || '').split('|').filter(Boolean);
     const zid = btn.getAttribute('data-zoom-id');
     const spec = zid && window.DCPage && typeof window.DCPage.fullSpec === 'function' && window.DCFull ? window.DCPage.fullSpec(zid) : null;
-    const built = spec ? window.DCFull.create(spec) : null;
+    let built = null;
+    if (spec) {
+      try { built = window.DCFull.create(spec); } catch (err) { built = null; }
+    }
     const clone = built ? built.node : card.cloneNode(true);
     const ch3 = clone.querySelector('h3.ct');
     if (!built && ch3) { let row = ch3.parentElement; while (row && row.parentElement !== clone) row = row.parentElement; if (row) row.remove(); }

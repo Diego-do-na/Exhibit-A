@@ -164,23 +164,37 @@
 
     // ---- scatter over time -----------------------------------------------------------------------
     function scatter(sp) {
-      const W = 940, Hh = 500, L = 64, R = 20, T = 36, B = 60, X0 = L, X1 = W - R, Y0 = Hh - B, Y1 = T;
-      const xs = (v) => X0 + (v / sp.xMax) * (X1 - X0);
-      const ys = (v) => Y0 - (Math.log10(Math.max(v, 1)) / sp.yMaxLog) * (Y0 - Y1);
+      const W = 940, Hh = 500, L = 64, R = 36, T = 36, B = 60, X0 = L, X1 = W - R, Y0 = Hh - B, Y1 = T;
+      const xMax = sp.xMax || 1;
+      const yMax = sp.yMax || 1;
+      const log = !!(sp.yMaxLog && sp.yMaxLog > 0);
+      const floor = sp.yFloor || 0.0001;
+      const xs = (v) => X0 + (v / xMax) * (X1 - X0);
+      const ys = log
+        ? (v) => Y0 - (Math.log10(Math.max(v, floor)) / sp.yMaxLog) * (Y0 - Y1)
+        : (v) => Y0 - (v / yMax) * (Y0 - Y1);
       const svg = S('svg', { viewBox: '0 0 ' + W + ' ' + Hh, width: '100%', role: 'img', 'aria-label': sp.aria || sp.title });
-      const dw = (X1 - X0) / sp.days.length;
-      sp.days.forEach((d, i) => {
+      const dw = (X1 - X0) / Math.max(1, (sp.days || []).length);
+      (sp.days || []).forEach((d, i) => {
         if (i % 2) svg.appendChild(S('rect', { x: X0 + i * dw, y: Y1, width: dw, height: Y0 - Y1, class: 'fc-band' }));
         svg.appendChild(S('text', { x: X0 + i * dw + dw / 2, y: Y0 + 24, 'text-anchor': 'middle', class: 'fc-t' }, d.l));
         if (d.sub) svg.appendChild(S('text', { x: X0 + i * dw + dw / 2, y: Y0 + 42, 'text-anchor': 'middle', class: 'fc-s' }, d.sub));
       });
-      sp.yTicks.forEach(([v, l]) => { svg.appendChild(S('line', { x1: X0, x2: X1, y1: ys(v), y2: ys(v), class: 'fc-grid' })); svg.appendChild(S('text', { x: X0 - 10, y: ys(v) + 4, 'text-anchor': 'end', class: 'fc-s' }, l)); });
+      (sp.yTicks || []).forEach((tick) => {
+        const v = Array.isArray(tick) ? tick[0] : tick;
+        const l = Array.isArray(tick) ? tick[1] : String(tick);
+        svg.appendChild(S('line', { x1: X0, x2: X1, y1: ys(v), y2: ys(v), class: 'fc-grid' }));
+        svg.appendChild(S('text', { x: X0 - 10, y: ys(v) + 4, 'text-anchor': 'end', class: 'fc-s' }, l));
+      });
       svg.appendChild(S('text', { x: X0, y: 18, class: 'fc-s fc-b' }, sp.yTitle));
-      sp.points.forEach((p) => {
+      (sp.points || []).forEach((p) => {
         const c = S('circle', { cx: xs(p.x).toFixed(1), cy: ys(p.y).toFixed(1), r: p.r || 6.5, fill: p.color, stroke: '#ffffff', 'stroke-width': 1.2, class: 'fc-pt' });
         grow(c, 'y'); reg(p.key, c); hover(c, p.tip, p.key); svg.appendChild(c);
       });
-      (sp.labelled || []).forEach((p) => svg.appendChild(S('text', { x: xs(p.x) + 9, y: ys(p.y) - 8, class: 'fc-s fc-b' }, p.key)));
+      (sp.labelled || []).forEach((p) => {
+        const lx = xs(p.x);
+        svg.appendChild(S('text', { x: lx + (lx > X1 - 80 ? -9 : 9), y: ys(p.y) - 8, 'text-anchor': lx > X1 - 80 ? 'end' : 'start', class: 'fc-s fc-b' }, p.label || p.key));
+      });
       wrap.appendChild(svg);
       if (sp.legend) {
         const lg = H('div', 'fc-legend');

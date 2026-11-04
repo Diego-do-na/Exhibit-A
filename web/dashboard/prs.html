@@ -107,7 +107,7 @@
             <sc-for list="{{tl.dots}}" as="p">
               <circle cx="{{p.x}}" cy="{{p.y}}" r="{{p.r}}" fill="{{p.c}}" fill-opacity="{{p.op}}" stroke="{{p.s}}" stroke-width="{{p.sw}}" data-ev-click="{{p.pick}}" data-style="cursor: pointer"><title>{{p.t}}</title></circle>
             </sc-for>
-            <text x="{{tl.sx}}" y="{{tl.sy}}" text-anchor="middle" fill="#0d1b3e" font-size="13" font-weight="500" font-family="JetBrains Mono">{{tl.sl}}</text>
+            <text x="{{tl.sx}}" y="{{tl.sy}}" text-anchor="{{tl.slAnchor}}" fill="#0d1b3e" font-size="13" font-weight="500" font-family="JetBrains Mono">{{tl.sl}}</text>
           </svg>
         </div>
       </section>

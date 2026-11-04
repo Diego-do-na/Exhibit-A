@@ -56,7 +56,7 @@ window.Component = class Component extends DCLogic {
     const m = (detail && detail.metrics) || {};
     const runRows = ((detail && detail.pull_requests) || []).map((p) => ({
       run: p.run_id, id: p.pr ? 'PR ' + String(p.pr).replace(/^#/, '') : (p.run_id || '').slice(0, 12),
-      t: p.title || p.headline || p.run_id, branch: p.branch || '', status: p.status || '',
+      t: p.headline || p.title || p.run_id, branch: p.branch || '', status: p.status || '',
       models: p.models || [], model: (p.models && p.models[0]) || '',
       cost: p.cost_usd || 0, dur: typeof p.duration_s === 'number' ? p.duration_s : null,
       proven: p.proven || 0, dropped: p.dropped || 0, files: (p.files_touched || []).length,
@@ -69,7 +69,7 @@ window.Component = class Component extends DCLogic {
     const githubPrs = listed.map((r) => ({
       run: r.run_id || ('pr-' + r.number),
       id: '#' + r.number,
-      t: r.title || '',
+      t: (r.run_id ? ((r.proven || 0) > 0 ? 'PROVEN · ' : 'NOT PROVEN · ') : '') + (r.title || ''),
       branch: r.head || '',
       status: r.state || '',
       models: r.models || [],
@@ -117,11 +117,12 @@ window.Component = class Component extends DCLogic {
 
     const sum = (k) => byAgent.reduce((s, p) => s + (p[k] || 0), 0);
     const n = Math.max(byAgent.length, 1);
+    const durs = byAgent.map((p) => p.dur).filter((v) => v != null).sort((a, b) => a - b);
     const tot = [
       { i: 'M6 3v12M18 9a3 3 0 0 0-3-3h-4M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z', l: hasMerged ? 'Pull requests' : 'Recorded runs', v: ready ? String(byAgent.length) : '…', u: (detail && detail.repo && detail.repo.name) || 'this source' },
       { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 8a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z', l: 'Proven findings', v: ready ? String(m.proven || 0) : '…', u: (m.discarded || 0) + ' discarded suspicions' },
       { i: 'M4 6h16M4 12h10M4 18h13', l: 'Recorded spend', v: ready ? this.money(sum('cost')) : '…', u: (models.length || 0) + ' recorded models' },
-      { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2', l: 'Median run', v: ready && byAgent.length ? (() => { const d = byAgent.map((p) => p.dur).filter((v) => v != null).sort((a, b) => a - b); return d.length ? d[Math.floor(d.length / 2)] + 's' : '—'; })() : '…', u: 'across recorded runs' },
+      ...(ready && durs.length ? [{ i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2', l: 'Median run', v: durs[Math.floor(durs.length / 2)] + 's', u: 'across recorded runs' }] : []),
     ];
     const withProven = byAgent.filter((p) => p.proven > 0).length;
     const minor = [
@@ -137,26 +138,31 @@ window.Component = class Component extends DCLogic {
     const t0 = starts.length ? Date.parse(starts[0]) : 0;
     const t1 = starts.length ? Date.parse(starts[starts.length - 1]) : 1;
     const span = Math.max(1, t1 - t0);
-    const X0 = 48, X1 = 996, Y0 = 260, Y1 = 30;
+    const X0 = 56, X1 = 940, Y0 = 260, Y1 = 36;
     const xs = (p) => X0 + ((Date.parse(p.started || starts[0] || 0) - t0) / span) * (X1 - X0);
     const YM = { cost: [(p) => p.cost, Math.max(1e-9, ...byAgent.map((p) => p.cost)), 'Recorded spend'],
       dur: [(p) => (p.dur == null ? 0 : p.dur), Math.max(1, ...byAgent.map((p) => (p.dur == null ? 0 : p.dur))), 'Run duration (s)'],
       proven: [(p) => p.proven, Math.max(1, ...byAgent.map((p) => p.proven)), 'Proven findings'] };
     const [yv, ymax, ytitle] = YM[st.y] || YM.cost;
-    const ys = (v) => Y0 - (Math.log10(Math.max(v, 1)) / Math.log10(Math.max(ymax, 10))) * (Y0 - Y1);
+    const top = ymax * 1.15 || 1;
+    const ys = (v) => Y0 - (Math.max(0, v) / top) * (Y0 - Y1);
+    const tickVals = [0, top / 2, top];
+    const tickLabel = (v) => st.y === 'cost' ? this.money(v) : String(Math.round(v * 100) / 100);
     const inL = {};
     list.forEach((p) => { inL[p.run] = 1; });
     const s0 = list.find((p) => p.run === st.sel) || list[0];
     const dots = byAgent.slice().sort((a, b) => (inL[a.run] || 0) - (inL[b.run] || 0)).map((p) => {
       const s = s0 && p.run === s0.run;
-      return { x: xs(p).toFixed(1), y: ys(Math.max(yv(p), st.y === 'cost' ? 0.0001 : 1)).toFixed(1), r: s ? 8.5 : 6, c: mcol[p.model] || '#4a5873', op: inL[p.run] ? 0.9 : 0.1,
+      return { x: xs(p).toFixed(1), y: ys(yv(p)).toFixed(1), r: s ? 8.5 : 6, c: mcol[p.model] || '#4a5873', op: inL[p.run] ? 0.9 : 0.1,
         s: s ? '#0d1b3e' : 'rgba(255,255,255,.9)', sw: s ? 2 : 1, t: p.id + ' · ' + p.t + ' · ' + this.money(p.cost), pick: () => this.setState({ sel: p.run }) };
     });
     const daySet = [...new Set(starts.map((s) => s.slice(0, 10)))].sort();
+    const selX = s0 ? Number(xs(s0)) : 0;
     const tl = { yt: ytitle,
       days: daySet.map((l) => { const x = X0 + ((Date.parse(l) - t0) / span) * (X1 - X0); return { l: l.slice(5), x: x.toFixed(1), w: 0, tx: x.toFixed(1), f: 'rgba(13,27,62,0)' }; }),
-      grid: [1, 10, 100].filter((v) => v <= Math.max(ymax, 10)).map((v) => ({ y: ys(v), ty: ys(v) + 4, l: String(v) })),
-      dots, sx: s0 ? xs(s0).toFixed(1) : 0, sy: s0 ? (ys(Math.max(yv(s0), 1)) - 15).toFixed(1) : 0, sl: s0 ? s0.id : '' };
+      grid: tickVals.map((v) => ({ y: ys(v), ty: ys(v) + 4, l: tickLabel(v) })),
+      dots, sx: selX.toFixed(1), sy: s0 ? (ys(yv(s0)) - 14).toFixed(1) : 0, sl: s0 ? s0.id : '',
+      slAnchor: selX > 820 ? 'end' : 'middle' };
 
     const BK = [['<1¢', 0, 0.01], ['1–10¢', 0.01, 0.1], ['10–50¢', 0.1, 0.5], ['50¢+', 0.5, 1e18]];
     const hc = BK.map(([l, a, b]) => ({ l, n: byAgent.filter((p) => p.cost >= a && p.cost < b).length }));
@@ -213,16 +219,22 @@ window.Component = class Component extends DCLogic {
     const d = this.__d;
     if (!d || !d.starts) return null;
     if (id === 'tl') {
-      const { yv, ymax } = d;
-      const val = (p) => Math.max(yv(p), 1e-9);
+      const { yv, ymax, t0, span } = d;
+      const val = (p) => Math.max(yv(p), 0);
+      const top = Math.max(ymax, 1e-9) * 1.15;
+      const frac = (p) => {
+        const t = Date.parse(p.started || d.starts[0] || 0);
+        return span ? (t - t0) / span : 0;
+      };
+      const tickLabel = (v) => d.ykey === 'cost' ? this.money(v) : String(Math.round(v * 100) / 100);
       const sorted = d.prs.slice().sort((a, b) => val(b) - val(a));
       const days = [...new Set(d.starts.map((s) => s.slice(0, 10)))].sort();
-      return { type: 'scatter', title: 'Recorded runs timeline', aria: 'Every recorded run at its start time', xMax: 1, yMaxLog: Math.log10(Math.max(ymax, 10)), yTitle: d.ytitle + ' (log scale)',
+      return { type: 'scatter', title: 'Recorded runs timeline', aria: 'Every recorded run at its start time', xMax: 1, yMax: top, yTitle: d.ytitle,
         days: days.map((l) => ({ l: l.slice(5), sub: d.prs.filter((p) => (p.started || '').slice(0, 10) === l).length + ' runs' })),
-        yTicks: [1, 10, 100].filter((v) => v <= Math.max(ymax, 10)).map((v) => v),
-        points: d.prs.map((p) => ({ key: p.run, x: d.xs(p), y: val(p), color: d.mcol[p.model] || '#4a5873', r: 5,
+        yTicks: [0, top / 2, top].map((v) => [v, tickLabel(v)]),
+        points: d.prs.map((p) => ({ key: p.run, x: frac(p), y: val(p), color: d.mcol[p.model] || '#4a5873', r: 5,
           tip: p.id + ' · ' + p.t + ' · ' + p.model })),
-        labelled: sorted.slice(0, 6).map((p) => ({ key: p.run, x: d.xs(p), y: val(p) })),
+        labelled: sorted.slice(0, 6).map((p) => ({ key: p.run, x: frac(p), y: val(p), label: p.id })),
         legend: d.models.map((a) => ({ name: a, color: d.mcol[a], n: d.byModel[a].n })),
         rows: sorted.map((p) => ({ key: p.run, label: p.id + ' · ' + p.t, value: String(Math.round(val(p) * 10000) / 10000), n: val(p) })) };
     }

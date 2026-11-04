@@ -378,10 +378,11 @@ invented.
 
 - `pr.html?run=<run_id>` is the only real analysis view: every fact comes
   from that run's ledger through `/api/runs/<id>`.
-- `pr.html?pr=<T-id>` is a merged-PR metadata view (title, author and
+- `pr.html?pr=<number>` is a GitHub-PR metadata view (title, author and
   author type, date, commits, files, lines +/-, tests, area, cycle,
-  MERGED). Without an associated run it shows the honest empty state
-  ("No Exhibit A run was recorded for this pull request") and the command
-  to record one. No demo timeline, diff, fix, or blast radius is shown.
+  and the recorded GitHub state: OPEN, MERGED, or CLOSED). Without an
+  associated run it shows the honest empty state ("No Exhibit A run was
+  recorded for this pull request") and the command to record one. No demo
+  timeline, diff, fix, or blast radius is shown.
 - The pamphlets.py example survives only as the unparameterised
   `pr.html`, labelled "Recorded demo", never attached to a listed PR.

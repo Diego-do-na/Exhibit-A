@@ -163,7 +163,7 @@ window.Component = class Component extends DCLogic {
 
     const prs = ((detail && detail.pull_requests) || []).slice(0, 5).map((p) => ({
       id: p.pr ? 'PR ' + String(p.pr).replace(/^#/, '') : (p.run_id || '').slice(0, 12),
-      t: p.title || p.headline || p.run_id, a: (p.models && p.models[0]) || '',
+      t: p.headline || p.title || p.run_id, a: (p.models && p.models[0]) || '',
       aria: 'Open run ' + (p.run_id || ''), go: () => { window.location.href = 'pr.html?run=' + encodeURIComponent(p.run_id); },
     }));
     const files = (detail && detail.hot_files && detail.hot_files.files) || [];
@@ -171,7 +171,7 @@ window.Component = class Component extends DCLogic {
       { v: String(files.length), l: 'files touched', i: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5ZM14 3v5h5M9 13h6M9 17h4' },
       { v: String(m.runs || 0), l: 'runs recorded', i: 'M21 8 12 3 3 8v8l9 5 9-5V8ZM3 8l9 5 9-5M12 13v8' },
       { v: String(detail && detail.cost_by_model ? Object.keys(detail.cost_by_model).length : 0), l: 'models recorded', i: 'M8 4C5 4 5 6 5 8v2c0 1.5-1 2-2 2 1 0 2 .5 2 2v2c0 2 0 4 3 4M16 4c3 0 3 2 3 4v2c0 1.5 1 2 2 2-1 0-2 .5-2 2v2c0 2 0 4-3 4' },
-      { v: m.median_duration_s != null ? String(m.median_duration_s) + 's' : '—', l: 'median run', i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2' },
+      ...(m.median_duration_s != null ? [{ v: String(m.median_duration_s) + 's', l: 'median run', i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2' }] : []),
     ];
 
     const secLead1 = ready ? (m.runs + ' recorded runs, ' + (m.proven || 0) + ' proven findings, ' + this.money(m.cost_usd) + ' recorded spend.') : 'Loading the recorded runs for this source.';
