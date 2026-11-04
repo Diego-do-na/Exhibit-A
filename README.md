@@ -1,8 +1,24 @@
-# Exhibit A — proof before accusation
+# Exhibit A
 
-Exhibit A is a Python security-verification engine that reports only vulnerabilities it can prove: a suspicion becomes a finding only when an exploit test fails on the vulnerable code for the oracle-observed reason, then passes after a fix.
+```text
++----------------------------------------------------------+
+|                        EXHIBIT A                         |
+|                 proof before accusation                  |
++----------------------------------------------------------+
+  EXHIBIT A - proof before accusation
+```
 
-## How a proof works
+**Proof before accusation: Exhibit A only reports vulnerabilities it can prove.**
+
+[Video demo](VIDEO_URL_PLACEHOLDER)
+
+Exhibit A is a Python security-verification engine for pull requests. It turns a
+suspicion into a finding only when an exploit test fails for the intended
+oracle-observed reason in an **isolated and resource-limited** sandbox, then
+passes after a fix while the baseline and bypass checks remain valid. Nothing
+merges itself.
+
+## How it works
 
 ```mermaid
 flowchart LR
@@ -16,100 +32,148 @@ flowchart LR
   V --> P[Package: exploit test,<br/>fix, verdict, evidence]
 ```
 
-The oracle observes the intended effect (a canary file outside the allowed directory is read or written) and checks provenance: the effect must come from application code reached through a real entry point, not from the test calling the sink directly. Both the exploit run and the fixed-code re-run happen in an ephemeral sandbox container (unprivileged, no network, no secrets, read-only tree, CPU/memory/time limits). See [SPEC](SPEC.md) and [docs/design/architecture.md](docs/design/architecture.md).
+The CLI scans the repository, builds an AST-only static slice, runs the
+verification loop, and packages the ledger and evidence. The GitHub Action
+uses the same engine on a pull-request diff. A green result means
+**nothing could be proven**, never safe.
 
-## What `proven` means, and what green means
+## Install in 3 steps
 
-A finding is `proven` only if all five hold ([SPEC section 4](SPEC.md)):
+1. Install Exhibit A in the repository environment:
 
-1. Baseline tests pass on a clean clone.
-2. The exploit test fails on the vulnerable code **and** the oracle saw the intended effect.
-3. Provenance: the effect came from application code through a real entry point.
-4. The result is stable across N repeated runs (default 3).
-5. After the fix, the exploit passes and the baseline still passes; defender bypass variants fail, or the surviving one is reported with `fix_incomplete`.
+   ```bash
+   python -m pip install -e .
+   ```
 
-Other verdicts: `discarded_unproven`, `invalid_test`, `flaky`, `env_failure`. A green result means **"nothing could be proven," never "safe"** and never "100% secure." The sandbox is **isolated and resource-limited**, never "100% safe".
+2. Generate the GitHub workflow:
 
-Known scope limit / Architecture note: The Starlette oracle currently runs as an isolated process on the host. Full containerized isolation for this specific oracle is targeted for v1.1.
+   ```bash
+   exhibit-a init
+   ```
 
-Declared residual limits of the oracle (each pinned by a strict xfail in `tests/test_oracle_residual.py`):
+3. In repository settings, create the protected `exhibit-a` environment with
+   the `EXHIBIT_A_API_KEY` secret, set the `EXHIBIT_A_ENABLED=true` repository
+   variable, and require these checks on the default branch:
+   `exhibit-a / verify` and `exhibit-a / fork-guard`.
 
-- R1: in-process introspection of the plugin (FALSE_PROVEN)
-- R2: `sitecustomize` in the app tree (FALSE_PROVEN, host path)
-- R3: subprocess reads (recall)
-- R4: ctypes / native reads (recall)
-- R5: dependency monkeypatching by computed names (FALSE_PROVEN)
-- R6: obfuscated test-chosen app root (FALSE_PROVEN)
+   Merges are blocked only when branch protection or rulesets require those
+   checks. A repository administrator can bypass that protection.
 
-Details: [docs/oracle/oracle-provenance.md](docs/oracle/oracle-provenance.md) section 7. Only Python is analysed today, and only two effect classes are provable: path traversal on read (Starlette case) and archive-extraction write (zip-slip case); command injection, code injection, deserialization and SSRF have catalogued sinks but no oracle effect yet ([docs/design/code-graph.md](docs/design/code-graph.md)).
+The generated workflow runs compact, sliced PR verification, posts a comment,
+and suggests verified fixes. Fork pull requests receive no model-key run and
+must be reviewed by a maintainer.
 
-## Quickstart
+The workflow also has a deliberately small, rule-based risk gate. It classifies
+changed paths as low, medium, or high risk: documentation and tests can skip
+the exploit loop, while application, dependency, container, CI, and sensitive
+directory changes run it. The gate does not inspect file contents, call a
+model, or prove a vulnerability; the verification loop does that.
 
-Requirements: Python 3.11+ and Docker (or Colima) running — sandbox tests and the demo need it.
+## A real PR result
+
+On the private testbed, a path-traversal PR produced this comment:
+
+> 🔴 1 proven finding
+>
+> Status: `completed`
+>
+> The oracle observed a `canary_read` through
+> `App.handle_request -> read_text -> builtins.open` at `memos.py:22`.
+> The exploit failed on the vulnerable tree, the fix was verified, and the
+> evidence was uploaded in the `exhibit-a-ledger` artifact.
+
+The same run posted a verified review suggestion for `memos.py`. The suggested
+fix confined the requested path to the permitted directory; the report records
+the change as `memos.py` `+5/-1`, with the exploit passing after the fix.
+See the complete run table and links in
+[docs/ci/chain-validation.md](docs/ci/chain-validation.md).
+
+## The dashboard
+
+Run the local, read-only dashboard from any repository:
 
 ```bash
-python -m pip install -e '.[dev]'
-python -m exhibit_a.cli run --case bench/corpus/starlette-cve-2023-29159 --replay
+exhibit-a dashboard
 ```
 
-`--replay` replays recorded model answers offline (no key, no network) but still executes every baseline and exploit test in the sandbox. Without `--replay` the roles call the provider chosen with `--provider`/`--model` (default a local Ollama model; pass `--provider meta --model muse-wonder-1.0` with `META_API_KEY` for Meta). A pull request is verified with `python -m exhibit_a.cli run --repo <dir> --pr-diff BASE..HEAD`. Exit codes ([docs/reference/cli-exit-codes.md](docs/reference/cli-exit-codes.md)): 0 nothing proven, 10 a finding proven, 20 run incomplete, 2 usage or input error. Full CLI reference: [docs/reference/cli.md](docs/reference/cli.md).
-
-Demo (2-3 minute red-to-green story, [docs/reference/demo.md](docs/reference/demo.md)):
+It binds to `127.0.0.1`, prints a one-time local link, and shows data for the
+current repository. It has no Exhibit A account. By default it reads local
+`runs/` data when present, or detects the GitHub remote and reads the
+repository's Action artifacts through your authenticated `gh` CLI. You can
+choose explicitly:
 
 ```bash
-scripts/demo.sh --offline   # replay the committed Meta recordings; Docker must be running
-scripts/demo.sh --live      # same story, answered live by Muse Wonder (needs META_API_KEY)
+exhibit-a dashboard --source local:runs
+exhibit-a dashboard --source github:OWNER/REPOSITORY
 ```
-
-The offline path is covered by `test_offline_demo_ends_with_a_proven_finding_and_a_verified_fix` (docker-marked, runs in the CI `sandbox` job).
-
-## GitHub Action usage
-
-```yaml
-- uses: ./  # or the pinned Exhibit A action SHA
-  with:
-    provider: meta
-    model: muse-wonder-1.0
-    api-key: ${{ secrets.EXHIBIT_A_API_KEY }}
-```
-
-The check runs `exhibit-a run --pr-diff BASE..HEAD --profile compact --slice` in a timeout, posts one marker PR comment, uploads the ledger artifact, and turns red only on a proven finding; green means nothing could be proven. A small rule-based risk gate classifies changed paths only: documentation/tests can skip exploits, while application, dependency, container, CI, and sensitive-directory changes run them. Fork PRs get no run (fork guard), and the key is materialised in one step only. Details: [action.yml](action.yml), [docs/ci/github-action.md](docs/ci/github-action.md), [docs/ci/github-action-security.md](docs/ci/github-action-security.md).
 
 ## Results
 
-Naive LLM versus the proof loop on the same corpus, same model (`muse-wonder-1.0`), from [docs/bench/bench.md](docs/bench/bench.md):
+The benchmark figures below are copied from
+[bench/results/2026-11-01.json](bench/results/2026-11-01.json). They are
+measured corpus results, not a claim about general-world recall.
 
-| system | reported | TP | FP | false accusations | precision | recall | cost (US$) |
-|---|---|---|---|---|---|---|---|
-| Naive LLM (reports everything) | 3 | 2 | 1 | 1 | 0.67 | 1.00 | 0.0708 |
-| Exhibit A, compact profile | 2 | 2 | 0 | 0 | 1.00 | 1.00 | 0.3061 |
-| Exhibit A, standard profile (nothing proven live) | 0 | 0 | 0 | 0 | n/a | 0.00 | 4.7824 |
+| System | Reported | True positives | False positives | False accusations | Precision | Recall | Model cost |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Exhibit A, compact profile | 29 | 25 | 4 | 0 | 0.8621 | 0.6774 | US$2.272676 |
+| Exhibit A, standard profile | 0 | 0 | 0 | 0 | n/a | 0.0000 | US$4.782448 |
+| Naive LLM | 3 | 2 | 1 | 1 | 0.6667 | 1.0000 | US$0.070828 |
 
-Exhibit A's two reports each ship an exploit that fails on the vulnerable code plus a verified fix; the naive report is a list. Exhibit A cost about 4x the naive reporter here. Limits, stated in full in [docs/bench/bench.md](docs/bench/bench.md): 3 targets, one model sample each, the model is not deterministic, Exhibit A was tuned on these same cases with no held-out case, so recall 1.00 and zero false accusations are an illustration, not a rate.
+The live GitHub chain validation is recorded separately in
+[docs/ci/chain-validation.md](docs/ci/chain-validation.md): 14 PRs, 1 proven
+finding, 4 vulnerable misses, 0 control accusations, 0 adversarial false
+`proven` results, 13 comments, 1 suggested fix, and US$0.0685 API cost.
 
-The generated [coverage matrix](docs/coverage.md) lists CWE id and name, oracle effect, corpus case, whether it was proven live, and notes (`python -m bench.coverage`).
+## What it does NOT do
 
-## Meta models used
+- A green result does **not** mean safe; it means nothing could be proven.
+- It only proves the supported vulnerability classes and observable effects
+  implemented by the current oracle.
+- `SCAN` is rule-based. It proposes repository facts and reach paths; it is
+  not a general vulnerability detector.
+- Slicing is static and AST-based. A path outside the supported graph or
+  effect can be missed.
+- Coverage is limited to the benchmark cases and the declared residual limits.
+- It does not audit an entire dependency repository, guarantee security, or
+  merge changes automatically.
 
-All model results come from Muse Wonder (`muse-wonder-1.0`), recorded unedited with costs and replayed offline ([docs/bench/meta-run.md](docs/bench/meta-run.md), [tests/test_meta_replay.py](tests/test_meta_replay.py)):
+## Threat model
 
-- **Standard profile, first live run (US$4.78, 20 calls): proved nothing**, including on both vulnerable cases — the test-writer prompt named the allowed directory but never said where the canary file is, so exploits wrote to invented filenames the oracle correctly ignored.
-- **Compact profile (`--profile compact`, US$0.17 total): proved both vulnerable cases** — Starlette CVE-2023-29159 (US$0.11) and the archive zip-slip (US$0.06). Each ended `S1 proven` with a verified fix (the model replaced `os.path.commonprefix` with `os.path.commonpath`; the archive fix confines the member path) and 3 defender bypass variants tried, 0 succeeded. See [docs/bench/cost-controls.md](docs/bench/cost-controls.md) for what the profile bounds.
+PR diffs, repository files, model output, and exploit tests are untrusted.
+PR files are parsed on the host but are not executed there; model output is
+schema-validated and test or fix code runs only in the sandbox. The sandbox
+has no network or secrets, drops capabilities, uses a read-only filesystem
+with bounded writable areas, and enforces CPU, memory, process, and wall-clock
+limits. The dashboard is local-only and uses a one-time link.
 
-Negative control, reported honestly: the first live compact run on **fixed** Starlette ended with a FALSE proof — the test raced a thread swapping a served file for a symlink to the canary, and the oracle's check raced it in turn. The oracle now flags any link to the canary created during the run at creation time ([docs/oracle/oracle-provenance.md](docs/oracle/oracle-provenance.md) section 3.8); the recording is kept unedited as documentation, and replaying it against today's oracle proves nothing (`test_replaying_the_negative_control_proves_nothing`). A live run of the fixed tree after the fix proved nothing (0 `proven`, US$0.13), and live re-runs proved both vulnerable cases again ([docs/bench/meta-run.md](docs/bench/meta-run.md), "Live confirmation runs"; not recorded).
+The model API runs outside the sandbox. Fork PRs do not receive the protected
+model key. Known oracle residuals and host-side limitations are documented in
+[docs/security/THREAT_MODEL.md](docs/security/THREAT_MODEL.md) and
+[docs/oracle/oracle-provenance.md](docs/oracle/oracle-provenance.md).
 
-## SCAN / SLICE code graph
+## Run the tests
 
-`exhibit-a scan --graph` builds an AST-only call graph of a Python tree (parsed, never imported) and maps a diff to entry-point → changed-function → sink paths; `exhibit-a run --slice` (on by default under `--profile compact`, off under `standard`; `--slice`/`--no-slice` override) gives the adversary only that slice and, crucially, the oracle judges against the graph's entry point — the model's text can never widen what the oracle accepts. No path means no model call and exit 0. Both corpus paths and entry points are found automatically. Not yet measured: live-model cost/recall with `--slice`. Details: [docs/design/code-graph.md](docs/design/code-graph.md).
+Python 3.11+ and Docker or Colima are required for sandbox tests:
 
-## Security summary
+```bash
+~/Desktop/Proyects/Exhibit-A/.venv/bin/python -m pytest
+```
 
-Exhibit A runs untrusted code (PR diffs, model-written exploits) on purpose. Trust boundaries: PR files are parsed, never executed on the host; model output is schema-validated JSON and only ever runs in the sandbox; the HMAC key travels on stdin and never enters the container image; the dashboard binds 127.0.0.1 with a one-time token. Known holes are declared, not hidden: host-path baseline, fork-PR limits, R1-R6 oracle limits. Full model: [docs/security/THREAT_MODEL.md](docs/security/THREAT_MODEL.md); integration audit: [docs/security/audit-integration.md](docs/security/audit-integration.md).
+The full suite is the owner's checkpoint command. For a local install, the
+same runner is available as `python -m pytest`; do not treat Docker-marked
+tests as passing when Docker is unavailable.
 
 ## Built during the Meta Global AI Developer Hackathon
 
-The repository history backs this (`git log --reverse --format='%ad %h %s' --date=short`): the repository was created on 2026-10-26 with a two-line README (title and description, no code), and every line of code, test and documentation was written from 2026-10-27 onward, inside the build period (Oct 27 - Nov 4, [SPEC section 15](SPEC.md)). What was built there: the verification loop with the full proof standard (baseline → suspect → exploit → run → verdict → fix → verify → package), the sandbox runner, the oracle with signed events and authenticated provenance, the SCAN/SLICE code graph, the GitHub Action with risk gate, the naive-vs-loop benchmark, the real Meta-model recordings (standard and compact), the offline demo kit, the local dashboard, and the docs in this repository. Third-party corpus content (e.g. the Starlette case) stays under its original licenses (Starlette: BSD-3).
+Exhibit A was built during the Meta Global AI Developer Hackathon. The build
+history, design decisions, and implementation timeline are documented in
+[docs/how-this-was-built.md](docs/how-this-was-built.md).
 
-## Docs
+## More documentation
 
-Index: [docs/README.md](docs/README.md). Start with [SPEC](SPEC.md) for the authoritative scope, proof standard and contracts, then the per-area docs above. Research spikes (observer prototypes, red-team PoCs) are documented in [spikes/README.md](spikes/README.md) and are not product code.
+- [SPEC.md](SPEC.md): scope, proof standard, contracts, and non-goals.
+- [docs/README.md](docs/README.md): documentation index.
+- [docs/reference/cli.md](docs/reference/cli.md): CLI reference.
+- [docs/ci/github-action.md](docs/ci/github-action.md): Action inputs and outputs.
+- [SECURITY.md](SECURITY.md): reporting and security boundaries.
+- [CONTRIBUTING.md](CONTRIBUTING.md): contribution workflow.
