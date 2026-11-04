@@ -53,7 +53,7 @@ def test_init_writes_workflow_without_secrets_and_refuses_overwrite(tmp_path, ca
     assert "secrets.EXHIBIT_A_API_KEY" in text  # name only, no value
     out = capsys.readouterr().out
     assert "gh secret set EXHIBIT_A_API_KEY --env exhibit-a" in out
-    assert main(["init", "--path", str(target)]) == 2
+    assert main(["init", "--path", str(target)]) == 0
     assert main(["init", "--path", str(target), "--force"]) == 0
 
 

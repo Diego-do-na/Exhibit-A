@@ -8,10 +8,14 @@ protected-environment secret by name.
 from __future__ import annotations
 
 import argparse
+import difflib
+import json
+import shutil
 import sys
+import time
 from pathlib import Path
 
-from ..style import kv, next_steps, section
+from ..style import OK, WARN, kv, next_steps, section, status
 
 # Full commit SHAs (tags are mutable). Update these constants when bumping
 # actions/checkout or the Exhibit A Action, then re-run ``exhibit-a init --force``.
@@ -101,6 +105,7 @@ jobs:
 INIT_NEXT_STEPS = (
     "gh secret set EXHIBIT_A_API_KEY --env exhibit-a",
     "gh variable set EXHIBIT_A_ENABLED --body true",
+    "exhibit-a dashboard",
 )
 INIT_NEXT_NOTE = (
     "Enable the workflow with repository variable EXHIBIT_A_ENABLED=true.\n"
@@ -108,6 +113,8 @@ INIT_NEXT_NOTE = (
     "on the default branch (Settings > Rules / branch protection).\n"
     "Merges are blocked only with branch protection; a repository admin can bypass."
 )
+DIFF_LIMIT = 40
+EXHIBIT_DIR = ".exhibit-a"
 
 
 def workflow_text() -> str:
@@ -121,15 +128,142 @@ def workflow_text() -> str:
     )
 
 
+def repo_root_for(target: Path) -> Path:
+    """Repository root that should hold ``.exhibit-a/`` for this workflow path."""
+    resolved = target.expanduser()
+    if not resolved.is_absolute():
+        resolved = (Path.cwd() / resolved).resolve()
+    else:
+        resolved = resolved.resolve()
+    parts = list(resolved.parts)
+    if ".github" in parts:
+        idx = parts.index(".github")
+        return Path(*parts[:idx]) if idx else resolved.parent
+    return resolved.parent
+
+
+def short_diff(current: str, wanted: str, path: str) -> str:
+    """A short unified diff so a human can see why init would rewrite the workflow."""
+    lines = list(
+        difflib.unified_diff(
+            current.splitlines(),
+            wanted.splitlines(),
+            fromfile=path,
+            tofile="exhibit-a init template",
+            lineterm="",
+            n=2,
+        )
+    )
+    if len(lines) > DIFF_LIMIT:
+        lines = lines[:DIFF_LIMIT] + ["..."]
+    return "\n".join(lines)
+
+
+def compact_graph_summary(raw: dict) -> dict:
+    """Map ``scan --graph`` output onto the compact artifact-schema.md object."""
+    stats = raw.get("stats") if isinstance(raw.get("stats"), dict) else {}
+    names: list[str] = []
+    for item in raw.get("entries") or []:
+        if isinstance(item, str) and item:
+            names.append(item[:200])
+        elif isinstance(item, dict):
+            name = str(item.get("name") or item.get("oracle_name") or "")
+            if name:
+                names.append(name[:200])
+        if len(names) >= 32:
+            break
+    compact_stats = {
+        key: stats[key]
+        for key in ("files", "nodes", "edges", "resolved", "external", "unresolved")
+        if key in stats and isinstance(stats[key], (int, float)) and not isinstance(stats[key], bool)
+    }
+    return {
+        "schema_version": "1",
+        "available": True,
+        "status": "built",
+        "effect": "",
+        "reason": "",
+        "stats": compact_stats,
+        "build_seconds": raw.get("build_seconds"),
+        "entries": names,
+        "changed": [],
+        "paths": [],
+        "paths_to_other_sinks": 0,
+        "source_file": "",
+    }
+
+
+def write_scan_files(repo: Path) -> tuple[Path, Path | None]:
+    """Run ``exhibit-a scan --graph`` on ``repo`` and write ``.exhibit-a/`` files."""
+    from exhibit_a.cli.scan import _graph_builder, graph_summary
+    from exhibit_a.scan import detect
+
+    exhibit = repo / EXHIBIT_DIR
+    exhibit.mkdir(parents=True, exist_ok=True)
+    result = detect(str(repo))
+    profile_path = exhibit / "profile.json"
+    profile_path.write_text(result.profile.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    language = result.profile.language
+    if language not in ("python", "javascript", "typescript"):
+        language = "python"
+    try:
+        build, _, _, _ = _graph_builder(language)
+        started = time.perf_counter()
+        graph = build(repo)
+        raw = graph_summary(graph, time.perf_counter() - started, language=language)
+        summary_path = exhibit / "graph-summary.json"
+        summary_path.write_text(
+            json.dumps(compact_graph_summary(raw), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ValueError, TypeError):
+        return profile_path, None
+    return profile_path, summary_path
+
+
+def _write_workflow(target: Path, text: str, *, backup: bool) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if backup and target.exists():
+        shutil.copy2(target, target.with_name(target.name + ".bak"))
+    target.write_text(text, encoding="utf-8", newline="\n")
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     target = Path(getattr(args, "path", None) or DEFAULT_PATH)
-    if target.exists() and not getattr(args, "force", False):
-        print(f"init: {target} already exists (use --force to overwrite)", file=sys.stderr)
-        return 2
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(workflow_text(), encoding="utf-8", newline="\n")
+    wanted = workflow_text()
+    force = bool(getattr(args, "force", False))
+    update = bool(getattr(args, "update", False))
+    if target.exists():
+        current = target.read_text(encoding="utf-8")
+        if current != wanted and not force and not update:
+            print(f"init: {target} differs from the current template (use --update or --force)",
+                  file=sys.stderr)
+            diff = short_diff(current, wanted, str(target))
+            if diff:
+                print(diff, file=sys.stderr)
+            return 2
+        if current != wanted:
+            _write_workflow(target, wanted, backup=update and not force)
+    else:
+        _write_workflow(target, wanted, backup=False)
+
+    repo = repo_root_for(target)
+    profile_path, summary_path = write_scan_files(repo)
+
+    def shown(path: Path) -> str:
+        try:
+            return str(path.resolve().relative_to(repo.resolve()))
+        except ValueError:
+            return str(path)
+
     section("init")
-    kv("wrote", str(target))
+    kv("wrote", shown(target))
+    kv("profile", shown(profile_path))
+    if summary_path is not None:
+        kv("graph-summary", shown(summary_path))
+        status(OK, "scan wrote profile and graph-summary")
+    else:
+        status(WARN, "scan wrote profile; graph-summary was not produced")
     next_steps(INIT_NEXT_STEPS, note=INIT_NEXT_NOTE)
     return 0
 
@@ -145,6 +279,11 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
         default=None,
         metavar="FILE",
         help="Where to write the workflow (default: .github/workflows/exhibit-a.yml).",
+    )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Replace a differing workflow after copying it to FILE.bak.",
     )
     parser.add_argument("--force", action="store_true", help="Overwrite an existing workflow file.")
     parser.set_defaults(func=cmd_init)

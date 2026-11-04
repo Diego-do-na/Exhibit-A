@@ -104,5 +104,5 @@ def test_detects_pytest_versus_unittest_from_fixtures(fixture, framework, test_c
     assert profile.framework == framework
     assert profile.test_cmd == test_cmd
     assert profile.baseline.passed == 0
-    assert res.supported is (framework == "pytest")
+    assert res.supported is True
 

@@ -298,10 +298,9 @@ def detect(repo_root: str, language: str = "auto") -> ScanResult:
             dependencies=[],
             baseline=Baseline(passed=0, failed=0, seconds=0.0),
         )
-        supported = framework == "pytest"
-        if not supported:
-            reasons.append("only pytest-run Python projects are supported in v1")
-        return ScanResult(profile=profile, supported=supported, reasons=reasons, languages=languages)
+        # The loop always drives baseline and exploits through pytest, which
+        # collects unittest.TestCase tests; unittest projects are supported.
+        return ScanResult(profile=profile, supported=True, reasons=reasons, languages=languages)
 
     if primary in ("javascript", "typescript"):
         txt = _safe_read(root / "package.json", root)
@@ -337,8 +336,13 @@ def detect(repo_root: str, language: str = "auto") -> ScanResult:
             dependencies=[],
             baseline=Baseline(passed=0, failed=0, seconds=0.0),
         )
-        reasons.append("the proof loop verifies node:test repositories; only pytest-run Python projects count as scanner-supported")
-        return ScanResult(profile=profile, supported=False, reasons=reasons, languages=languages)
+        supported = framework == "node:test"
+        if not supported:
+            reasons.append(
+                "the proof loop verifies node:test repositories; "
+                f"{framework} projects are not supported in v1"
+            )
+        return ScanResult(profile=profile, supported=supported, reasons=reasons, languages=languages)
 
     if primary == "java":
         dependency_manager = "maven" if (root / "pom.xml").exists() else "gradle"

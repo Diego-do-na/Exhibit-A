@@ -268,12 +268,12 @@ def test_init_default_path_and_refuses_overwrite_without_force(tmp_path, monkeyp
     assert target.is_file()
     assert target.read_text(encoding="utf-8") == workflow_text()
     capsys.readouterr()
-    assert main(["init"]) == 2
-    err = capsys.readouterr().err
-    assert "already exists" in err
-    assert "--force" in err
+    assert main(["init"]) == 0
     original = target.read_text(encoding="utf-8")
     target.write_text("stale\n", encoding="utf-8")
+    assert main(["init"]) == 2
+    err = capsys.readouterr().err
+    assert "--force" in err and "--update" in err
     assert main(["init", "--force"]) == 0
     assert target.read_text(encoding="utf-8") == original
 

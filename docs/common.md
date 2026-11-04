@@ -191,3 +191,4 @@ Protocol:
 - T153 grok: P0-3 run page uses payload.diff or gh pr diff (text only), chronological ledger without the scrub player, blast radius from ledger evidence plus graph, cards hide when empty, no "not recorded"; pending: P0-4 zero emojis + PROVEN/NOT PROVEN title
 - T153 grok: P0-4 zero emojis in md/yml/html/js and CLI strings (docs/common.md exempt); titles "Exhibit A: PROVEN: …" / "NOT PROVEN: …"; pending: P1-1 CLI banner and layout
 - T153 grok: P1-1 CLI logo only on no-args/--version/init, one-line identity elsewhere, [ok]/[warn]/[fail]/[skip], Next steps, color/progress tty-only, colorless init/dashboard snapshots; pending: P1-2 idempotent init
+- T153 grok: P1-2 init is idempotent (short diff, --update with .bak, --force), runs scan into .exhibit-a/profile.json and graph-summary.json, unittest/node:test scan.supported matches the loop; pending: P1-3 persist base SHA
