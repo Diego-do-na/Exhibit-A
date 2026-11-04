@@ -201,3 +201,4 @@ Protocol:
 - dashboard grok: overview Latest runs no longer clip GitHub run ids into the headline; pr.html?pr= uses OPEN/MERGED/CLOSED from gh instead of always MERGED; pending: owner refresh of the running dashboard
 - dashboard grok: restored Path/Graph chips on run pages (pytest frames dropped), KPI/timeline overlap, expand-chart crash, PROVEN/NOT PROVEN titles, hide empty median/refusal/heatmap cards; pending: owner refresh of the running dashboard
 - ci grok: TS graph walk uses lstat not Dirent d_type; dos_probe miss returns 0.0 so compact redos is stably discarded_unproven; sandbox cpu ulimit 4x wall and replay slack 360s so static-route S3 stays provenance; shard job timeout 40m; pending: owner push for CI re-run
+- ci antigravity: static-route-traversal S3 reason_code accepts provenance|no_effect (thread race), verdict stays exact invalid_test, pinned by unit test, documented in docs/ci/replay-determinism.md; pending: owner push and CI re-run

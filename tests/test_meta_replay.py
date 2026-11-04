@@ -202,7 +202,48 @@ def test_offline_replay_reproduces_the_batch_compact_verdicts(case_id, tmp_path,
     assert outcome.baseline_ok == meta["baseline_ok"]
     assert outcome.aborted == meta["aborted"]
     assert outcome.suspicions_raised == meta["suspicions_raised"]
-    assert comparable(outcome.verdicts) == comparable(meta["verdicts"])
+    assert comparable(_race_normalized(case_id, outcome.verdicts, meta["verdicts"])) == comparable(
+        meta["verdicts"]
+    )
+
+
+# Race-dependent reasons (docs/ci/replay-determinism.md). The recorded S3 exploit races a symlink-swap
+# thread against 3000 serve() calls. When the swap lands the oracle reports "provenance"; when a
+# loaded runner never lands it, the test passes on the vulnerable tree and the judge reports
+# "no_effect". Either way the verdict is invalid_test and nothing is proven. Only the reason_code
+# of this one suspicion may take either value; the verdict, fix flags and every other row stay exact.
+RACE_DEPENDENT_REASONS = {("static-route-traversal", "S3"): frozenset({"provenance", "no_effect"})}
+
+
+def _race_normalized(case_id, replayed, recorded):
+    recorded_by_id = {row["suspicion_id"]: row for row in recorded}
+    rows = []
+    for row in replayed:
+        row = dict(row)
+        allowed = RACE_DEPENDENT_REASONS.get((case_id, row["suspicion_id"]))
+        want = recorded_by_id.get(row["suspicion_id"], {})
+        if (
+            allowed
+            and row["reason_code"] in allowed
+            and want.get("reason_code") in allowed
+            and row["verdict"] == want.get("verdict") == "invalid_test"
+        ):
+            row["reason_code"] = want["reason_code"]
+        rows.append(row)
+    return rows
+
+
+def test_race_tolerance_is_limited_to_one_invalid_test_reason():
+    assert set(RACE_DEPENDENT_REASONS) == {("static-route-traversal", "S3")}
+    recorded = [{"suspicion_id": "S3", "verdict": "invalid_test", "reason_code": "provenance"}]
+    flipped = [{"suspicion_id": "S3", "verdict": "invalid_test", "reason_code": "no_effect"}]
+    assert _race_normalized("static-route-traversal", flipped, recorded) == recorded
+    # a different verdict, a different case or a different suspicion is never forgiven
+    proven = [{"suspicion_id": "S3", "verdict": "proven", "reason_code": ""}]
+    assert _race_normalized("static-route-traversal", proven, recorded) == proven
+    assert _race_normalized("other-case", flipped, recorded) == flipped
+    other = [{"suspicion_id": "S1", "verdict": "invalid_test", "reason_code": "no_effect"}]
+    assert _race_normalized("static-route-traversal", other, recorded) == other
 
 
 # -- negative control: the fixed Starlette tree must never end proven ----------------------------

@@ -75,3 +75,14 @@ With Docker (owner, three times to prove stability):
 ~/Desktop/Proyects/Exhibit-A/.venv/bin/python -m pytest tests/test_meta_replay.py -m docker -q
 ~/Desktop/Proyects/Exhibit-A/.venv/bin/python -m pytest tests/test_meta_replay.py -m docker -q
 ```
+
+## Residual race: static-route-traversal S3 (reason_code only)
+
+CI run on `9d88135` (shard 4/4) still produced `invalid_test` / `no_effect` for S3 where the
+recording says `provenance`. The recorded exploit is a thread race the oracle can only flag when
+the swap lands inside 3000 `serve()` calls; on a loaded 2-core runner it sometimes does not, and
+the test then passes on the vulnerable tree. The recording is model output and is not edited.
+
+`tests/test_meta_replay.py` therefore accepts `provenance` or `no_effect` for exactly this
+suspicion (`RACE_DEPENDENT_REASONS`). The verdict must still be `invalid_test`, so nothing can ever
+be proven by the race, and a unit test pins that no other case, suspicion or verdict is tolerated.
