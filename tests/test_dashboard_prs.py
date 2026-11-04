@@ -235,7 +235,7 @@ def test_dashboard_static_files_carry_no_bundled_snapshot():
     assert "unclassified" in prs_js
 
 
-def test_api_graph_is_empty_until_the_checkout_builder_lands(tmp_path):
+def test_api_graph_is_empty_without_a_matching_checkout(tmp_path):
     write_run(tmp_path, "run-a", event_line() + "\n")
     status, _, body = api(make_state(LocalRunsSource(tmp_path)), "/api/graph")
     assert status == 200

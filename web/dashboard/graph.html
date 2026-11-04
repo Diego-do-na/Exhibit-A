@@ -56,6 +56,21 @@
         <div class="mono" data-style="font-size: 14px; background: rgba(13,27,62,.06); border: 1px solid rgba(13,27,62,.1); border-radius: 4px; padding: 12px 14px">{{graphCmd}}</div>
       </div>
       </sc-if>
+      <sc-if value="{{hasSummary}}">
+      <div class="card" data-style="padding: 28px; display: flex; flex-direction: column; gap: 14px; margin-top: 22px">
+        <span class="lbl">graph-summary.json from the run artifact</span>
+        <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">This source has no matching checkout, so the dashboard shows the compact scan summary recorded in the artifact. Open the repository and run exhibit-a dashboard from that checkout for the full package graph.</p>
+        <div class="metric-grid" data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
+          <sc-for list="{{tot}}" as="k">
+            <div data-style="display: flex; flex-direction: column; gap: 6px">
+              <span class="lbl">{{k.l}}</span>
+              <span class="dsp" data-style="font-size: 36px; font-weight: 500">{{k.v}}</span>
+              <span data-style="font-size: 13px; color: #3d4b68">{{k.u}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
       <sc-if value="{{hasGraph}}">
       <section class="g-stats" data-style="display: flex; flex-direction: column; gap: 22px">
         <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Architecture</h2><p class="lead">Layers of this repository, counted from the checkout.</p></div></div>

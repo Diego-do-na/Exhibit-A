@@ -41,6 +41,10 @@ window.Component = class Component extends DCLogic {
     this.PK().forEach((p) => { out[p[0]] = p[2] || 'core'; });
     return out;
   }
+  layerColor(id) {
+    const row = (this.g().layers || []).find((l) => l.id === id);
+    return (row && row.color) || LC[id] || LC.core;
+  }
   async loadGraph() {
     try {
       const res = await fetch('/api/graph', { headers: { Accept: 'application/json' } });
@@ -274,11 +278,13 @@ window.Component = class Component extends DCLogic {
   renderVals() {
     const st = this.state;
     const PK = this.PK(), PE = this.PE(), MODS = this.MODS(), ME = this.ME(), LAYER = this.LAYER();
-    const available = !!(this.g().available && PK.length);
+    const built = !!this.g().available;
+    const available = !!(built && PK.length);
+    const hasSummary = !!(built && !available);
     const opt = (list, key) => list.map(([k, l]) => ({ l, cls: 'sb' + (st[key] === k ? ' sb-on' : ''), pick: () => this.setState({ [key]: k }) }));
     const maxP = Math.max(1, ...PK.map((p) => p[1] || 0));
     const pk = PK.map(([n, loc, l]) => ({
-      n, c: LC[l] || LC.core, w: ((loc || 0) / maxP * 100).toFixed(1),
+      n, c: this.layerColor(l), w: ((loc || 0) / maxP * 100).toFixed(1),
       v: Number(loc || 0).toLocaleString('en-US'),
       op: st.ly === 'all' || st.ly === l ? 1 : 0.3,
       cls: 'pk' + (st.sel === n ? ' pk-on' : ''),
@@ -287,7 +293,7 @@ window.Component = class Component extends DCLogic {
     const layerRows = this.g().layers || [];
     const layerTotal = layerRows.reduce((t, l) => t + (l.lines || 0), 0) || 1;
     const layers = layerRows.map((l) => ({
-      name: l.name || l.id, c: l.color || LC[l.id] || LC.core,
+      name: l.name || l.id, c: l.color || this.layerColor(l.id),
       fg: l.fg || '#ffffff', d: l.detail || '',
       loc: Number(l.lines || 0).toLocaleString('en-US') + ' lines',
       pct: ((l.lines || 0) / layerTotal * 100).toFixed(1),
@@ -341,7 +347,7 @@ window.Component = class Component extends DCLogic {
     const hasRun = !!st.runId || !!this.runParams().run;
     const stats = this.g().stats || {};
     const fmt = (n) => n == null ? '—' : (n >= 10000 ? (n / 1000).toFixed(1) + 'k' : Number(n).toLocaleString('en-US'));
-    const tot = available ? [
+    const tot = built ? [
       { i: 'M21 8 12 3 3 8v8l9 5 9-5V8ZM3 8l9 5 9-5M12 13v8', l: 'Packages', v: String(stats.packages || PK.length), u: 'top-level folders' },
       { i: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5ZM14 3v5h5M9 13h6M9 17h4', l: 'Modules', v: String(stats.modules || MODS.length), u: 'source files' },
       { i: 'M5 12h14M13 6l6 6-6 6M5 5v14', l: 'Imports', v: String(stats.imports || ME.length), u: 'internal dependencies' },
@@ -361,7 +367,7 @@ window.Component = class Component extends DCLogic {
       nDisp: 'block', gDisp: 'none', fnDisp: st.lv === 'net' ? 'inline-flex' : 'none',
       fnOpts: [[true, 'Functions on'], [false, 'Files only']].map(([k, l]) => ({ l, cls: 'sb' + (st.fn === k ? ' sb-on' : ''), pick: () => this.setState({ fn: k }) })),
       gfull: st.full ? 'gfull' : '', full: String(st.full), fullL: st.full ? 'Close expanded view' : 'Expand', toggleFull: () => this.setState({ full: !st.full }),
-      tot, layers, hot, pk, hasGraph: available, noGraph: !available,
+      tot, layers, hot, pk, hasGraph: available, noGraph: !built, hasSummary,
       graphCmd: this.g().command || 'exhibit-a scan --graph',
       graphNote: st.graphNote || this.g().reason || '',
       lvOpts: [['net', 'Network'], ['pkg', 'Packages'], ['mod', 'Modules']].map(([k, l]) => ({ l, cls: 'sb' + (st.lv === k ? ' sb-on' : ''), pick: () => this.setState({ lv: k, mod: null }) })),

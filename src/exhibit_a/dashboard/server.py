@@ -40,8 +40,8 @@ Endpoints (GET):
   ``no benchmark data for this source``.
 - ``/api/prs``: pull requests and authors of the chosen source (``gh pr list
   --state all`` for GitHub, empty with that command for local).
-- ``/api/graph``: source-backed code graph (filled by a later task from
-  ``scan --graph``); empty with the scan command until then.
+- ``/api/graph``: source-backed code graph from ``scan --graph`` on a matching
+  checkout (cached by commit), else ``graph-summary.json`` from a run artifact.
 """
 
 from __future__ import annotations
@@ -80,6 +80,7 @@ from .model import (
 )
 from .export import export_dashboard
 from .prs import PR_LIST_COMMAND, build_pr_index
+from .repo_graph import load_repo_graph, matching_checkout
 from .sources import RUN_ID_RE, LocalRunsSource, RunSource, SourceError, parse_source
 
 HOST = "127.0.0.1"
@@ -167,6 +168,7 @@ class DashboardState:
     source: RunSource
     web_dir: Path
     port: int
+    checkout: Path | None = None
     token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     session: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     token_used: bool = False
@@ -510,22 +512,8 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
             ))
 
         def _graph(self) -> None:
-            """Placeholder: P0-2 fills this from ``scan --graph`` on the checkout."""
-            self._json({
-                "source": state.source.label,
-                "available": False,
-                "reason": "code graph is built from the repository checkout",
-                "command": "exhibit-a scan --graph",
-                "packages": [],
-                "modules": [],
-                "module_edges": [],
-                "package_edges": [],
-                "functions": {},
-                "uses": [],
-                "layers": [],
-                "hotspots": {},
-                "stats": {},
-            })
+            """Code graph of the chosen --source: checkout, else graph-summary.json."""
+            self._json(load_repo_graph(state.source, checkout=state.checkout))
 
         def _benchmark(self) -> None:
             loaded = self._repo_entries()
@@ -627,9 +615,15 @@ def create_server(
     port: int = 0,
     web_dir: str | Path | None = None,
     verbose: bool = False,
+    checkout: Path | None = None,
 ) -> DashboardServer:
     """Bind 127.0.0.1 (port 0 picks a free one) and return the unstarted server."""
-    state = DashboardState(source=source, web_dir=Path(web_dir) if web_dir else default_web_dir(), port=port)
+    state = DashboardState(
+        source=source,
+        web_dir=Path(web_dir) if web_dir else default_web_dir(),
+        port=port,
+        checkout=checkout,
+    )
     server = DashboardServer((HOST, port), make_handler(state))
     # The handler reads the port from ``state`` per request, so the Host check
     # matches the port actually bound (port 0 picks one).
@@ -670,6 +664,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SourceError as exc:
         print(f"dashboard: {exc}", file=sys.stderr)
         return 2
+    checkout = matching_checkout(source, Path.cwd())
     if args.export:
         if not isinstance(source, LocalRunsSource):
             print("dashboard: --export requires a local:<runs> source", file=sys.stderr)
@@ -682,7 +677,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"dashboard: exported {source.label} to {Path(args.export).resolve()}")
         return 0
     try:
-        server = create_server(source, port=args.port, web_dir=args.web, verbose=args.verbose)
+        server = create_server(
+            source, port=args.port, web_dir=args.web, verbose=args.verbose, checkout=checkout,
+        )
     except OSError as exc:
         print(f"dashboard: cannot bind {HOST}:{args.port}: {exc}", file=sys.stderr)
         return 1

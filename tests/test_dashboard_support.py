@@ -52,8 +52,8 @@ class _FakeRequest:
         self.out.write(data)
 
 
-def make_state(source, port: int = PORT) -> DashboardState:
-    return DashboardState(source=source, web_dir=WEB_DIR, port=port)
+def make_state(source, port: int = PORT, checkout=None) -> DashboardState:
+    return DashboardState(source=source, web_dir=WEB_DIR, port=port, checkout=checkout)
 
 
 def local_state(root: Path) -> DashboardState:
