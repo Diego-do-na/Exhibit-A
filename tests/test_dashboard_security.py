@@ -146,7 +146,8 @@ def test_merged_pr_without_run_shows_empty_state_not_demo():
     assert "Recorded demo" in pr_html
     assert "'MERGED'" in pr_js
     assert "'OPEN'" in pr_js
-    assert "{{pr.state}}" in pr_html
+    assert "{{st.l}}" in pr_html
+    assert "{{pr.state}}" not in pr_html
     assert ">MERGED</div>" not in pr_html
 
 
