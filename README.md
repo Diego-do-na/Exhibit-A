@@ -73,7 +73,7 @@ model, or prove a vulnerability; the verification loop does that.
 
 On the private testbed, a path-traversal PR produced this comment:
 
-> 🔴 1 proven finding
+> Exhibit A: PROVEN: 1 proven finding
 >
 > Status: `completed`
 >

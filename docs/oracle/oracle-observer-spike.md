@@ -60,10 +60,10 @@ the product's `--tmpfs /tmp`. **Nothing was added to that posture.**
 
 | scenario | in-proc: read / prov | ptrace: read | combined verdict |
 |---|---|---|---|
-| `honest_via_entrypoint` (real exploit through `serve`) | YES / YES | YES | **PROVEN** ✔ correct |
-| `cheat_forge_inproc` (forge event, never read canary) | YES / YES | **no** | not proven ✔ caught |
-| `cheat_hide_subprocess` (`cat` the canary, bypass audit hook) | no / no | **YES** | not proven ✔ caught |
-| `cheat_read_then_forge` (really read canary, forge the stack) | YES / YES | YES | **PROVEN** ✘ **false positive** |
+| `honest_via_entrypoint` (real exploit through `serve`) | YES / YES | YES | **PROVEN** correct |
+| `cheat_forge_inproc` (forge event, never read canary) | YES / YES | **no** | not proven, caught |
+| `cheat_hide_subprocess` (`cat` the canary, bypass audit hook) | no / no | **YES** | not proven, caught |
+| `cheat_read_then_forge` (really read canary, forge the stack) | YES / YES | YES | **PROVEN** **false positive** |
 
 "Combined verdict" is the rule *proven iff an out-of-process observer saw the open AND the
 in-process record shows app provenance.*

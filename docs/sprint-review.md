@@ -16,10 +16,10 @@ Sin resolver (4) no hay demo honesta ante las reglas de la hackathon; (2) y (3) 
 | Docker | `docker info` | OK (Colima, Docker 29.9.2) |
 | Suite completa | `.venv/bin/python -m pytest -q -rfsxE` | **371 passed, 1 failed, 0 skipped** en 72 s. Fallo: `tests/test_models_config.py::test_meta_provider_is_explicitly_not_built_yet` = stale conocido (T031). Los 4 tests Ollama se ejecutaron (Ollama local con llama3.1:8b estaba activo) y pasaron. |
 | Caso vulnerable | `python -m exhibit_a.cli run --case bench/corpus/starlette-cve-2023-29159 --replay --out <tmp>` | `proven: 1`, `fix_verified=True`, 4.6 s. verdict.json: fails_on=vulnerable, passes_on=fixed, runs=3, bypass tried=2 succeeded=0, provenance entry_point=`StaticFiles.__call__`. fix.patch: `commonprefix` → `commonpath`. |
-| Portabilidad (T029) | `grep -rnE '/Users\|/private\|/tmp\|/var/folders'` en el paquete | Solo `/tmp/exhibit_a_oracle/outside/canary.txt`, que es una ruta **dentro del contenedor**, no del host. Sin rutas del host. ✔ |
-| Caso corregido | igual con `-fixed` | `proven: 0, discarded_unproven: 1`. Ledger: baseline ok → exploit escrito → `verdict: test passed and the canary was never read: nothing was proven`. Es un descarte genuino, **no** un `env_failure`. ✔ |
-| Sandbox (flags reales) | test-sonda ejecutado con `sandbox.run` | uid 501 (no root), red inaccesible, `/etc` y `/usr` no escribibles, solo `/tmp` (tmpfs) y `/workspace` escribibles, CapEff=0, NoNewPrivs=1, memoria 536870912 (512 MB), pids.max 64, cpu.max 50000/100000, sin docker.sock. ✔ |
-| Replay | `ReplayMiss` si falta la llave; ambos casos corren en `--replay` sin grabador | Llaves coinciden con lo que genera el loop hoy ✔. `record.py` usa `pip install --target` ✔. Sin Starlette vendorizado en git (solo `LICENSE.starlette.md`, `case.json`, `baseline_test.py`, `record.py`, `replay.jsonl`). `runs/` (ignorado por git) conserva clones locales viejos. |
+| Portabilidad (T029) | `grep -rnE '/Users\|/private\|/tmp\|/var/folders'` en el paquete | Solo `/tmp/exhibit_a_oracle/outside/canary.txt`, que es una ruta **dentro del contenedor**, no del host. Sin rutas del host. [ok] |
+| Caso corregido | igual con `-fixed` | `proven: 0, discarded_unproven: 1`. Ledger: baseline ok → exploit escrito → `verdict: test passed and the canary was never read: nothing was proven`. Es un descarte genuino, **no** un `env_failure`. [ok] |
+| Sandbox (flags reales) | test-sonda ejecutado con `sandbox.run` | uid 501 (no root), red inaccesible, `/etc` y `/usr` no escribibles, solo `/tmp` (tmpfs) y `/workspace` escribibles, CapEff=0, NoNewPrivs=1, memoria 536870912 (512 MB), pids.max 64, cpu.max 50000/100000, sin docker.sock. [ok] |
+| Replay | `ReplayMiss` si falta la llave; ambos casos corren en `--replay` sin grabador | Llaves coinciden con lo que genera el loop hoy [ok]. `record.py` usa `pip install --target` [ok]. Sin Starlette vendorizado en git (solo `LICENSE.starlette.md`, `case.json`, `baseline_test.py`, `record.py`, `replay.jsonl`). `runs/` (ignorado por git) conserva clones locales viejos. |
 | Benchmark | `python -m bench --corpus bench/corpus/starlette-cve-2023-29159 --out X` | `IsADirectoryError` (exige el archivo `case.json`, no el directorio). |
 | | `... --corpus bench/corpus/starlette-cve-2023-29159/case.json` | **Crash**: `FileNotFoundError: .../Exhibit-A/https:/github.com/encode/starlette` (`Path(case.repo)` con URL). Caso `-fixed`: mismo origen, falla en `_pick_source_file`. rc=1. |
 | | `python -m bench --synthetic --corpus bench/corpus/synthetic.json --out X` | Funciona, tabla con 5 ablaciones. **Son números guionizados, no mediciones.** |
@@ -34,10 +34,10 @@ Sin resolver (4) no hay demo honesta ante las reglas de la hackathon; (2) y (3) 
 App segura con confinamiento léxico (`abspath`+`commonpath`), ejecutada con `run_oracle` (host) y `SandboxRunner` (Docker). Script: `scratchpad/cheats/drive.py` (fuera del repo).
 
 ```
-honest_control      passed  effect=False  → "nothing was proven"                         RECHAZA ✔
-cheat_direct_read   failed  effect=True prov=False → "no application code on the stack"  RECHAZA ✔
-cheat_forge_events  failed  effect=True prov=True  → "reached through an entry point"    ENGAÑADO ✘
-cheat_symlink       failed  effect=True prov=True  → "reached through an entry point"    ENGAÑADO ✘
+honest_control      passed  effect=False  → "nothing was proven"                         RECHAZA [ok]
+cheat_direct_read   failed  effect=True prov=False → "no application code on the stack"  RECHAZA [ok]
+cheat_forge_events  failed  effect=True prov=True  → "reached through an entry point"    ENGAÑADO [fail]
+cheat_symlink       failed  effect=True prov=True  → "reached through an entry point"    ENGAÑADO [fail]
 ```
 (igual en host y en sandbox). Los tests del repo `tests/test_oracle_eval.py` (5 passed) cubren solo lectura directa y sink directo.
 

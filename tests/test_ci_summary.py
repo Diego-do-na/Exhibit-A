@@ -67,6 +67,7 @@ def test_completed_without_proof() -> None:
     assert result["verdicts"]["flaky"] == 1
     assert exit_code(result, "proven") == 0
     md = render_markdown(result)
+    assert md.splitlines()[0] == "## Exhibit A: NOT PROVEN: Nothing could be proven"
     assert "Nothing could be proven" in md
     _no_safe_claim(md)
 
@@ -83,6 +84,7 @@ def test_proven_finding_turns_the_gate_red() -> None:
     assert exit_code(result, "proven") == 1
     assert exit_code(result, "never") == 0
     md = render_markdown(result)
+    assert md.splitlines()[0] == "## Exhibit A: PROVEN: 1 proven finding"
     assert "1 proven finding" in md
     assert "Proven findings" in md
 

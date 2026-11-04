@@ -226,9 +226,8 @@ def _headline(result: Mapping[str, Any]) -> str:
     proven = int(result["proven"])
     if proven:
         noun = "finding" if proven == 1 else "findings"
-        return f"\U0001f534 {proven} proven {noun}"
-    icon = "\U0001f7e2" if result["status"] == "completed" else "⚪"
-    return f"{icon} {_HEADLINES[result['status']]}"
+        return f"PROVEN: {proven} proven {noun}"
+    return f"NOT PROVEN: {_HEADLINES[result['status']]}"
 
 
 def _finding_block(finding: Mapping[str, Any]) -> list[str]:

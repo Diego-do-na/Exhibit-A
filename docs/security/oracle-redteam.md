@@ -32,7 +32,7 @@ One-line most dangerous: *a test can fabricate a stack frame that looks like the
 | 5 | Vulnerable app reads via `os.open(..., dir_fd=…)` (openat) | `attack_os_open_dir_fd.py` | SUPPRESSED_TRUE | High (recall) | **Plausible** as a real app sink | In the audit hook, when `open` carries a `dir_fd`, resolve the path relative to that fd (`/proc/self/fd/<dfd>` join, or `os.readlink`), not the cwd, before comparing to the canary. | S–M |
 | 6 | Vulnerable app reads via subprocess (`cat`) | `attack_subprocess_sink.py` | SUPPRESSED_TRUE | Medium (recall) | Plausible | Partly the declared "only observes `open()`" limit, but concrete: also audit `subprocess.Popen`/`os.exec*` and inspect argv for the canary path, or mark any child-process spawn during a canary-adjacent test as unobservable (invalid, not proven). | M |
 | 7 | Vulnerable app reads via `ctypes` libc `open` | `attack_ctypes_libc_open.py` | SUPPRESSED_TRUE | Low (recall) | Low | Declared limit (non-Python read path). Document; optionally audit `ctypes.CDLL`/`ctypes` calls to flag the run as unobservable rather than silently "not proven". | S (doc) / L (fix) |
-| 8 | Planted-symlink cheat (A-2 regression check) | `attack_symlink_recheck.py` | BLOCKED ✅ | — | — | None — confirms the A-2 defense still holds. | — |
+| 8 | Planted-symlink cheat (A-2 regression check) | `attack_symlink_recheck.py` | BLOCKED | — | — | None — confirms the A-2 defense still holds. | — |
 
 ## 3. Detail — every FALSE_PROVEN and SUPPRESSED_TRUE (exact PoC output)
 

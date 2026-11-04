@@ -62,8 +62,8 @@ identity (`run_id`, `ledger_run_id`, `repo`, `pr`, `commit`/`head_sha`,
 `base_sha`, `discussion_url`, `branch`, `title`), the verdict counts, the
 files touched, the distinct recorded `models`, the `provider` (`""`: not
 recorded), totals (`tokens_in`, `tokens_out`, `cost_usd`), timing
-(`started_at`, `duration_s`) and the one-line `headline` ("nothing could be
-proven", never "safe").
+(`started_at`, `duration_s`) and the one-line `headline` ("PROVEN: …" or
+"NOT PROVEN: nothing could be proven", never "safe").
 
 ```json
 {
@@ -89,7 +89,7 @@ proven", never "safe").
   "tokens_in": 3461,
   "tokens_out": 2452,
   "cost_usd": 0.062884,
-  "headline": "1 proven finding"
+  "headline": "PROVEN: 1 proven finding"
 }
 ```
 

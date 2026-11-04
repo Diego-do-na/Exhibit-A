@@ -326,10 +326,11 @@ def _event_models(events: Sequence[Event]) -> list[str]:
 
 def _headline(status: str, proven: int) -> str:
     if status == "unreadable":
-        return "Run could not be read: nothing is shown"
+        return "NOT PROVEN: Run could not be read: nothing is shown"
     if proven:
-        return f"{proven} proven finding{'s' if proven != 1 else ''}"
-    return _HEADLINES.get(status, "Nothing could be proven")
+        return f"PROVEN: {proven} proven finding{'s' if proven != 1 else ''}"
+    body = _HEADLINES.get(status, "Nothing could be proven")
+    return f"NOT PROVEN: {body}"
 
 
 def _row_findings_summary(events: Sequence[Event], diff: str = "") -> dict[str, Any]:

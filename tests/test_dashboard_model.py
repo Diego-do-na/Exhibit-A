@@ -19,11 +19,11 @@ def test_rows_summarise_every_sample_outcome(tmp_path):
     rows = rows_by_id(LocalRunsSource(make_samples(tmp_path)))
     proven = rows["synthetic-01-starlette-proven"]
     assert proven["status"] == "completed" and proven["proven"] == 1
-    assert proven["headline"] == "1 proven finding"
+    assert proven["headline"] == "PROVEN: 1 proven finding"
     assert proven["risk"] == "high" and proven["pr"] == "41" and proven["synthetic"] is True
     assert proven["duration_s"] > 0 and proven["cost_usd"] > 0
     assert proven["verdicts"]["discarded_unproven"] == 1 and proven["verdicts"]["invalid_test"] == 1
-    assert rows["synthetic-02-starlette-fixed"]["headline"] == "Nothing could be proven"
+    assert rows["synthetic-02-starlette-fixed"]["headline"] == "NOT PROVEN: Nothing could be proven"
     assert rows["synthetic-05-aborted-baseline"]["status"] == "aborted"
     assert rows["synthetic-06-skipped-docs"]["status"] == "skipped"
     assert rows["synthetic-06-skipped-docs"]["risk"] == "low"
