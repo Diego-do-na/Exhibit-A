@@ -32,6 +32,10 @@ exhibit_a = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "src"]
+# Fixture projects (tests/fixtures/**) are data for the scanner/oracle/loop
+# tests, not tests themselves: several carry the same basename
+# (tests/test_app.py), which breaks collection with an import mismatch.
+norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "venv", ".venv", "fixtures", "node_modules"]
 markers = [
     "docker: needs a running Docker daemon",
     "ollama: needs a local Ollama server",
