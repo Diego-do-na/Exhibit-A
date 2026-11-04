@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import json
+import sys
 
 from exhibit_a.cli import main
+from exhibit_a.cli.ext import init as init_mod
 from exhibit_a.cli.ext.init import compact_graph_summary, workflow_text
 
 
@@ -84,6 +87,70 @@ def test_init_writes_profile_and_graph_summary(tmp_path, monkeypatch, capsys):
     assert "fail-on: never" in text
     assert "name: exhibit-a / verify" in text
     assert "needs: analyze" in text
+
+
+def test_init_meta_base_url_renders_env_block(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _tiny_python_repo(tmp_path)
+    assert main(["init", "--meta-base-url", "https://meta.example/v1/"]) == 0
+    text = (tmp_path / ".github" / "workflows" / "exhibit-a.yml").read_text(encoding="utf-8")
+    assert "META_BASE_URL: https://meta.example/v1" in text
+    assert "__META_ENV__" not in text
+    assert "META_BASE_URL" not in workflow_text()
+
+
+def test_init_rejects_non_https_meta_base_url(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    _tiny_python_repo(tmp_path)
+    assert main(["init", "--meta-base-url", "http://plain"]) == 2
+    assert "https://" in capsys.readouterr().err
+
+
+def test_github_slug_parses_ssh_and_https_remotes(tmp_path, monkeypatch):
+    import subprocess as sp
+
+    def fake_run(cmd, **kwargs):
+        return sp.CompletedProcess(cmd, 0, stdout="git@github.com:owner/repo.git\n", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    assert init_mod._github_slug(tmp_path) == "owner/repo"
+
+    def fake_https(cmd, **kwargs):
+        return sp.CompletedProcess(cmd, 0, stdout="https://github.com/owner/repo\n", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_https)
+    assert init_mod._github_slug(tmp_path) == "owner/repo"
+
+    def fake_other(cmd, **kwargs):
+        return sp.CompletedProcess(cmd, 0, stdout="https://gitlab.com/owner/repo.git\n", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_other)
+    assert init_mod._github_slug(tmp_path) is None
+
+
+def test_gh_setup_pipes_key_via_stdin_not_argv(monkeypatch):
+    import subprocess as sp
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs.get("input")))
+        return sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    assert init_mod._gh_setup("owner/repo", "sekret") == (True, True)
+    secret_cmd, secret_input = calls[0]
+    assert secret_cmd[:3] == ["gh", "secret", "set"]
+    assert "sekret" not in " ".join(secret_cmd)
+    assert secret_input == "sekret\n"
+    assert "--env" in secret_cmd and "exhibit-a" in secret_cmd
+    assert calls[1][0][:3] == ["gh", "variable", "set"]
+
+
+def test_maybe_store_secrets_skips_without_a_tty(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    init_mod._maybe_store_secrets(tmp_path)
+    assert capsys.readouterr().out == ""
 
 
 def test_compact_graph_summary_matches_artifact_schema_keys():

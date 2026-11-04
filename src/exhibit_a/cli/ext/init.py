@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import getpass
 import json
+import re
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 
-from ..style import OK, WARN, kv, next_steps, section, status
+from ..style import OK, SKIP, WARN, kv, next_steps, section, status
 
 # Full commit SHAs (tags are mutable). Update these constants when bumping
 # actions/checkout or the Exhibit A Action, then re-run ``exhibit-a init --force``.
@@ -82,7 +85,7 @@ jobs:
           profile: compact
           fail-on: never
           comment: "true"
-          suggest-fixes: "true"
+          suggest-fixes: "true"__META_ENV__
 
   verify:
     name: exhibit-a / verify
@@ -151,14 +154,34 @@ DIFF_LIMIT = 40
 EXHIBIT_DIR = ".exhibit-a"
 
 
-def workflow_text() -> str:
+def _check_meta_base_url(value: str | None) -> str | None:
+    """Validate ``--meta-base-url``; the key travels with the endpoint, so http is refused."""
+    if value is None:
+        return None
+    url = value.strip().rstrip("/")
+    if (
+        len(url) <= len("https://x")
+        or len(url) > 208
+        or not url.startswith("https://")
+        or any(char.isspace() for char in url)
+    ):
+        raise ValueError("init: --meta-base-url must be an https:// URL without spaces")
+    return url
+
+
+def workflow_text(meta_base_url: str | None = None) -> str:
     """Return the workflow YAML with current SHA pins substituted."""
+    if meta_base_url is None:
+        meta_env = ""
+    else:
+        meta_env = f"\n        env:\n          META_BASE_URL: {meta_base_url}"
     return (
         WORKFLOW_TEMPLATE
         .replace("__CHECKOUT_ACTION__", CHECKOUT_ACTION)
         .replace("__CHECKOUT_SHA__", CHECKOUT_SHA)
         .replace("__EXHIBIT_A_ACTION__", EXHIBIT_A_ACTION)
         .replace("__EXHIBIT_A_SHA__", EXHIBIT_A_ACTION_SHA)
+        .replace("__META_ENV__", meta_env)
     )
 
 
@@ -262,9 +285,77 @@ def _write_workflow(target: Path, text: str, *, backup: bool) -> None:
     target.write_text(text, encoding="utf-8", newline="\n")
 
 
+def _github_slug(repo: Path) -> str | None:
+    """Return ``owner/name`` from the origin remote, or None without a GitHub remote."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    match = re.search(r"github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?\s*$", proc.stdout.strip())
+    return match.group(1) if match else None
+
+
+def _gh_setup(slug: str, key: str) -> tuple[bool, bool]:
+    """Store the API key secret and the enable flag. Never raises, never prints the key."""
+    try:
+        secret = subprocess.run(
+            ["gh", "secret", "set", "EXHIBIT_A_API_KEY", "--env", "exhibit-a", "--repo", slug],
+            input=key + "\n", capture_output=True, text=True, timeout=60,
+        )
+        variable = subprocess.run(
+            ["gh", "variable", "set", "EXHIBIT_A_ENABLED", "--body", "true", "--repo", slug],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False, False
+    return secret.returncode == 0, variable.returncode == 0
+
+
+def _maybe_store_secrets(repo: Path) -> None:
+    """Offer one-time secret setup when running interactively with ``gh``.
+
+    The key is piped to ``gh secret set`` via stdin, so it never lands in an
+    argument list or a file. Anything missing degrades to the printed commands.
+    """
+    if not sys.stdin.isatty() or shutil.which("gh") is None:
+        return
+    slug = _github_slug(repo)
+    if slug is None:
+        status(SKIP, "no GitHub origin remote; create the secret by hand")
+        return
+    try:
+        key = getpass.getpass(f"EXHIBIT_A_API_KEY for {slug} (empty to skip): ")
+    except (EOFError, KeyboardInterrupt):
+        print(file=sys.stderr)
+        status(SKIP, "no key entered; create the secret by hand")
+        return
+    if not key.strip():
+        status(SKIP, "no key entered; create the secret by hand")
+        return
+    stored, enabled = _gh_setup(slug, key.strip())
+    if stored:
+        status(OK, "stored EXHIBIT_A_API_KEY")
+    else:
+        status(WARN, "gh secret set failed; create it by hand")
+    if enabled:
+        status(OK, "set EXHIBIT_A_ENABLED=true")
+    else:
+        status(WARN, "gh variable set failed; set it by hand")
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     target = Path(getattr(args, "path", None) or DEFAULT_PATH)
-    wanted = workflow_text()
+    try:
+        meta_url = _check_meta_base_url(getattr(args, "meta_base_url", None))
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    wanted = workflow_text(meta_url)
     force = bool(getattr(args, "force", False))
     update = bool(getattr(args, "update", False))
     if target.exists():
@@ -299,6 +390,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     else:
         status(WARN, "scan wrote profile; graph-summary was not produced")
     next_steps(INIT_NEXT_STEPS, note=INIT_NEXT_NOTE)
+    _maybe_store_secrets(repo)
     return 0
 
 
@@ -320,4 +412,10 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
         help="Replace a differing workflow after copying it to FILE.bak.",
     )
     parser.add_argument("--force", action="store_true", help="Overwrite an existing workflow file.")
+    parser.add_argument(
+        "--meta-base-url",
+        default=None,
+        metavar="URL",
+        help="Model base URL written into the workflow (META_BASE_URL). Must be https://.",
+    )
     parser.set_defaults(func=cmd_init)
