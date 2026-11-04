@@ -24,8 +24,13 @@ jobs:
         run: pytest -m 'not docker and not ollama and not integration'
 
   sandbox:
+    name: sandbox ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     permissions:
       contents: read
     steps:
@@ -38,8 +43,25 @@ jobs:
       - name: Install package with dev extras
         run: pip install -e '.[dev]'
 
-      - name: Build sandbox image (same as src/exhibit_a/sandbox.build_image)
-        run: python -c "from exhibit_a.sandbox.image import build_image; print(build_image([]))"
+      - name: Pre-build sandbox images once
+        run: python -m exhibit_a.ci.sandbox_shards --prebuild
 
-      - name: Run docker-marked tests
-        run: pytest -m docker
+      - name: Run docker-marked tests (shard ${{ matrix.shard }}/4)
+        run: python -m exhibit_a.ci.sandbox_shards --group ${{ matrix.shard }} --run
+
+  sandbox-complete:
+    name: sandbox-complete
+    needs: sandbox
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Require every sandbox shard
+        run: |
+          echo "sandbox matrix result: ${{ needs.sandbox.result }}"
+          if [ "${{ needs.sandbox.result }}" != "success" ]; then
+            echo "one or more sandbox shards failed or were cancelled"
+            exit 1
+          fi

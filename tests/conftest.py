@@ -23,10 +23,24 @@ def _docker_daemon() -> None:
         pytest.fail("Docker is required: start Colima/Docker", pytrace=False)
 
 
+@pytest.fixture(scope="session")
+def _prebuild_sandbox_images(_docker_daemon: None) -> None:
+    """Build common sandbox images once per pytest process, not once per test.
+
+    ``build_image`` already reuses a content-hashed tag; this just pays the first
+    pip/npm install before the suite starts. Each test still launches its own
+    isolated and resource-limited container.
+    """
+    from exhibit_a.ci.sandbox_shards import prebuild_images
+
+    prebuild_images()
+
+
 @pytest.fixture(autouse=True)
 def _require_docker_for_marked_tests(request: pytest.FixtureRequest) -> None:
     if request.node.get_closest_marker("docker"):
         request.getfixturevalue("_docker_daemon")
+        request.getfixturevalue("_prebuild_sandbox_images")
 
 
 @pytest.fixture(autouse=True)

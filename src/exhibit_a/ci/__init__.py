@@ -4,6 +4,7 @@ Thin helpers used by the GitHub Action (``action.yml``):
 
 - ``exhibit_a.ci.summary``: result JSON, Markdown step summary, PR comment.
 - ``exhibit_a.ci.gate``: rule-based PR risk gate from changed paths.
+- ``exhibit_a.ci.sandbox_shards``: split ``pytest -m docker`` across CI shards.
 
 They never call the network and never decide what is proven: they only read
 the verdicts the verification loop already wrote to the ledger. Submodules
