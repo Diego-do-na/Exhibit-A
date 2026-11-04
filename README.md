@@ -1,13 +1,5 @@
 # Exhibit A
 
-```text
-+----------------------------------------------------------+
-|                        EXHIBIT A                         |
-|                 proof before accusation                  |
-+----------------------------------------------------------+
-  EXHIBIT A - proof before accusation
-```
-
 **Proof before accusation: Exhibit A only reports vulnerabilities it can prove.**
 
 [Video demo](VIDEO_URL_PLACEHOLDER)
@@ -176,4 +168,4 @@ history, design decisions, and implementation timeline are documented in
 - [docs/reference/cli.md](docs/reference/cli.md): CLI reference.
 - [docs/ci/github-action.md](docs/ci/github-action.md): Action inputs and outputs.
 - [SECURITY.md](SECURITY.md): reporting and security boundaries.
-- [CONTRIBUTING.md](CONTRIBUTING.md): contribution workflow.
+- [AGENTS.md](AGENTS.md): how to work in this repository.
