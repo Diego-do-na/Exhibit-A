@@ -256,6 +256,9 @@ def test_sarif_steps_generate_and_upload() -> None:
 
     upload_step = _step(action, "Upload SARIF to GitHub Code Scanning")
     assert "inputs.sarif == 'true'" in upload_step["if"]
+    # Reporting must never fail the analyze job: repos without code scanning
+    # stay green once the engine, the comment and the artifact succeeded.
+    assert upload_step.get("continue-on-error") is True
     uses = upload_step.get("uses", "")
     assert uses.startswith("github/codeql-action/upload-sarif@")
     ref = uses.split("@", 1)[1]
