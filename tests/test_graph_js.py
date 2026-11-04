@@ -86,39 +86,33 @@ def test_js_builder_walks_with_lstat_not_dirent_type():
     assert "entry.isFile()" not in source
 
 
-def test_js_graph_stages_where_mounts_stay_bindable(tmp_path, monkeypatch):
+def test_js_graph_collects_manifest_sources_without_mounts(tmp_path):
+    import os
+
     import exhibit_a.graph.js_graph as js_graph
 
-    monkeypatch.setenv("HOME", str(tmp_path))
-    parent = js_graph._staging_parent()
-    assert parent.is_dir()
-    assert parent == tmp_path / ".cache" / "exhibit-a" / "js-graph"
+    src = tmp_path / "repo"
+    (src / "sub").mkdir(parents=True)
+    (src / "node_modules").mkdir()
+    (src / "app.ts").write_text("export const x = 1;\n")
+    (src / "sub" / "lib.js").write_text("module.exports = {};\n")
+    (src / "notes.md").write_text("# not source\n")
+    (src / ".hidden.ts").write_text("export const y = 2;\n")
+    (src / "node_modules" / "dep.js").write_text("module.exports = {};\n")
+    outside = tmp_path / "outside.ts"
+    outside.write_text("export const z = 3;\n")
+    os.symlink(outside, src / "link.ts")
+    rels = sorted(entry["rel"] for entry in js_graph._collect_sources(src))
+    assert rels == ["app.ts", "sub/lib.js"]
+
+
+def test_js_builder_reads_manifest_from_stdin():
     builder = (Path(__file__).resolve().parent.parent / "src/exhibit_a/graph/js/graph_builder.js").read_text(
         encoding="utf-8"
     )
+    assert "--from-stdin" in builder
+    assert "unsafe path" in builder
     assert "e.code" in builder
-
-
-def test_js_graph_staged_copy_is_world_readable(tmp_path):
-    import os
-    import shutil
-
-    import exhibit_a.graph.js_graph as js_graph
-
-    src = tmp_path / "src"
-    (src / "sub").mkdir(parents=True)
-    (src / "app.ts").write_text("export const x = 1;\n")
-    (src / "sub" / "lib.js").write_text("module.exports = {};\n")
-    dst = tmp_path / "staged"
-    shutil.copytree(src, dst, symlinks=True)
-    js_graph._make_world_readable(dst)
-    seen = 0
-    for dirpath, dirnames, filenames in os.walk(dst):
-        for name in (*dirnames, *filenames):
-            mode = os.stat(os.path.join(dirpath, name)).st_mode & 0o777
-            assert mode in (0o755, 0o644)
-            seen += 1
-    assert seen == 3
 
 
 @pytest.mark.docker

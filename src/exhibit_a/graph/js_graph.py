@@ -5,9 +5,7 @@ from collections import deque
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
-import tempfile
 
 from exhibit_a.schemas.graph import CodeGraph, EntryPoint, ReachPath, ReachReport, SinkHit, Unreached
 from exhibit_a.sandbox.image_node import build_node_image
@@ -22,33 +20,44 @@ MAX_OUTPUT_BYTES = 10 * 1024 * 1024
 TYPESCRIPT_PACKAGE = "typescript@5.7.2"
 
 
-def _staging_parent() -> Path:
-    """Directory holding the staged copy the container bind-mounts.
+_JS_EXTENSIONS = {".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"}
+_JS_SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "dist", "build", "__pycache__"}
+_JS_MAX_FILES = 5000
+_JS_MAX_TOTAL_BYTES = 50 * 1024 * 1024
 
-    Mirrors the sandbox runner: mounts staged under ``$HOME/.cache`` stay
-    bind-able on every file-sharing layer, while arbitrary worktree paths
-    have failed silently on CI with an empty graph and
-    ``cannot read directory``.
+
+def _collect_sources(root: Path) -> list[dict[str, str]]:
+    """Collect candidate sources for the manifest the container parses.
+
+    The container never sees the host filesystem: sources travel on stdin and
+    the builder re-applies its own caps, so this only mirrors the walk filters
+    (extensions, hidden names, vendored dirs, symlinks) with the same bounds.
     """
-    parent = Path.home() / ".cache" / "exhibit-a" / "js-graph"
-    parent.mkdir(parents=True, exist_ok=True)
-    return parent
-
-
-def _make_world_readable(root: Path) -> None:
-    """Open staged-copy permissions so any container UID can read it.
-
-    Rootless daemons map the container root to an unprivileged host UID, and
-    ``TemporaryDirectory`` creates mode 0700 trees, so a container-side
-    readdir fails with EACCES even as root. Staged sources carry no secrets,
-    so directories become 0755 and files 0644; symlinks are left untouched.
-    """
+    collected: list[dict[str, str]] = []
+    total = 0
     for dirpath, dirnames, filenames in os.walk(root):
-        for name in (*dirnames, *filenames):
-            path = os.path.join(dirpath, name)
-            if os.path.islink(path):
-                continue
-            os.chmod(path, 0o755 if os.path.isdir(path) else 0o644)
+        dirnames[:] = sorted(
+            name for name in dirnames
+            if not name.startswith(".") and name not in _JS_SKIP_DIRS
+            and not os.path.islink(os.path.join(dirpath, name))
+        )
+        for name in sorted(filenames):
+            if len(collected) >= _JS_MAX_FILES or total >= _JS_MAX_TOTAL_BYTES:
+                return collected
+            if not name.startswith(".") and os.path.splitext(name)[1] in _JS_EXTENSIONS:
+                full = os.path.join(dirpath, name)
+                if os.path.islink(full):
+                    continue
+                try:
+                    text = Path(full).read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                total += len(text.encode("utf-8"))
+                collected.append({
+                    "rel": os.path.relpath(full, root).replace(os.sep, "/"),
+                    "source": text,
+                })
+    return collected
 
 
 def _validate(raw: object) -> CodeGraph:
@@ -70,25 +79,20 @@ def build_js_graph(root: str | Path, *, image: str | None = None, timeout: float
     if not root.is_dir():
         raise ValueError(f"repository is not a directory: {root}")
     tag = image or build_node_image([TYPESCRIPT_PACKAGE])
-    # Stage a bounded copy under $HOME/.cache (a reliably shared path, same as
-    # the sandbox runner), then mount that copy read-only into the sandbox.
-    # The prefix is not hidden: some file-sharing layers skip dot-directories.
-    with tempfile.TemporaryDirectory(prefix="exhibit-a-js-stage-", dir=_staging_parent()) as staged_dir:
-        staged_root = Path(staged_dir) / "repo"
-        shutil.copytree(root, staged_root, symlinks=True)
-        os.chmod(staged_dir, 0o755)
-        _make_world_readable(staged_root)
-        command = [
-            "docker", "run", "--rm", "-i", "--network", "none", "--read-only",
-            "--tmpfs", "/tmp:rw,size=64m,mode=1777", "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges",
-            "-v", f"{staged_root}:/workspace:ro",
-            "--workdir", "/workspace",
-        ]
-        with open(BUILDER, "rb") as source:
-            data = source.read()
-        command.extend([tag, "node", "-", "/workspace"])
-        proc = subprocess.run(command, input=data, capture_output=True, timeout=timeout)
+    # No bind mount: the sources travel to the container on stdin as a JSON
+    # manifest, so no file-sharing layer or daemon userns mapping can hide
+    # them from the builder. The builder re-applies its own caps and never
+    # executes the sources, it only parses them.
+    with open(BUILDER, encoding="utf-8") as source:
+        builder = source.read()
+    manifest = json.dumps({"files": _collect_sources(root)})
+    command = [
+        "docker", "run", "--rm", "-i", "--network", "none", "--read-only",
+        "--tmpfs", "/tmp:rw,size=64m,mode=1777", "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        tag, "node", "-e", builder, "--", "--from-stdin",
+    ]
+    proc = subprocess.run(command, input=manifest.encode("utf-8"), capture_output=True, timeout=timeout)
     if proc.returncode != 0:
         raise RuntimeError(f"JavaScript graph builder failed: {proc.stderr.decode(errors='replace')[-2000:]}")
     if len(proc.stdout) > MAX_OUTPUT_BYTES:

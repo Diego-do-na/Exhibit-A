@@ -84,6 +84,33 @@ function walkFiles(root) {
   visit(root);
   return {files, skipped, truncated: files.length >= MAX_FILES || total >= MAX_TOTAL_BYTES};
 }
+function readManifest() {
+  // Manifest mode: the host streams {files: [{rel, source}]} on stdin, so the
+  // container never needs a bind mount. Paths are validated closed-world.
+  let parsed;
+  try { parsed = JSON.parse(fs.readFileSync(0, "utf8")); }
+  catch (e) { console.error("builder failure: malformed manifest"); process.exit(1); }
+  if (!parsed || !Array.isArray(parsed.files)) { console.error("builder failure: invalid manifest"); process.exit(1); }
+  const files = [], skipped = [];
+  let total = 0;
+  for (const entry of parsed.files) {
+    if (files.length >= MAX_FILES || total >= MAX_TOTAL_BYTES) break;
+    if (!entry || typeof entry.rel !== "string" || typeof entry.source !== "string") {
+      skipped.push({file: String((entry && entry.rel) || "?"), reason: "invalid manifest entry"}); continue;
+    }
+    if (entry.rel.split("/").some((part) => part === "" || part === "." || part === "..")) {
+      skipped.push({file: entry.rel, reason: "unsafe path"}); continue;
+    }
+    if (!EXTENSIONS.has(path.posix.extname(entry.rel))) continue;
+    const size = Buffer.byteLength(entry.source);
+    if (size > MAX_FILE_BYTES || total + size > MAX_TOTAL_BYTES) {
+      skipped.push({file: entry.rel, reason: "file too large"}); continue;
+    }
+    files.push({rel: entry.rel, source: entry.source});
+    total += size;
+  }
+  return {files, skipped, truncated: files.length >= MAX_FILES || total >= MAX_TOTAL_BYTES};
+}
 function moduleName(rel) {
   return rel.replace(/\.(mjs|cjs|jsx|tsx|js|ts)$/, "").replace(/\/index$/, "").replace(/\//g, ".") || "index";
 }
@@ -98,7 +125,9 @@ function resolveModule(from, spec, modules) {
 }
 
 function build(root) {
-  const discovered = walkFiles(root);
+  return buildFrom(walkFiles(root));
+}
+function buildFrom(discovered) {
   const modules = new Map(discovered.files.map(f => [f.rel, f]));
   const nodes = [], edges = [], nodeByName = new Map(), exports = new Map(), importsByFile = new Map();
   const sourceFiles = new Map();
@@ -261,7 +290,10 @@ function findCallAt(sf, owner, line) {
   function visit(n) { if (ts.isCallExpression(n) && sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1 === line) found = n; n.forEachChild(visit); }
   visit(sf); return found;
 }
-const root = process.argv[2];
-if (!root || !path.isAbsolute(root)) { console.error("usage: graph_builder.js ABSOLUTE_REPOSITORY"); process.exit(2); }
-try { process.stdout.write(JSON.stringify(build(root))); }
+const arg = process.argv[2] || process.argv[1];
+let discovered;
+if (arg === "--from-stdin") { discovered = readManifest(); }
+else if (arg && path.isAbsolute(arg)) { discovered = walkFiles(arg); }
+else { console.error("usage: graph_builder.js ABSOLUTE_REPOSITORY | --from-stdin"); process.exit(2); }
+try { process.stdout.write(JSON.stringify(buildFrom(discovered))); }
 catch (e) { console.error(`builder failure: ${e && e.message ? e.message : e}`); process.exit(1); }
