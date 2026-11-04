@@ -31,6 +31,7 @@ def test_benchmark_builder_gates_on_exhibit_a():
     assert same["available"] is True
     assert same["file"].endswith(".json")
     assert same["systems"], "expected per-system aggregates"
+    assert all("nothing proven live" not in s["system"].lower() for s in same["systems"])
     for system in same["systems"]:
         for key in ("system", "targets", "reported", "true_positives",
                     "false_positives", "discarded", "calls", "cost_usd"):

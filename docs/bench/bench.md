@@ -29,6 +29,25 @@ PYTHONPATH=src:. ~/Desktop/Proyects/Exhibit-A/.venv/bin/python -m bench.baseline
 
 They hold five calls and cost US$0.0930, under a hard cap of US$3.
 
+### Standard profile (needs Docker + owner)
+
+The dashboard hides the "Exhibit A, standard profile (nothing proven live)"
+row until it is remeasured under a US$8 hard cap. This session has no Docker,
+so the owner should run:
+
+```bash
+# Docker must be running. Isolated and resource-limited sandbox. Live model.
+# Hard cap US$8 for the whole standard-profile recording.
+export META_API_KEY
+PYTHONPATH=src:. ~/Desktop/Proyects/Exhibit-A/.venv/bin/python -m bench.record_meta \
+  --profile standard --budget-usd 8 --total-usd 8
+PYTHONPATH=src:. ~/Desktop/Proyects/Exhibit-A/.venv/bin/python -m bench --compare baseline
+```
+
+Paste the command output back into this document (it regenerates the table
+below) and the dashboard will pick up the new `bench/results/<date>.json`.
+Unmeasured per-target cells (`measured: false`) stay out of `/api/benchmark`.
+
 ## Results
 
 <!-- BEGIN GENERATED: python -m bench --compare baseline -->

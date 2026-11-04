@@ -80,11 +80,10 @@ window.Component = class Component extends DCLogic {
     const tgtAll = top.reduce((t, s) => t + (s.targets || 0), 0);
     const fpAll = top.reduce((t, s) => t + (s.false_positives || 0), 0);
     const pstats = [
-      { v: hasBench && tgtAll ? Math.round(repAll / tgtAll * 100) + '%' : '—', l: 'proof rate: ' + (hasBench ? repAll + ' of ' + tgtAll + ' targets reported' : 'no benchmark data for this source') },
-      { v: '—', l: 'fix rate: bench/results carry no fix data' },
-      { v: hasBench && repAll ? this.money(sysCost / repAll) : '—', l: 'cost per reported finding' },
-      { v: hasBench ? String(fpAll) : '—', l: 'false positives across systems' },
-    ];
+      { v: hasBench && tgtAll ? Math.round(repAll / tgtAll * 100) + '%' : '', l: 'proof rate: ' + (hasBench ? repAll + ' of ' + tgtAll + ' targets reported' : 'no benchmark data for this source') },
+      { v: hasBench && repAll ? this.money(sysCost / repAll) : '', l: 'cost per reported finding' },
+      { v: hasBench ? String(fpAll) : '', l: 'false positives across systems' },
+    ].filter((row) => row.v !== '');
     const cover = hasBench ? top.slice(0, 4).map((s) => ({
       v: String(s.discarded || 0), n: 'Discarded · ' + s.system,
       d: (s.discarded || 0) + ' suspicions discarded without proof in ' + (bench.file || 'bench/results') + '. Reasons live in the run ledgers, not in bench/results.' })) : [];

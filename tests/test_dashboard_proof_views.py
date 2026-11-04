@@ -101,7 +101,8 @@ def test_benchmark_has_a_coverage_panel_and_derived_stats():
     assert "Coverage: what could not be proven" in read("benchmark.html")
     assert "green means nothing could be proven, never safe" in read("benchmark.html")
     js = read("views/benchmark.js")
-    assert "proof rate" in js and "fix rate" in js and "red-team" in js
+    assert "proof rate" in js and "red-team" in js
+    assert "fix rate" not in js
 
 
 def test_pull_requests_map_authors_to_packages():

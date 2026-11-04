@@ -1528,6 +1528,11 @@ def build_benchmark(source_label: str, repo_names: Sequence[str]) -> dict[str, A
         if not isinstance(entry, dict) or entry.get("measured") is not True:
             continue
         system = _text(entry.get("system"), 120) or "unrecorded system"
+        # Standard-profile live row is labelled "nothing proven live" until the
+        # owner remeasures it under the US$8 cap (docs/bench/bench.md). Hide it
+        # rather than showing an empty system.
+        if "nothing proven live" in system.lower():
+            continue
         slot = systems.setdefault(system, {"system": system, "targets": 0, "reported": 0,
                                            "true_positives": 0, "false_positives": 0, "discarded": 0,
                                            "calls": 0, "cost_usd": 0.0, "truth_found": 0, "truth_total": 0})
