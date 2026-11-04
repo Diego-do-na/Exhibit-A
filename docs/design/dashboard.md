@@ -190,6 +190,31 @@ Every chart card includes an expand button opening a modal dialog containing:
    - `"Zero-value items: <zero_count> of <item_count>."`
 4. **`THE NUMBERS`**: Exact tabular view of every series/slice shown in the chart (`Label`, `Count / Value`, `Share %`), where every cell equals the corresponding number in the API response.
 
+## What is simulated
+
+Everything a page shows comes from the four sources listed above, except for
+three explicitly labelled UI-only pieces:
+
+- **Recorded demo.** Opening `pr.html` with no `?run=` shows a fixed example
+  (labelled `Recorded demo · simulated`) that replays client-side. It is never
+  attached to a listed pull request: a merged PR without a recorded run shows
+  the honest empty state (`No Exhibit A run was recorded for this pull
+  request`) and the command to record one.
+- **Approve flow.** `Apply suggested fix (simulated)` only flips local UI
+  state and pushes nothing. The real flow posts the verified fix as a GitHub
+  review suggestion (`suggest-fixes`) plus a summary comment; the commit is
+  created in the user's name on GitHub and the proof loop re-runs on the new
+  head before merge (see `docs/ci/fix-pr.md`).
+- **Synthetic sample runs.** `scripts/make_sample_runs.py` writes runs marked
+  `synthetic: true` (in `pr_opened`, the index and a README). The UI shows a
+  `Synthetic sample data` badge whenever any loaded run is synthetic. Sample
+  runs exist for offline UI work; they are never presented as real evidence.
+
+Replay (`/events`, `/replay`) streams recorded ledger events at a
+user-chosen pace; nothing is re-executed. The Economics page recomputes every
+figure from `/api` for the current `--source`; any field the ledger and
+artifacts do not record reads `not recorded`, never an estimate.
+
 ## API (all GET, all under the session cookie)
 
 | Endpoint | Returns |
@@ -263,6 +288,23 @@ traversal (`canary_write`) proven and with an incomplete fix bypassed by a
 defender variant, an aborted baseline, a risk-gate skip, flaky and env_failure
 verdicts, and history for the trends chart.
 
+## Verification matrix and final captures
+
+`docs/design/screenshots-matrix/` holds 32 captures: the 8 pages
+(`index`, `prs`, `pr`, `findings`, `finding`, `graph`, `benchmark`,
+`economics`) at `1440x900` and `1728x1117`, in light and night mode. Every
+capture passes with 0 console errors and 0 horizontal overflow against both
+`--source github:Diego-do-na/exhibit-a-testbed` (real CI runs) and
+`--source local:runs`; `summary.json` records the per-capture result.
+
+`docs/design/screenshots-final/` holds three captures against the GitHub
+source with real data:
+
+- `overview-real-data.png`: the Overview with real testbed runs.
+- `pr-testbed-pr1.png`: `pr.html?run=` for testbed PR #1 (the proven
+  `canary_read` in `memos.py`).
+- `economics-real-spend.png`: the Economics page with real recorded spend.
+
 ## Requires (outside this task's scope)
 
 1. **`exhibit-a dashboard` subcommand (T072).** Wire it in `src/exhibit_a/cli/`
@@ -274,9 +316,13 @@ verdicts, and history for the trends chart.
    wheel install (not an editable checkout) would not ship it; `--web` covers
    that today. To ship it, move the UI under `src/exhibit_a/dashboard/web/` (or
    add package data in `pyproject.toml`) and point `default_web_dir` at it.
-3. **`runs.jsonl` contract.** When `src/exhibit_a/ledger/index.py` lands, confirm
-   its key names (`dir`/`run_id`, `repo`, `pr`, `commit`, `branch`,
-   `started_at`) or adjust `LocalRunsSource._index`.
+3. **`runs.jsonl` contract.** `src/exhibit_a/ledger/index.py` appends `RunRecord`
+   lines (`run_id`, `repo`, `pr`, `commit`, `ts`, `ledger_path`, ...; see
+   `src/exhibit_a/schemas/run_index.py`). `LocalRunsSource._index` keys each
+   entry by `dir`/`path`/`run_id` and reads `repo`, `pr`, `commit`/`head_sha`,
+   `branch`, `started_at`/`ts` and `synthetic`; a run folder picks up its
+   metadata when the folder name equals the entry key. Keep both sides in
+   sync when either gains a field.
 4. **Repo/PR/commit in real runs.** The loop does not emit `pr_opened` for CLI
    corpus runs; once the PR-diff surface exists, emitting `repo`, `pr`,
    `commit` and `branch` in `pr_opened` (or in `result.json`) fills those

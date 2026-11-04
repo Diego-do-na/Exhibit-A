@@ -38,19 +38,18 @@ no build step and no third-party code.
 
 ## Data
 
-Every number is a snapshot embedded in `views/*.js`, taken on 2026-11-02 from the git history
-of `main` (134 task merges, including GitHub PRs #1 and #2), the 32 live corpus recordings
-(`bench/corpus/*/recordings/meta-muse-wonder-1.0-compact.json`), `docs/bench/bench.md`,
-`bench/results/ablations.json`, an `ast` import graph of `src/exhibit_a`, and
-`examples/action-demo` (the PR analysis example and its real diff).
+Every number comes from the dashboard API for the current `--source`
+(`local:<dir>` or `github:<owner/repo>`): the run ledger is the single source
+of truth, and any field the ledger and artifacts do not record reads
+`not recorded`, never an estimate. See
+[docs/design/dashboard.md](../../docs/design/dashboard.md) for the sources,
+the data rule, and what is simulated.
 
-The PR analysis replays that example's proof loop client-side; the approve flow is UI only and
-pushes nothing.
+The unparameterised `pr.html` view is a recorded demo that replays a fixed
+example client-side; the approve flow is UI only and pushes nothing.
 
 ## Next steps
 
-- Load data from the API (`/api/repos/<id>`, `/api/runs/<id>`, `/api/runs/<id>/events`,
-  `/api/runs/<id>/codegraph`) instead of embedded snapshots.
 - Wire "Approve and commit fix" to the Action's fix-PR flow (`docs/ci/fix-pr.md`).
 - `exhibit-a dashboard --export` still writes `data/*.json` and `static.js` for one run; the
   pages do not read them yet.
