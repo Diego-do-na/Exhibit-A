@@ -623,7 +623,14 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
                 ))
                 continue
             if roles is None:
-                roles = _pr_roles(args) if args.replay else _live_roles(args, meter)
+                if args.replay:
+                    roles = _pr_roles(args)
+                else:
+                    try:
+                        roles = _live_roles(args, meter)
+                    except ValueError as exc:
+                        print(f"run: cannot build live roles: {exc}", file=sys.stderr)
+                        return 1
             runner = _sandbox_runner_cls()(
                 language=language,
                 sql_db=sql_db if effect == "canary_sql" else None,
@@ -672,12 +679,22 @@ def _live_roles(args: argparse.Namespace, meter: CostMeter | None) -> Roles:
     enforces the --budget-usd hard stop.
     """
     # Precedence: explicit CLI flags > environment variables > built-in defaults.
+    # The dev default model applies to ollama only: silently sending it to a
+    # hosted provider once produced 404s for a model id that does not exist
+    # there, so any other provider without an explicit model fails closed.
     provider_name = getattr(args, "provider", None)
     if not provider_name:
         provider_name = os.environ.get("EXHIBIT_A_PROVIDER") or LIVE_PROVIDER_DEFAULT
     model = getattr(args, "model", None)
     if not model:
-        model = os.environ.get("EXHIBIT_A_MODEL") or LIVE_MODEL_DEFAULT
+        model = os.environ.get("EXHIBIT_A_MODEL")
+    if not model:
+        if provider_name == "ollama":
+            model = LIVE_MODEL_DEFAULT
+        else:
+            raise ValueError(
+                f"run: live {provider_name} runs need --model (no default model for this provider)"
+            )
     config = {
         role: RoleConfig(provider=provider_name, model=model, **_generation(args, role))
         for role in Role

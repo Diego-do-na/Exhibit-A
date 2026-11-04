@@ -266,6 +266,20 @@ def test_live_run_defaults_to_ollama_dev_model(tmp_path, monkeypatch, fake_provi
     capsys.readouterr()
 
 
+def test_live_run_without_model_fails_closed_outside_ollama(monkeypatch) -> None:
+    import argparse
+
+    monkeypatch.delenv("EXHIBIT_A_MODEL", raising=False)
+    args = argparse.Namespace(provider="meta", model=None, profile="compact")
+    with pytest.raises(ValueError, match=r"--model"):
+        run_mod._live_roles(args, None)
+    monkeypatch.setenv("EXHIBIT_A_MODEL", "muse-wonder-1.0")
+    roles = run_mod._live_roles(args, None)
+    got = [roles.adversary, roles.test_writer, roles.fixer, roles.defender]
+    assert {role.provider.name for role in got} == {"meta"}
+    assert {role.provider.model for role in got} == {"muse-wonder-1.0"}
+
+
 def test_live_run_budget_abort_returns_nonzero(tmp_path, monkeypatch, fake_provider, capsys) -> None:
     monkeypatch.setattr(run_mod, "SandboxRunner", FakeRunner)
     monkeypatch.setattr(FakeLive, "cost_usd", 5.0)
