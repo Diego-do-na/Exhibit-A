@@ -87,6 +87,35 @@ def test_changed_lines_map_to_the_innermost_function(tmp_path):
     assert outside == ["app.py:1", "app.py:4"]
 
 
+def test_a_module_level_regex_change_starts_a_search_from_its_users():
+    root = FIXTURES / "pr_effects" / "redos"
+    graph = build_graph(root)
+    nodes, outside = changed_nodes(graph, {"names.py": {3}})
+    assert outside == ["names.py:3"]
+    assert "names:is_username" in nodes
+    report = find_paths(graph, nodes, changed_outside=outside)
+    assert report.paths
+    assert {p.sink.effect for p in report.paths} == {"canary_dos"}
+    assert report.paths[0].oracle_entry_point == "App.handle_request"
+    assert report.paths[0].sink.target == "re.compile.match"
+
+
+def test_sql_and_ssrf_fixtures_have_provable_sinks():
+    sql = find_paths(build_graph(FIXTURES / "pr_effects" / "sql"), ["notes:App._search"])
+    assert sql.paths and {p.sink.effect for p in sql.paths} == {"canary_sql"}
+    ssrf = find_paths(build_graph(FIXTURES / "pr_effects" / "ssrf"), ["pings:App.handle_request"])
+    assert ssrf.paths and {p.sink.effect for p in ssrf.paths} == {"canary_connect"}
+
+
+def test_idor_has_no_oracle_provable_sink():
+    graph = build_graph(FIXTURES / "pr_effects" / "idor")
+    report = find_paths(graph, ["folders:App.handle_request"])
+    assert report.paths == []
+    assert {(u.node, u.reason) for u in report.unreached} == {
+        ("folders:App.handle_request", "reaches no sink"),
+    }
+
+
 # -- the corpus paths --------------------------------------------------------------------------
 
 def test_archive_case_path_from_handle_request_to_the_open_for_write():

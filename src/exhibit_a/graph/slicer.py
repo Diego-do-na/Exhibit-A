@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import stat
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -95,14 +96,61 @@ def _ordered_nodes(paths: list[ReachPath]) -> tuple[list[str], list[str]]:
     return order, priority
 
 
+def _module_snippets(
+    root: Path,
+    extra_lines: Sequence[tuple[str, int]],
+    cache: dict[str, list[str] | None],
+    budget: int,
+) -> tuple[str, tuple[SliceFunction, ...], int, bool]:
+    """Changed module-level lines (a PATTERN assignment, a constant) under ``budget``.
+
+    These are included before function bodies so a size cap cannot drop the statement
+    the diff actually touched.
+    """
+    parts: list[str] = []
+    functions: list[SliceFunction] = []
+    truncated = False
+    remaining = budget
+    seen: set[tuple[str, int]] = set()
+    for file, line in extra_lines:
+        key = (file, line)
+        if key in seen or line < 1:
+            continue
+        seen.add(key)
+        if file not in cache:
+            cache[file] = _read_lines(root, file)
+        rows = cache[file]
+        if rows is None:
+            truncated = True
+            continue
+        if line > len(rows):
+            truncated = True
+            continue
+        title = f"--- {file}:{line}-{line} <module>\n"
+        row = f"{line}: {rows[line - 1]}\n"
+        text = title + row
+        if len(text) > remaining:
+            truncated = True
+            continue
+        remaining -= len(text)
+        parts.append(text)
+        functions.append(SliceFunction(f"{file}:{line}", file, line, line, False))
+    return "".join(parts), tuple(functions), remaining, truncated
+
+
 def build_slice(
     graph: CodeGraph,
     root: str | Path,
     paths: list[ReachPath],
     *,
     max_chars: int = MAX_SLICE_CHARS,
+    extra_lines: Sequence[tuple[str, int]] = (),
 ) -> CodeSlice:
-    """The source of the functions on ``paths``, numbered, under ``max_chars``."""
+    """The source of the functions on ``paths``, numbered, under ``max_chars``.
+
+    ``extra_lines`` are changed module-level statements (file, 1-based line) included
+    before the functions so a changed ``PATTERN`` is visible to the adversary.
+    """
     nodes = {n.id: n for n in graph.nodes}
     root = Path(root)
     header = ["CALL GRAPH SLICE (static; it may miss calls and reachability is not exploitability)"]
@@ -126,7 +174,8 @@ def build_slice(
     cache: dict[str, list[str] | None] = {}
     bodies: dict[str, tuple[str, SliceFunction]] = {}
     budget = max_chars - len(head)
-    truncated = False
+    extra_text, extra_fns, budget, extra_cut = _module_snippets(root, extra_lines, cache, budget)
+    truncated = extra_cut
     for node_id in [n for n in priority if n in spans]:
         node = spans[node_id]
         if node.file not in cache:
@@ -154,8 +203,12 @@ def build_slice(
         budget -= len(text)
         bodies[node_id] = (text, SliceFunction(node_id, node.file, node.start, node.end, cut))
     kept_order = [n for n in order if n in bodies]
-    text = head + "".join(bodies[n][0] for n in kept_order)
-    return CodeSlice(text=text, functions=tuple(bodies[n][1] for n in kept_order), truncated=truncated)
+    text = head + extra_text + "".join(bodies[n][0] for n in kept_order)
+    return CodeSlice(
+        text=text,
+        functions=extra_fns + tuple(bodies[n][1] for n in kept_order),
+        truncated=truncated,
+    )
 
 
 @dataclass(frozen=True)
@@ -170,12 +223,20 @@ class SlicePlan:
         """The best-ranked path through a function containing ``file:line``, else the best path.
 
         The suspicion's location comes from the model, so it only picks among the graph's own
-        paths; whatever it says, the entry point is one the graph found.
+        paths; whatever it says, the entry point is one the graph found. A location on a
+        changed module-level statement (the extra ``file:line`` span) picks a path whose
+        changed function is in that file.
         """
         for path in self.paths:
             for node in [*path.to_changed, *path.to_sink]:
                 span = self.spans.get(node)
                 if span and span[0] == file and span[1] <= line <= span[2]:
+                    return path
+        extra = self.spans.get(f"{file}:{line}")
+        if extra is not None:
+            for path in self.paths:
+                changed = self.spans.get(path.changed)
+                if changed and changed[0] == file:
                     return path
         return self.paths[0]
 
@@ -197,6 +258,7 @@ def make_plan(
     *,
     max_paths: int = MAX_SLICE_PATHS,
     max_chars: int = MAX_SLICE_CHARS,
+    extra_lines: Sequence[tuple[str, int]] = (),
 ) -> SlicePlan | None:
     """A plan from the best ``max_paths`` paths, or None when there is no path."""
     chosen = list(paths[:max_paths])
@@ -208,4 +270,10 @@ def make_plan(
         for node in [*path.to_changed, *path.to_sink]:
             if node in nodes:
                 spans[node] = (nodes[node].file, nodes[node].start, nodes[node].end)
-    return SlicePlan(tuple(chosen), build_slice(graph, root, chosen, max_chars=max_chars), spans)
+    for file, line in extra_lines:
+        spans[f"{file}:{line}"] = (file, line, line)
+    return SlicePlan(
+        tuple(chosen),
+        build_slice(graph, root, chosen, max_chars=max_chars, extra_lines=extra_lines),
+        spans,
+    )

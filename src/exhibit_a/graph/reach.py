@@ -80,8 +80,9 @@ def changed_nodes(graph: CodeGraph, lines: Mapping[str, Iterable[int]]) -> tuple
     """The innermost function or method around each changed line.
 
     Returns ``(node ids, "file:line" of changed lines outside any function)``. A change at
-    module or class level is listed but starts no search (a recall cost, see
-    docs/design/code-graph.md).
+    module or class level is listed, and callables in that file that call a method of a
+    module-level call on those lines (for example ``PATTERN.match`` after
+    ``PATTERN = re.compile(...)``) start a search so a changed regex is not invisible.
     """
     by_file: dict[str, list[GraphNode]] = {}
     for node in graph.nodes:
@@ -90,6 +91,7 @@ def changed_nodes(graph: CodeGraph, lines: Mapping[str, Iterable[int]]) -> tuple
     files = {n.file for n in graph.nodes}
     found: set[str] = set()
     outside: list[str] = []
+    outside_by_file: dict[str, set[int]] = {}
     for file in sorted(lines):
         candidates = by_file.get(file, [])
         for line in sorted(set(lines[file])):
@@ -98,7 +100,39 @@ def changed_nodes(graph: CodeGraph, lines: Mapping[str, Iterable[int]]) -> tuple
                 found.add(min(around, key=lambda n: (n.end - n.start, n.id)).id)
             elif file in files:
                 outside.append(f"{file}:{line}")
+                outside_by_file.setdefault(file, set()).add(line)
+    for file, rows in outside_by_file.items():
+        found.update(_users_of_module_calls(graph, file, rows))
     return sorted(found), outside
+
+
+def _users_of_module_calls(graph: CodeGraph, file: str, lines: Iterable[int]) -> list[str]:
+    """Callables in ``file`` that call a method of a module-level call on ``lines``.
+
+    A module-level ``PATTERN = re.compile(...)`` is not a function, so it used to start
+    no search. Functions that then call ``PATTERN.match`` resolve to ``re.compile.match``
+    and are the functions a ReDoS path has to go through.
+    """
+    rows = set(lines)
+    module_ids = {n.id for n in graph.nodes if n.kind == "module" and n.file == file}
+    if not module_ids:
+        return []
+    prefixes = [
+        edge.dst for edge in graph.edges
+        if edge.src in module_ids and edge.line in rows and edge.kind == "external" and edge.dst
+    ]
+    if not prefixes:
+        return []
+    callables = {n.id for n in graph.nodes if n.kind in _CALLABLE and n.file == file}
+    found: set[str] = set()
+    for edge in graph.edges:
+        if edge.src not in callables or edge.kind != "external" or not edge.dst:
+            continue
+        for prefix in prefixes:
+            if edge.dst == prefix or edge.dst.startswith(prefix + "."):
+                found.add(edge.src)
+                break
+    return sorted(found)
 
 
 def functions_in(graph: CodeGraph, file: str) -> list[str]:

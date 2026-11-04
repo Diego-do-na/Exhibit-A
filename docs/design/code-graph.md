@@ -119,6 +119,15 @@ graph of the staged clone first. Only paths to a sink whose effect is the run's 
 A path to `subprocess.run` can never end in a `canary_read` proof, so it is not worth a model
 call.
 
+On a PR run, `--effect` is optional. When it is omitted (the GitHub Action never passes it),
+the engine derives the effects from sinks reachable in the diff and runs each one inside the
+existing `--budget-usd` cap, fail-closed: read, write, exec, SQL, connect, and dos (ReDoS).
+It never starts an effect after the cap is reached. **IDOR (`canary_access`) is not derived
+and is not supported on this surface yet**: broken access control has no oracle-provable sink
+call (only the observed response), so a compact sliced PR that only removes an ownership
+check is recorded as `nothing_reachable` with `paths_to_other_sinks=0`. That is an honest
+miss, not a finding.
+
 - **No path:** a `scan_done` event with `status: nothing_reachable` records the changed
   functions, why each one is unreached, and the graph size. No baseline runs, no model is
   called, and the run exits 0. A PR-diff run still writes `result.json` and its run-index line.
@@ -190,7 +199,11 @@ relevant code), or money (a path that leads nowhere). None of them produces a pr
   return to the immediate caller. A helper two calls deep whose result reaches a sink is
   missed.
 - **Changes outside functions.** Module constants, class attributes and import lines are
-  listed (`changed_outside_functions`) but start no search.
+  listed (`changed_outside_functions`). Callables in that file that call a method of a
+  module-level call on those lines (for example `PATTERN.match` after
+  `PATTERN = re.compile(...)`) start a search, and the slice includes the changed
+  statement so a module-level regex is visible. A module-level assignment that nothing
+  calls still starts no search.
 - **Native code, C extensions, subprocesses**, and anything that happens outside Python.
 - **Limits.** Files over the caps, the depth limit and the node budget (`budget_exhausted` in
   the report).

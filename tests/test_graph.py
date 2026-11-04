@@ -426,6 +426,13 @@ def redos_const(data):
     return re.search(r'(a+)+$', data)
 
 
+PATTERN = re.compile(r'(a+)+$')
+
+
+def redos_compiled(data):
+    return PATTERN.match(data)
+
+
 def redos_safe(data):
     return re.search(r'^[a-z]+$', data)
 
@@ -480,6 +487,7 @@ def sinks(tmp_path_factory):
     ("threaded", "os.stat", "path_traversal", "canary_read"),
     ("redos_dyn", "re.search", "regex_denial_of_service", "canary_dos"),
     ("redos_const", "re.search", "regex_denial_of_service", "canary_dos"),
+    ("redos_compiled", "re.compile.match", "regex_denial_of_service", "canary_dos"),
     ("nested_json", "json.loads", "algorithmic_complexity", "canary_dos"),
 ])
 def test_sinks_carry_their_vulnerability_class(sinks, function, target, vuln_class, effect):

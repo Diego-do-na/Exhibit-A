@@ -130,8 +130,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--effect",
         choices=get_args(Effect),
-        default="canary_read",
-        help="Oracle effect to prove in PR-diff mode (default: canary_read).",
+        default=None,
+        help=(
+            "Oracle effect to prove in PR-diff mode. When omitted on a sliced PR run, "
+            "effects are taken from sinks reachable in the diff (read, write, exec, SQL, "
+            "connect, dos). canary_access (IDOR) is not derived: the graph has no "
+            "oracle-provable sink for it."
+        ),
     )
     run.add_argument(
         "--replay",

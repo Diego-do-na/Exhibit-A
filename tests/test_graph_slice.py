@@ -16,6 +16,7 @@ from bench.loop_pipeline import CaseMaterialsProvider
 from exhibit_a.cli import main
 from exhibit_a.cli import run as run_mod
 from exhibit_a.cli.parser import build_parser
+from exhibit_a.cli.run import discover_sql_db, sql_skip_reason
 from exhibit_a.graph import build_graph, find_paths
 from exhibit_a.graph.slicer import build_slice, make_plan
 from exhibit_a.ledger import Ledger
@@ -376,3 +377,237 @@ def test_corpus_case_with_slice_in_the_sandbox(case, entry, tmp_path, monkeypatc
     assert [(v["verdict"], v["fix_verified"]) for v in verdicts] == [("proven", True)]
     [(_, adversary, _)] = [p for p in provider.prompts if p[0] == Role.ADVERSARY]
     assert adversary.count("CALL GRAPH SLICE") == 1
+
+
+# -- PR runs: derive effects from the slice (T151) ----------------------------------------------
+
+PR_EFFECTS = FIXTURES / "pr_effects"
+
+
+class QuietRunner:
+    """Baseline always passes; exploits are not reached when the adversary is silent."""
+
+    def __init__(self, *args, **kwargs):
+        self.kwargs = kwargs
+
+    def run_baseline(self, clone, test_path, timeout):
+        return {"outcome": "passed", "exit_code": 0, "stdout": "", "stderr": "", "oracle_events": []}
+
+    def run_exploit(self, app_root, test_path, entry_points, *, timeout, effect="canary_read"):
+        raise AssertionError(f"no exploit expected for {effect}")
+
+
+def _silent():
+    return Scripted(lambda role, prompt, schema: json.dumps({"suspicions": []}))
+
+
+def _fixed_source(original: str) -> str:
+    """A still-reachable sibling of the fixture: same functions, no vuln-shaped sink arg."""
+    if 'LIKE \'%" + q + "%\'' in original:
+        return original.replace(
+            '"SELECT body FROM notes WHERE body LIKE \'%" + q + "%\'"',
+            '"SELECT body FROM notes WHERE body LIKE ?", (q,)',
+        )
+    if "urlopen(url)" in original:
+        return original.replace("urlopen(url)", "urlopen('https://example.invalid/')")
+    if "([a-zA-Z0-9_]+)+" in original:
+        return original.replace("([a-zA-Z0-9_]+)+", "[a-zA-Z0-9_]+")
+    if 'return folder["body"]' in original:
+        return original.replace(
+            'return folder["body"]',
+            'return folder["body"] if folder["owner"] == query.get("user") else None',
+        )
+    raise AssertionError("no known fix rewrite for this fixture")
+
+
+def _stage_pr(tmp_path: Path, src: Path, filename: str, *, db: bool = False) -> tuple[Path, str, str]:
+    """A two-commit repo whose HEAD is the fixture file (the change is inside it)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    original = (src / filename).read_text()
+    (repo / filename).write_text(_fixed_source(original))
+    if db:
+        (repo / "notes.db").write_bytes(b"")
+        (repo / "notes.log").write_text("log\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / filename).write_text(original)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "head")
+    return repo, base, _git(repo, "rev-parse", "HEAD")
+
+
+def _run_pr(monkeypatch, repo: Path, base: str, head: str, out: Path, extra: list[str] | None = None,
+            provider=None, runner_cls=QuietRunner):
+    seen: list[str] = []
+    if provider is None:
+        provider = _silent()
+
+    def live(args, meter):
+        return _roles(provider)
+
+    class Recording(runner_cls):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            seen.append(str(kwargs.get("sql_db")))
+
+    monkeypatch.setattr(run_mod, "_live_roles", live)
+    monkeypatch.setattr(run_mod, "SandboxRunner", Recording)
+    loops: list[str] = []
+    real_loop = run_mod.VerificationLoop
+
+    class Tracking(real_loop):
+        def __init__(self, *args, **kwargs):
+            loops.append(kwargs.get("effect"))
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(run_mod, "VerificationLoop", Tracking)
+    code = main(["run", "--repo", str(repo), "--pr-diff", f"{base}..{head}", "--out", str(out),
+                 "--slice", *(extra or [])])
+    return code, loops, provider, seen
+
+
+def test_a_pr_without_effect_keeps_the_sql_path(tmp_path, monkeypatch):
+    repo, base, head = _stage_pr(tmp_path, PR_EFFECTS / "sql", "notes.py", db=True)
+    out = tmp_path / "out"
+    code, loops, provider, _ = _run_pr(monkeypatch, repo, base, head, out)
+    assert code == 0
+    assert loops == ["canary_sql"]
+    events = _events(out / "ledger.jsonl")
+    derived = [e["payload"] for e in events if e["type"] == "scan_done" and e["payload"].get("status") == "derived_effects"]
+    assert derived and derived[0]["effects"] == ["canary_sql"]
+    assert any(p[0] == Role.ADVERSARY for p in provider.prompts)
+
+
+def test_sql_on_memory_db_is_derived_then_skipped(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "notes.py").write_text(
+        "import sqlite3\nclass App:\n    def handle_request(self, q):\n"
+        "        return sqlite3.connect(':memory:').execute('SELECT 1').fetchall()\n"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "notes.py").write_text(
+        "import sqlite3\nclass App:\n    def handle_request(self, q):\n"
+        "        return sqlite3.connect(':memory:').execute('SELECT ' + q).fetchall()\n"
+    )
+    _git(repo, "commit", "-q", "-am", "head")
+    head = _git(repo, "rev-parse", "HEAD")
+    monkeypatch.setattr(run_mod, "_live_roles", _no_model)
+    monkeypatch.setattr(run_mod, "SandboxRunner", _no_model)
+    out = tmp_path / "out"
+    code = main(["run", "--repo", str(repo), "--pr-diff", f"{base}..{head}", "--out", str(out), "--slice"])
+    assert code == 0
+    events = [e["payload"] for e in _events(out / "ledger.jsonl")]
+    assert any(e.get("status") == "derived_effects" and e.get("effects") == ["canary_sql"] for e in events)
+    skipped = [e for e in events if e.get("status") == "effect_skipped"]
+    assert skipped and skipped[0]["effect"] == "canary_sql"
+    assert ":memory:" in skipped[0]["reason"]
+
+
+def test_explicit_canary_read_still_drops_a_sql_path(tmp_path, monkeypatch):
+    # Regression: compact PRs used to always filter to canary_read and drop SQLi.
+    # Explicit --effect canary_read still does that; omitting --effect must not.
+    repo, base, head = _stage_pr(tmp_path, PR_EFFECTS / "sql", "notes.py", db=True)
+    monkeypatch.setattr(run_mod, "_live_roles", _no_model)
+    monkeypatch.setattr(run_mod, "SandboxRunner", _no_model)
+    out = tmp_path / "out"
+    code = main(["run", "--repo", str(repo), "--pr-diff", f"{base}..{head}", "--out", str(out),
+                 "--slice", "--effect", "canary_read"])
+    assert code == 0
+    [event] = _events(out / "ledger.jsonl")
+    assert event["payload"]["status"] == "nothing_reachable"
+    assert event["payload"]["effect"] == "canary_read"
+    assert event["payload"]["paths_to_other_sinks"] == 1
+
+
+def test_a_pr_without_effect_keeps_the_ssrf_path(tmp_path, monkeypatch):
+    repo, base, head = _stage_pr(tmp_path, PR_EFFECTS / "ssrf", "pings.py")
+    out = tmp_path / "out"
+    code, loops, provider, _ = _run_pr(monkeypatch, repo, base, head, out)
+    assert code == 0
+    assert loops == ["canary_connect"]
+    derived = [e["payload"] for e in _events(out / "ledger.jsonl")
+               if e["type"] == "scan_done" and e["payload"].get("status") == "derived_effects"]
+    assert derived and derived[0]["effects"] == ["canary_connect"]
+    assert any(p[0] == Role.ADVERSARY for p in provider.prompts)
+
+
+def test_a_module_level_pattern_is_in_the_slice(tmp_path, monkeypatch):
+    repo, base, head = _stage_pr(tmp_path, PR_EFFECTS / "redos", "names.py")
+    out = tmp_path / "out"
+    code, loops, provider, _ = _run_pr(monkeypatch, repo, base, head, out)
+    assert code == 0
+    assert loops == ["canary_dos"]
+    [(_, adversary, _)] = [p for p in provider.prompts if p[0] == Role.ADVERSARY]
+    assert "PATTERN = re.compile" in adversary
+    assert "([a-zA-Z0-9_]+)+" in adversary
+    assert "<module>" in adversary
+
+
+def test_idor_is_not_faked_as_reachable(tmp_path, monkeypatch):
+    repo, base, head = _stage_pr(tmp_path, PR_EFFECTS / "idor", "folders.py")
+    monkeypatch.setattr(run_mod, "_live_roles", _no_model)
+    monkeypatch.setattr(run_mod, "SandboxRunner", _no_model)
+    out = tmp_path / "out"
+    code = main(["run", "--repo", str(repo), "--pr-diff", f"{base}..{head}", "--out", str(out), "--slice"])
+    assert code == 0
+    [event] = _events(out / "ledger.jsonl")
+    assert event["payload"]["status"] == "nothing_reachable"
+    assert event["payload"]["paths_to_other_sinks"] == 0
+    assert "canary_access" in event["payload"]["reason"]
+    assert event["tokens_in"] == event["tokens_out"] == 0
+
+
+def test_derived_effects_share_the_budget_and_never_start_past_the_cap(tmp_path, monkeypatch):
+    repo, base, head = _stage_pr(tmp_path, PR_EFFECTS / "mixed", "app.py", db=True)
+    out = tmp_path / "out"
+    loops: list[str] = []
+
+    class Priced:
+        name = "priced"
+        pricing = Pricing()
+
+        def complete(self, role, prompt, schema):
+            return Completion(json.dumps({"suspicions": []}), 1, 1, 1, model="priced", cost_usd=0.15)
+
+    def live(args, meter):
+        return Roles(*(ModelRole(role, Priced(), meter) for role in ROLES))
+
+    real_loop = run_mod.VerificationLoop
+
+    class Tracking(real_loop):
+        def __init__(self, *args, **kwargs):
+            loops.append(kwargs.get("effect"))
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(run_mod, "_live_roles", live)
+    monkeypatch.setattr(run_mod, "SandboxRunner", QuietRunner)
+    monkeypatch.setattr(run_mod, "VerificationLoop", Tracking)
+    code = main(["run", "--repo", str(repo), "--pr-diff", f"{base}..{head}", "--out", str(out),
+                 "--slice", "--budget-usd", "0.10"])
+    assert code == 20
+    # sql is first in PR_DERIVED_EFFECTS among {sql, read}; the cap trips after that call
+    assert loops == ["canary_sql"]
+    assert "canary_read" not in loops
+
+
+def test_omitted_effect_parses_as_none():
+    assert build_parser().parse_args(["run"]).effect is None
+    assert build_parser().parse_args(["run", "--effect", "canary_sql"]).effect == "canary_sql"
+
+
+def test_an_in_memory_sqlite_database_is_not_seeded(tmp_path):
+    (tmp_path / "notes.py").write_text(
+        "import sqlite3\nclass App:\n    def handle_request(self, q):\n"
+        "        db = sqlite3.connect(':memory:')\n"
+        "        return db.execute('SELECT ' + q).fetchall()\n"
+    )
+    graph = build_graph(tmp_path)
+    assert discover_sql_db(tmp_path, graph) is None
+    assert ":memory:" in sql_skip_reason(graph)

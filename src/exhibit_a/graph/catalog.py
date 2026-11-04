@@ -12,9 +12,10 @@ Eight families can be proven by the oracle today: path traversal through a read
 (``canary_exec``), SQL injection (``canary_sql``), server-side request forgery
 (``canary_connect``), algorithmic complexity (``canary_dos``: ReDoS, quadratic
 parsing), open redirect (``canary_redirect``) and broken access control
-(``canary_access``: no sink call, only the observed response). The other sinks are
-listed so a reach report can say what a path leads to; their ``effect`` is None, so
-the loop never pretends it can prove them.
+(``canary_access``: no sink call, only the observed response). A sliced PR run
+that omits ``--effect`` therefore cannot derive IDOR: there is nothing reachable
+to prove. The other sinks are listed so a reach report can say what a path leads
+to; their ``effect`` is None, so the loop never pretends it can prove them.
 """
 
 from __future__ import annotations
@@ -191,6 +192,11 @@ SINKS: tuple[SinkRule, ...] = (
              "regex", "regex_denial_of_service", DOS, "cpu",
              "regex on attacker input; a non-constant or nested-quantifier pattern is ReDoS",
              pattern_arg=(0, ("pattern",))),
+    # PATTERN = re.compile(...); PATTERN.match(name) resolves to re.compile.match.
+    SinkRule(("re.compile.match", "re.compile.search", "re.compile.fullmatch",
+              "re.compile.findall", "re.compile.finditer"),
+             "regex", "regex_denial_of_service", DOS, "cpu",
+             "compiled regex on attacker input; the pattern was compiled earlier"),
     SinkRule(("json.loads", "json.load", "json.JSONDecoder.decode"),
              "parsing", "algorithmic_complexity", DOS, "cpu",
              "JSON parse of attacker input; unbounded nesting is quadratic or worse",
