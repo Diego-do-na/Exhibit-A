@@ -14,6 +14,14 @@ window.Component = class Component extends DCLogic {
   stamp(value) {
     return String(value || '').slice(0, 16).replace('T', ' ');
   }
+  runLink(h) {
+    const n = parseInt(h.proven, 10) || 0;
+    return {
+      href: 'pr.html?run=' + encodeURIComponent(h.run_id || ''),
+      label: n > 0 ? ('PROVEN: ' + n + ' proven finding' + (n === 1 ? '' : 's')) : (h.headline || h.status || 'Recorded run'),
+      sub: [String(h.run_id || ''), this.stamp(h.started_at), String(h.commit || '').slice(0, 12)].filter(Boolean).join(' · '),
+    };
+  }
   prRow() {
     const id = this.prParam();
     if (!id) return null;
@@ -776,15 +784,7 @@ window.Component = class Component extends DCLogic {
     const provenN = (selPr && selPr.proven) || 0;
     // Every recorded run for this PR, newest first: the detection stays visible
     // next to the fix even after the latest head goes green.
-    const runList = ((selPr && selPr.runs) || []).map((h) => {
-      const n = parseInt(h.proven, 10) || 0;
-      return {
-        href: 'pr.html?run=' + encodeURIComponent(h.run_id || ''),
-        label: n > 0 ? ('PROVEN: ' + n + ' proven finding' + (n === 1 ? '' : 's')) : (h.headline || h.status || 'Recorded run'),
-        sub: [String(h.run_id || ''), this.stamp(h.started_at), String(h.commit || '').slice(0, 12)].filter(Boolean).join(' · '),
-        isProven: n > 0,
-      };
-    });
+    const runList = ((selPr && selPr.runs) || []).map((h) => Object.assign({ isProven: (parseInt(h.proven, 10) || 0) > 0 }, this.runLink(h)));
     const hasRuns = runList.length > 0;
     const provenRunHref = (runList.find((h) => h.isProven) || {}).href || '';
     const eaPending = { l: 'Exhibit A check', d: 'Not evaluated for this pull request', state: 'neutral', neutral: true, bg: '#8b98b3' };
@@ -840,10 +840,19 @@ window.Component = class Component extends DCLogic {
       const runTitle = found
         ? ('PROVEN: ' + (firstP0.class || 'finding') + (firstP0.file ? ' in ' + firstP0.file : ''))
         : (R.headline || 'NOT PROVEN: Nothing could be proven');
+      // Bridge back to the pull request: PR 21 always keeps the same number,
+      // so the run page links to ?pr=N where every recorded run stays listed.
+      const prNum = R.pr ? String(R.pr).replace(/^#/, '') : '';
+      const prRowForRun = prNum ? (this.state.prs || []).find((r) => String(r.number || r.id) === prNum) : null;
+      const sibRuns = prRowForRun && Array.isArray(prRowForRun.runs)
+        ? prRowForRun.runs.filter((h) => String(h.run_id) !== String(runId)).map((h) => this.runLink(h))
+        : [];
       pr = { crumb: String(runId).slice(0, 40),
         title: runTitle,
         meta: metaBits.join(' · '),
-        lead: [R.headline || 'Recorded run', cost0, toks0, models0].filter(Boolean).join(' · ') + '.' };
+        lead: [R.headline || 'Recorded run', cost0, toks0, models0].filter(Boolean).join(' · ') + '.',
+        prNum, prHref: prNum ? ('pr.html?pr=' + encodeURIComponent(prNum)) : '',
+        hasSibRuns: sibRuns.length > 0, sibRuns };
       this._pageTitle = 'Exhibit A · ' + runTitle;
     }
     const bv = s.bv;

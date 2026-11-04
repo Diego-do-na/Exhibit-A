@@ -266,6 +266,8 @@ def test_pr_view_lists_every_recorded_run_for_one_pr():
     html = (Path(__file__).resolve().parent.parent / "web" / "dashboard" / "pr.html").read_text(encoding="utf-8")
     assert "runList" in js and "provenRunHref" in js
     assert "runList" in html
+    assert "sibRuns" in js and "prHref" in js
+    assert "sibRuns" in html and "prHref" in html
     assert "not recorded" not in js and "not recorded" not in html
 
 
