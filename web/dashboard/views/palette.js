@@ -44,7 +44,7 @@
       }
     } catch (e) { /* palette still works without the PR list */ }
     try {
-      const runs = await getJSON('/api/runs?per_page=100');
+      const runs = await getJSON('/api/runs?per_page=20');
       for (const r of (runs && runs.runs) || []) {
         const name = r.pr ? 'PR ' + r.pr : r.run_id;
         items.push({

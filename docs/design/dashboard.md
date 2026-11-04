@@ -73,16 +73,51 @@ runs/
 
 - Listing: one call, `gh api --method GET repos/<repo>/actions/artifacts -f
   name=<artifact> -f per_page=100`. Expired artifacts are skipped; for re-runs
-  the newest artifact of a workflow run wins. Cached for 60 seconds.
-- Loading a run: `gh api repos/<repo>/actions/runs/<id>` (commit, branch, PR
-  number) and `gh api repos/<repo>/actions/artifacts/<artifact-id>/zip`. The
-  zip arrives on stdout and is read **in memory**; only the top-level
-  `ledger.jsonl` and `result.json` entries are opened. Nothing is written to disk.
+  the newest artifact of a workflow run wins. Cached in memory and on disk for
+  60 seconds.
+- Loading a list row: the artifact zip only (`gh api
+  repos/<repo>/actions/artifacts/<id>/zip`). The run-info call (`actions/runs/<id>`,
+  PR number) waits until the run page. Zips are read in memory, then stored under
+  the dashboard disk cache as untrusted bytes (never executed). Only top-level
+  `ledger.jsonl` and `result.json` entries are opened.
 - Loaded runs are cached in memory (LRU, 128 runs); failures are not cached, so
-  the next view retries.
-- Runs list rows load each run on the visible page (20 by default), and the
-  trends view loads the 50 most recent runs, so the first view of a large
-  repository makes one `gh` round trip per run.
+  the next view retries. A second process with the same cache directory does not
+  re-download an unchanged artifact.
+- The first view loads the newest 20 runs with at most four concurrent `gh`
+  calls, then a **Load more** control raises the window. Trends and the palette
+  use the same 20-run default.
+- The Overview paints a skeleton (`aria-busy`) from the static page before any
+  run row is ready.
+
+### GitHub source performance (measured 2026-11-03)
+
+Against `github:Diego-do-na/exhibit-a-testbed` (26 artifacts, `gh` already
+authenticated), **before** this change, sequential loads:
+
+| Step | Wall | `gh` calls |
+|---|---|---|
+| `list_runs` | 0.61 s | 1 listing |
+| 10 `load_run` (cold, sequential) | 16.61 s | 10 run-info + 10 zip |
+| First 10 complete | 17.22 s | 21 |
+| Same 10 from the memory LRU | 0.00 s | 0 |
+
+Zip bodies were tiny (23 KiB total); almost all of the 17 s was sequential
+HTTPS latency. After the 20-run window, skipped run-info on list rows,
+four-way concurrency and the disk cache, the same machine and testbed:
+
+| Step | Wall | `gh` calls |
+|---|---|---|
+| First paint (static Overview + `/api/info`) | < 2 s | 0 |
+| `list_runs` | 0.63 s | 1 listing |
+| 10 list rows cold, 4-way | 2.81 s | 10 zip, 0 run-info |
+| First 10 complete (cold) | 3.44 s | 11 |
+| Same 10 from the memory LRU | 0.00 s | 0 |
+| Same 10 from a new process (disk cache) | 0.00 s | 0 |
+
+The 10 s cold / 2 s hot goal for 10 runs holds on this machine. Opening the
+Overview is the static page plus `/api/info` (no `gh`). Disk cache root:
+`$EXHIBIT_A_DASHBOARD_CACHE` or `$XDG_CACHE_HOME/exhibit-a/dashboard` or
+`~/.cache/exhibit-a/dashboard`.
 
 ## Information architecture (two levels)
 
@@ -254,7 +289,7 @@ hostile.
 | Malformed or oversized data (memory exhaustion, parser crashes, misleading partial runs) | Caps: ledger 8 MiB, line 256 KiB, 20,000 events, result 256 KiB, index 2 MiB, 1,000 runs, artifact zip 24 MiB with 64 entries and per-entry uncompressed caps checked on the actual bytes read, `gh` stdout 24 MiB / stderr 16 KiB; JSON with NaN/Infinity or excessive nesting is rejected; displayed strings, lists and nesting are truncated. Every line must validate as an `Event`; the result file must match the schema of the fields used. A run that fails any check is shown as **unreadable as a whole**, never partially, because dropping one `verdict` line could turn a proof into "nothing could be proven". |
 | Path tricks in the local source | Run ids are validated by regex; folders and files are opened without following symlinks (`O_NOFOLLOW`), must be regular files (FIFOs refused without blocking), and index entries cannot point outside the directory. Static files come from a fixed whitelist. |
 | Command injection through the GitHub source | `gh` is started with a fixed argv list, never a shell; the repo must match `owner/name` (no `..`), the artifact name a strict pattern, and run/artifact ids are integers. `gh` runs with a timeout and output caps, prompts disabled. Error text is truncated and token-shaped strings are redacted. |
-| The dashboard changes state | GET only (everything else is 405); no endpoint writes files; the GitHub source reads artifacts in memory. The only process-wide state is the in-memory cache. |
+| The dashboard changes state | GET only (everything else is 405); no API endpoint writes files. The GitHub source may write untrusted artifact bytes into the dashboard disk cache as a read side-effect; those files are never executed. |
 | Secrets in logs | Requests are not logged by default; `--verbose` logs method, path and status only. The session value is never printed. |
 
 **Out of scope / residual risks.**

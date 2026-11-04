@@ -56,6 +56,7 @@ import sys
 import threading
 import time
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -82,7 +83,16 @@ from .model import (
 from .export import export_dashboard
 from .prs import PR_LIST_COMMAND, build_pr_index
 from .repo_graph import load_repo_graph, matching_checkout
-from .sources import RUN_ID_RE, LocalRunsSource, RunSource, SourceError, parse_source
+from .sources import (
+    GH_WORKERS,
+    INITIAL_RUNS,
+    RUN_ID_RE,
+    LocalRunsSource,
+    RunSource,
+    SourceError,
+    default_cache_dir,
+    parse_source,
+)
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -138,11 +148,11 @@ SECURITY_HEADERS = {
 
 MAX_PATH = 2048
 MAX_PER_PAGE = 100
-DEFAULT_PER_PAGE = 20
+DEFAULT_PER_PAGE = INITIAL_RUNS
 MAX_EVENTS_PAGE = 500
 DEFAULT_EVENTS_PAGE = 200
 MAX_TREND_RUNS = 200
-DEFAULT_TREND_RUNS = 50
+DEFAULT_TREND_RUNS = INITIAL_RUNS
 #: Fastest replay accepted; faster requests are clamped.
 MAX_SPEED = 64.0
 
@@ -392,11 +402,11 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
             elif route == "/api/trends":
                 self._trends(query)
             elif route == "/api/repos":
-                self._repos()
+                self._repos(query)
             elif route == "/api/benchmark":
-                self._benchmark()
+                self._benchmark(query)
             elif route == "/api/prs":
-                self._prs()
+                self._prs(query)
             elif route == "/api/graph":
                 self._graph()
             elif _REPO_ROUTE.match(route):
@@ -404,7 +414,7 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 if not REPO_ID_RE.match(rid):
                     self._error(404, "not found")
                     return
-                self._repo(rid)
+                self._repo(rid, query)
             else:
                 match = _RUN_ROUTE.match(route)
                 if match is None or not RUN_ID_RE.match(match.group(1)):
@@ -414,11 +424,18 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
 
         # -- API handlers -------------------------------------------------------
 
-        def _load(self, run_id: str) -> Any:
+        def _load(self, run_id: str, *, detail: bool = False) -> Any:
             try:
-                return state.source.load_run(run_id)
+                return state.source.load_run(run_id, detail=detail)
             except KeyError:
                 return None
+
+        def _load_many(self, run_ids: list[str], *, detail: bool = False) -> list[Any]:
+            if len(run_ids) <= 1:
+                return [self._load(rid, detail=detail) for rid in run_ids]
+            workers = min(GH_WORKERS, len(run_ids))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                return list(pool.map(lambda rid: self._load(rid, detail=detail), run_ids))
 
         def _runs(self, query: dict[str, str]) -> None:
             page = _int_param(query, "page", 1, 1, 1_000_000)
@@ -431,8 +448,7 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
             total = len(refs)
             window = refs[(page - 1) * per_page : page * per_page]
             rows = []
-            for ref in window:
-                data = self._load(ref.run_id)
+            for data in self._load_many([ref.run_id for ref in window], detail=False):
                 if data is not None:
                     rows.append(run_row(data))
             self._json(
@@ -443,55 +459,62 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                     "per_page": per_page,
                     "total": total,
                     "pages": max(1, -(-total // per_page)),
+                    "has_more": page * per_page < total,
                 }
             )
 
         def _trends(self, query: dict[str, str]) -> None:
             limit = _int_param(query, "limit", DEFAULT_TREND_RUNS, 1, MAX_TREND_RUNS)
             try:
-                refs = _sorted_refs(state.source)[:limit]
+                refs = _sorted_refs(state.source)
             except SourceError as exc:
                 self._error(502, str(exc))
                 return
-            rows = [run_row(d) for d in (self._load(r.run_id) for r in refs) if d is not None]
-            self._json({"points": build_trends(rows), "limit": limit, "total": len(refs)})
+            window = refs[:limit]
+            rows = [run_row(d) for d in self._load_many([r.run_id for r in window], detail=False) if d is not None]
+            self._json({"points": build_trends(rows), "limit": limit, "total": len(refs),
+                        "has_more": limit < len(refs)})
 
-        def _repo_entries(self) -> tuple[list[tuple[dict[str, Any], dict[str, Any] | None]], int] | None:
+        def _repo_entries(self, query: dict[str, str] | None = None) -> tuple[list[tuple[dict[str, Any], dict[str, Any] | None]], int] | None:
             """(row, findings) of the newest runs, read-only; None after a source error."""
+            limit = _int_param(query or {}, "limit", INITIAL_RUNS, 1, MAX_REPO_RUNS)
             try:
                 refs = _sorted_refs(state.source)
             except SourceError as exc:
                 self._error(502, str(exc))
                 return None
+            window = refs[:limit]
             entries = []
-            for ref in refs[:MAX_REPO_RUNS]:
-                data = self._load(ref.run_id)
+            for data in self._load_many([ref.run_id for ref in window], detail=False):
                 if data is None:
                     continue
                 row = run_row(data)
                 entries.append((row, None if row["error"] else run_detail(data, with_graph=False)))
             return entries, len(refs)
 
-        def _repos(self) -> None:
-            loaded = self._repo_entries()
+        def _repos(self, query: dict[str, str]) -> None:
+            loaded = self._repo_entries(query)
             if loaded is None:
                 return
             entries, total = loaded
+            limit = _int_param(query, "limit", INITIAL_RUNS, 1, MAX_REPO_RUNS)
             self._json({
                 "source": state.source.label,
                 "repos": build_repo_index(entries),
                 "runs_considered": len(entries),
                 "runs_total": total,
+                "limit": limit,
+                "has_more": len(entries) < total,
             })
 
-        def _prs(self) -> None:
+        def _prs(self, query: dict[str, str]) -> None:
             lister = getattr(state.source, "list_pull_requests", None)
             try:
                 raw = list(lister()) if callable(lister) else []
             except SourceError as exc:
                 self._error(502, str(exc))
                 return
-            loaded = self._repo_entries()
+            loaded = self._repo_entries(query)
             rows = [row for row, _ in loaded[0]] if loaded else []
             github = callable(lister) and bool(getattr(state.source, "repo", ""))
             empty = (
@@ -516,8 +539,8 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
             """Code graph of the chosen --source: checkout, else graph-summary.json."""
             self._json(load_repo_graph(state.source, checkout=state.checkout))
 
-        def _benchmark(self) -> None:
-            loaded = self._repo_entries()
+        def _benchmark(self, query: dict[str, str]) -> None:
+            loaded = self._repo_entries(query)
             if loaded is None:
                 return
             entries, _ = loaded
@@ -525,8 +548,8 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
             self._json({**build_benchmark(state.source.label, names),
                         "source": state.source.label})
 
-        def _repo(self, rid: str) -> None:
-            loaded = self._repo_entries()
+        def _repo(self, rid: str, query: dict[str, str]) -> None:
+            loaded = self._repo_entries(query)
             if loaded is None:
                 return
             entries, total = loaded
@@ -534,7 +557,14 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
             if not group:
                 self._error(404, "unknown repository")
                 return
-            self._json({**build_repo_detail(rid, group), "runs_considered": len(entries), "runs_total": total})
+            limit = _int_param(query, "limit", INITIAL_RUNS, 1, MAX_REPO_RUNS)
+            self._json({
+                **build_repo_detail(rid, group),
+                "runs_considered": len(entries),
+                "runs_total": total,
+                "limit": limit,
+                "has_more": len(entries) < total,
+            })
 
         def _run_page(self, data: Any) -> dict[str, Any]:
             """Run detail plus a PR diff from the ledger, the folder, or ``gh pr diff``."""
@@ -559,7 +589,7 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
             return detail
 
         def _run(self, run_id: str, tail: str, query: dict[str, str]) -> None:
-            data = self._load(run_id)
+            data = self._load(run_id, detail=True)
             if data is None:
                 self._error(404, "unknown run")
                 return
@@ -683,7 +713,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("dashboard: --port must be between 0 and 65535", file=sys.stderr)
         return 2
     try:
-        source = parse_source(args.source, artifact=args.artifact)
+        source = parse_source(args.source, artifact=args.artifact, cache_dir=default_cache_dir())
     except SourceError as exc:
         print(f"dashboard: {exc}", file=sys.stderr)
         return 2

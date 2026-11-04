@@ -11,19 +11,19 @@ window.Component = class Component extends DCLogic {
     super(props);
     let repo = '';
     try { repo = new URLSearchParams(window.location.search).get('repo') || ''; } catch (e) { /* no query */ }
-    this.state = { vel: 'runs', don: 'effect', fun: 'abs', repos: [], repoId: repo, detail: null, err: '', info: null };
+    this.state = { vel: 'runs', don: 'effect', fun: 'abs', repos: [], repoId: repo, detail: null, err: '', info: null, limit: 20, hasMore: false };
   }
   componentDidMount() {
     fetch('/api/info', { headers: { Accept: 'application/json' } })
       .then((r) => (r.ok ? r.json() : null))
       .then((info) => { if (info) this.setState({ info }); })
       .catch(() => {});
-    fetch('/api/repos', { headers: { Accept: 'application/json' } })
+    fetch('/api/repos?limit=' + this.state.limit, { headers: { Accept: 'application/json' } })
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => {
         const repos = (body && body.repos) || [];
-        if (!repos.length) { this.setState({ repos: [] }); return; }
-        this.setState({ repos });
+        if (!repos.length) { this.setState({ repos: [], hasMore: false }); return; }
+        this.setState({ repos, hasMore: !!body.has_more });
         const want = this.state.repoId;
         const pick = repos.some((x) => x.id === want) ? want : repos[0].id;
         this.loadRepo(pick);
@@ -32,13 +32,17 @@ window.Component = class Component extends DCLogic {
   }
   loadRepo(id) {
     this.setState({ repoId: id, detail: null, err: '' });
-    fetch('/api/repos/' + encodeURIComponent(id), { headers: { Accept: 'application/json' } })
+    fetch('/api/repos/' + encodeURIComponent(id) + '?limit=' + this.state.limit, { headers: { Accept: 'application/json' } })
       .then((r) => (r.ok ? r.json() : null))
       .then((detail) => {
         if (!detail) { this.setState({ err: 'Could not load this repository.' }); return; }
-        this.setState({ detail });
+        this.setState({ detail, hasMore: !!detail.has_more });
       })
       .catch(() => this.setState({ err: 'Could not load this repository.' }));
+  }
+  loadMore() {
+    this.setState({ limit: this.state.limit + 20 });
+    this.loadRepo(this.state.repoId);
   }
   money(v) {
     if (v == null) return 'not recorded';
@@ -59,6 +63,7 @@ window.Component = class Component extends DCLogic {
     const opt = (list, key) => list.map(([k, l]) => ({ l, cls: 'sb' + (st[key] === k ? ' sb-on' : ''), pick: () => this.setState({ [key]: k }) }));
     const empty = !st.err && st.repos.length === 0;
     const ready = !!detail && !empty;
+    const loading = !st.err && !empty && !detail;
 
     const raised = m.suspicions_raised || 0;
     const kpis = [
@@ -184,7 +189,8 @@ window.Component = class Component extends DCLogic {
       vel, velOpts: opt([['runs', 'Runs'], ['cost', 'Cost']], 'vel'), agents: OUT.map(([n, c]) => ({ n, c })),
       don, donT: st.don === 'effect' ? 'effect' : 'verdict', donOpts: opt([['effect', 'Effect'], ['verdict', 'Verdict']], 'don'),
       fun, funOpts: opt([['abs', 'Count'], ['pct', '%']], 'fun'), latest: prs, code,
-      empty, ready, err: st.err, repoId: st.repoId,
+      empty, ready, loading, hasMore: !!st.hasMore, loadMore: () => this.loadMore(),
+      err: st.err, repoId: st.repoId,
       repoOpts: st.repos.map((r) => ({ k: r.id, l: (r.name || r.id) + ' (' + r.runs + ')' })),
       hasRepos: st.repos.length > 1, onRepo: (e) => this.loadRepo(e.target.value) };
   }

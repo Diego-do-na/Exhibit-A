@@ -193,3 +193,4 @@ Protocol:
 - T153 grok: P1-1 CLI logo only on no-args/--version/init, one-line identity elsewhere, [ok]/[warn]/[fail]/[skip], Next steps, color/progress tty-only, colorless init/dashboard snapshots; pending: P1-2 idempotent init
 - T153 grok: P1-2 init is idempotent (short diff, --update with .bak, --force), runs scan into .exhibit-a/profile.json and graph-summary.json, unittest/node:test scan.supported matches the loop; pending: P1-3 persist base SHA
 - T153 grok: P1-3 persist base SHA, provider, model and budget on result.json, runs.jsonl and pr_opened; old runs hide the cards; pending: P1-4 GitHub source perf
+- T153 grok: P1-4 GitHub source: 20-run window + load more, 4-way gh, disk cache, list rows skip run-info, skeleton; testbed 10 runs 3.44s cold / 0s hot; pending: P1-5 benchmark measure or drop empty rows

@@ -61,6 +61,15 @@
       </div>
       </sc-if>
 
+      <sc-if value="{{loading}}" hint-placeholder-val="{{ false }}">
+      <section aria-busy="true" aria-label="Loading recorded runs" data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px">
+        <div class="card sk-card" data-style="padding: 22px; min-height: 140px"><div class="sk" data-style="width: 40%"></div><div class="sk" data-style="width: 70%; height: 36px; margin-top: 16px"></div></div>
+        <div class="card sk-card" data-style="padding: 22px; min-height: 140px"><div class="sk" data-style="width: 50%"></div><div class="sk" data-style="width: 60%; height: 36px; margin-top: 16px"></div></div>
+        <div class="card sk-card" data-style="padding: 22px; min-height: 140px"><div class="sk" data-style="width: 45%"></div><div class="sk" data-style="width: 55%; height: 36px; margin-top: 16px"></div></div>
+        <div class="card sk-card" data-style="padding: 22px; min-height: 140px"><div class="sk" data-style="width: 35%"></div><div class="sk" data-style="width: 65%; height: 36px; margin-top: 16px"></div></div>
+      </section>
+      </sc-if>
+
       <section class="card proof-strip" aria-label="How a proof works">
         <div class="proof-step"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><div><b>Suspicion</b><span>The adversary proposes what might be wrong.</span></div></div><span class="proof-arrow" aria-hidden="true">→</span>
         <div class="proof-step"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m9 12 2 2 4-4"></path></svg><div><b>Exploit fails on the vulnerable code</b><span>The oracle observes the intended effect, through a real entry point.</span></div></div><span class="proof-arrow" aria-hidden="true">→</span>
@@ -186,6 +195,9 @@
                 <span data-style="font-size: 13px; color: #3d4b68">{{p.a}}</span>
               </button>
             </sc-for>
+            <sc-if value="{{hasMore}}" hint-placeholder-val="{{ false }}">
+              <button type="button" class="btn btn-s" data-ev-click="{{loadMore}}" data-style="margin-top: 12px">Load more</button>
+            </sc-if>
           </div>
           <div class="card" data-style="flex: 2 1 340px; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr))">
             <sc-for list="{{code}}" as="m"><div class="code-t" data-style="padding: 20px 22px; display: flex; align-items: center; gap: 14px; min-width: 0"><span class="code-i"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{m.i}}"></path></svg></span><span data-style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><span class="stat-v" data-style="font-size: 34px; line-height: 1; font-weight: 500; font-family: 'Space Grotesk', sans-serif; letter-spacing: -.02em">{{m.v}}</span><span class="stat-l" data-style="font-size: 14px">{{m.l}}</span></span></div></sc-for>

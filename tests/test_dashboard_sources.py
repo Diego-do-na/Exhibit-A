@@ -6,6 +6,7 @@ import io
 import json
 import os
 import stat
+import threading
 import zipfile
 from pathlib import Path
 
@@ -232,6 +233,7 @@ class FakeGh:
     def __init__(self, responses: dict[str, bytes | Exception]):
         self.responses = responses
         self.calls: list[tuple[list[str], float, int]] = []
+        self._lock = threading.Lock()
 
     @staticmethod
     def key_for(argv: list[str]) -> str:
@@ -256,11 +258,12 @@ class FakeGh:
         return " ".join(argv)
 
     def __call__(self, argv, timeout, max_bytes):
-        self.calls.append((list(argv), timeout, max_bytes))
-        key = self.key_for(list(argv))
-        if key not in self.responses:
-            raise GhError(f"unexpected gh call: {key}")
-        answer = self.responses[key]
+        with self._lock:
+            self.calls.append((list(argv), timeout, max_bytes))
+            key = self.key_for(list(argv))
+            if key not in self.responses:
+                raise GhError(f"unexpected gh call: {key}")
+            answer = self.responses[key]
         if isinstance(answer, Exception):
             raise answer
         return answer
@@ -332,9 +335,9 @@ def test_github_loads_the_newest_artifact_in_memory():
     assert data.ref.pr == "7" and data.ref.commit == "0123456789abc" and data.ref.branch == "pr-branch"
     assert data.ref.url == "https://github.com/acme/app/actions/runs/501"  # html_url from GitHub is not used
     assert len(data.events) == 14
-    zip_call = gh.calls[-1]
-    assert zip_call[0] == ["api", "--method", "GET", "repos/acme/app/actions/artifacts/13/zip"]
-    assert zip_call[2] == sources.MAX_GH_OUTPUT
+    zip_calls = [c for c in gh.calls if c[0][-1].endswith("/zip")]
+    assert zip_calls[-1][0] == ["api", "--method", "GET", "repos/acme/app/actions/artifacts/13/zip"]
+    assert zip_calls[-1][2] == sources.MAX_GH_OUTPUT
 
 
 def test_github_failure_is_reported_and_not_cached():
@@ -456,3 +459,28 @@ def test_parse_source(tmp_path):
 def test_identifier_patterns_reject_a_trailing_newline():
     assert not sources.RUN_ID_RE.match("run-a\n")
     assert not sources.ARTIFACT_RE.match("exhibit-a-ledger\n")
+
+
+def test_list_load_skips_run_info_until_detail():
+    gh = fake_github()
+    source = GitHubSource("acme/app", gh=gh)
+    data = source.load_run("501", detail=False)
+    assert data.error == ""
+    joined = [" ".join(c[0]) for c in gh.calls]
+    assert any(item.endswith("/zip") for item in joined)
+    assert not any("/actions/runs/" in item for item in joined)
+    source.load_run("501", detail=True)
+    assert any("/actions/runs/501" in " ".join(c[0]) for c in gh.calls)
+    assert data.ref.pr == "7"
+
+
+def test_disk_cache_avoids_a_second_zip_download(tmp_path):
+    gh = fake_github()
+    first = GitHubSource("acme/app", gh=gh, cache_dir=tmp_path)
+    first.load_run("501", detail=False)
+    zip_calls = sum(1 for c in gh.calls if c[0][-1].endswith("/zip"))
+    assert zip_calls == 1
+    second = GitHubSource("acme/app", gh=gh, cache_dir=tmp_path)
+    again = second.load_run("501", detail=False)
+    assert again.error == ""
+    assert sum(1 for c in gh.calls if c[0][-1].endswith("/zip")) == 1

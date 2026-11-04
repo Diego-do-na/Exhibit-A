@@ -17,6 +17,7 @@ dashboard writes no files.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -80,6 +81,10 @@ GH_TIMEOUT = 30.0
 CACHE_SIZE = 128
 #: Seconds a GitHub run listing stays fresh.
 LIST_TTL = 60.0
+#: Newest runs the first dashboard view loads before "Load more".
+INITIAL_RUNS = 20
+#: Parallel gh/zip reads when filling one page of runs.
+GH_WORKERS = 4
 #: Largest ``gh pr list --json`` stdout accepted, in bytes.
 MAX_PR_LIST_BYTES = 2 * 1024 * 1024
 #: Largest ``.exhibit-a/authors.yml`` accepted, in bytes.
@@ -154,11 +159,12 @@ class RunSource(Protocol):
         """Every known run, at most ``MAX_RUNS``; order is not significant."""
         ...
 
-    def load_run(self, run_id: str) -> RunData:
+    def load_run(self, run_id: str, *, detail: bool = True) -> RunData:
         """Load one run. Raises ``KeyError`` for an unknown id.
 
         A run that exists but does not validate comes back with ``error`` set
-        and no events, never as partial data.
+        and no events, never as partial data. ``detail=False`` skips extra
+        GitHub round trips the list view does not need (run metadata).
         """
         ...
 
@@ -544,7 +550,7 @@ class LocalRunsSource:
                 refs.append(self._ref(entry.name, index.get(entry.name, {})))
         return refs
 
-    def load_run(self, run_id: str) -> RunData:
+    def load_run(self, run_id: str, *, detail: bool = True) -> RunData:
         if not RUN_ID_RE.match(run_id):
             raise KeyError(run_id)
         folder = self.root / run_id
@@ -815,12 +821,72 @@ def read_proof_texts(folder: Path) -> dict[str, str]:
     return found
 
 
+def default_cache_dir() -> Path:
+    """Disk cache for GitHub artifact zips and listings (untrusted bytes, never executed)."""
+    explicit = os.environ.get("EXHIBIT_A_DASHBOARD_CACHE")
+    if explicit:
+        return Path(explicit)
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".cache"
+    return base / "exhibit-a" / "dashboard"
+
+
+class _DiskCache:
+    """Content-addressed files under ``root``. Untrusted bytes; never executed."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self._lock = threading.Lock()
+
+    def _path(self, key: str) -> Path:
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        return self.root / digest[:2] / digest
+
+    def get(self, key: str, *, max_age: float | None = None) -> bytes | None:
+        path = self._path(key)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        try:
+            fd = os.open(path, flags)
+        except OSError:
+            return None
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
+                return None
+            if max_age is not None and (time.time() - info.st_mtime) > max_age:
+                return None
+            if info.st_size > MAX_GH_OUTPUT:
+                return None
+            return os.read(fd, info.st_size)
+        except OSError:
+            return None
+        finally:
+            os.close(fd)
+
+    def put(self, key: str, data: bytes) -> None:
+        if len(data) > MAX_GH_OUTPUT:
+            return
+        path = self._path(key)
+        tmp = path.with_name(path.name + ".tmp")
+        with self._lock:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp.write_bytes(data)
+                tmp.replace(path)
+            except OSError:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+
+
 class GitHubSource:
     """Runs whose ledger artifact lives in GitHub Actions, read through ``gh``.
 
     Listing is one call to the artifacts API filtered by artifact name; loading
-    a run fetches its run metadata (commit, branch, PR) and its artifact zip.
-    ``gh`` is injectable so tests never touch the network or a real token.
+    a run fetches its artifact zip (and, for the run page, its run metadata).
+    Artifact bytes may be cached on disk; they are never executed. ``gh`` is
+    injectable so tests never touch the network or a real token.
     """
 
     def __init__(
@@ -831,6 +897,7 @@ class GitHubSource:
         gh: GhRunner | None = None,
         timeout: float = GH_TIMEOUT,
         clock: Callable[[], float] = time.monotonic,
+        cache_dir: str | Path | None = None,
     ) -> None:
         if not REPO_RE.match(repo) or repo.split("/")[1] in (".", ".."):
             raise SourceError(f"invalid repository {repo!r}: expected owner/name")
@@ -844,6 +911,7 @@ class GitHubSource:
         self._clock = clock
         self._cache = _Cache()
         self._lock = threading.Lock()
+        self._disk = _DiskCache(Path(cache_dir)) if cache_dir is not None else None
         self._listed: tuple[float, dict[str, tuple[RunRef, _Artifact]]] | None = None
         self._prs: tuple[float, list[dict[str, Any]]] | None = None
         self._authors: tuple[float, dict[str, str]] | None = None
@@ -863,13 +931,27 @@ class GitHubSource:
         with self._lock:
             if self._listed is not None and self._clock() - self._listed[0] < LIST_TTL:
                 return self._listed[1]
-        listing: _ArtifactList = self._json(
-            [
-                "api", "--method", "GET", f"repos/{self.repo}/actions/artifacts",
-                "-f", f"name={self.artifact}", "-f", "per_page=100",
-            ],
-            _ArtifactList,
-        )
+        list_key = f"list:{self.repo}:{self.artifact}"
+        raw = self._disk.get(list_key, max_age=LIST_TTL) if self._disk is not None else None
+        listing: _ArtifactList | None = None
+        if raw is not None:
+            try:
+                listing = _ArtifactList.model_validate(_loads(raw.decode("utf-8")))
+            except (UnicodeDecodeError, ValueError):
+                listing = None
+        if listing is None:
+            raw = self._call(
+                [
+                    "api", "--method", "GET", f"repos/{self.repo}/actions/artifacts",
+                    "-f", f"name={self.artifact}", "-f", "per_page=100",
+                ],
+            )
+            try:
+                listing = _ArtifactList.model_validate(_loads(raw.decode("utf-8")))
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise GhError("gh returned data that does not match the expected schema") from exc
+            if self._disk is not None:
+                self._disk.put(list_key, raw)
         runs: dict[str, tuple[RunRef, _Artifact]] = {}
         for art in listing.artifacts:
             if art.name != self.artifact or art.expired or art.workflow_run is None:
@@ -963,34 +1045,22 @@ class GitHubSource:
             self._diffs = (self._clock(), store)
         return text
 
-    def load_run(self, run_id: str) -> RunData:
+    def load_run(self, run_id: str, *, detail: bool = True) -> RunData:
         if not run_id.isdigit() or len(run_id) > 20:
             raise KeyError(run_id)
         cached = self._cache.get(run_id)
         if cached is not None:
+            if detail and not cached.error:
+                self._ensure_run_info(cached, run_id)
             return cached
         entry = self._listing().get(run_id)
         if entry is None:
             raise KeyError(run_id)
         ref, art = entry
         try:
-            info: _RunInfo = self._json(
-                ["api", "--method", "GET", f"repos/{self.repo}/actions/runs/{int(run_id)}"], _RunInfo
-            )
-            sha = info.head_sha or ""
-            ref = replace(
-                ref,
-                commit=sha if _SHA_RE.match(sha) else ref.commit,
-                branch=info.head_branch or ref.branch,
-                pr=str(info.pull_requests[0].number) if info.pull_requests else "",
-                started_at=info.run_started_at or info.created_at or ref.started_at,
-            )
             if art.size_in_bytes > MAX_GH_OUTPUT:
                 raise SourceError(f"artifact larger than {MAX_GH_OUTPUT} bytes")
-            blob = self._call(
-                ["api", "--method", "GET", f"repos/{self.repo}/actions/artifacts/{art.id}/zip"],
-                MAX_GH_OUTPUT,
-            )
+            blob = self._zip_bytes(art)
             ledger, result = read_artifact_zip(blob)
             texts = read_artifact_texts(blob)
         except SourceError as exc:
@@ -1002,14 +1072,55 @@ class GitHubSource:
                 data.diff = texts[DIFF_NAME]
             data.artifacts = {name: texts[name] for name in PROOF_TEXT_NAMES if name in texts}
             data.graph_summary = _parse_summary_text(texts.get(GRAPH_SUMMARY_NAME))
+        if detail and not data.error:
+            self._ensure_run_info(data, run_id)
         self._cache.put(run_id, data)
         return data
+
+    def _zip_bytes(self, art: _Artifact) -> bytes:
+        key = f"zip:{self.repo}:{art.id}:{art.size_in_bytes}"
+        if self._disk is not None:
+            cached = self._disk.get(key)
+            if cached is not None:
+                return cached
+        blob = self._call(
+            ["api", "--method", "GET", f"repos/{self.repo}/actions/artifacts/{art.id}/zip"],
+            MAX_GH_OUTPUT,
+        )
+        if self._disk is not None:
+            self._disk.put(key, blob)
+        return blob
+
+    def _ensure_run_info(self, data: RunData, run_id: str) -> None:
+        """Fill PR/commit from the Actions run API when the list row skipped it."""
+        if data.ref.pr:
+            return
+        try:
+            info: _RunInfo = self._json(
+                ["api", "--method", "GET", f"repos/{self.repo}/actions/runs/{int(run_id)}"], _RunInfo
+            )
+        except SourceError:
+            return
+        sha = info.head_sha or ""
+        data.ref = replace(
+            data.ref,
+            commit=sha if _SHA_RE.match(sha) else data.ref.commit,
+            branch=info.head_branch or data.ref.branch,
+            pr=str(info.pull_requests[0].number) if info.pull_requests else data.ref.pr,
+            started_at=info.run_started_at or info.created_at or data.ref.started_at,
+        )
 
 
 # -- parsing the --source flag ----------------------------------------------------------
 
 
-def parse_source(spec: str, *, artifact: str = DEFAULT_ARTIFACT, gh: GhRunner | None = None) -> RunSource:
+def parse_source(
+    spec: str,
+    *,
+    artifact: str = DEFAULT_ARTIFACT,
+    gh: GhRunner | None = None,
+    cache_dir: str | Path | None = None,
+) -> RunSource:
     """Build a source from ``local:<dir>`` or ``github:<owner/repo>``."""
     kind, sep, value = spec.partition(":")
     if not sep or not value:
@@ -1017,5 +1128,5 @@ def parse_source(spec: str, *, artifact: str = DEFAULT_ARTIFACT, gh: GhRunner | 
     if kind == "local":
         return LocalRunsSource(value)
     if kind == "github":
-        return GitHubSource(value, artifact=artifact, gh=gh)
+        return GitHubSource(value, artifact=artifact, gh=gh, cache_dir=cache_dir)
     raise SourceError(f"unknown source kind {kind!r}: use local or github")

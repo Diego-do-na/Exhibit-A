@@ -283,6 +283,39 @@ def test_github_testbed_run_reports_recorded_costs_and_links():
     assert info["source_kind"] == "github" and info["artifact"] == "exhibit-a-ledger"
 
 
+def test_repo_page_windows_newest_runs_and_reports_has_more():
+    from exhibit_a.dashboard.sources import GhError
+
+    blob = artifact_zip({
+        "ledger.jsonl": memos_ledger().encode(),
+        "result.json": json.dumps(memos_result()).encode(),
+    })
+    responses = {
+        "repos/acme/app/actions/artifacts": gh_listing(artifact(21, 601), artifact(22, 602)),
+        "repos/acme/app/actions/runs/601": json.dumps(
+            {"id": 601, "head_sha": "abcdef1234567", "head_branch": "a",
+             "pull_requests": [{"number": 1}]}).encode(),
+        "repos/acme/app/actions/runs/602": json.dumps(
+            {"id": 602, "head_sha": "abcdef1234568", "head_branch": "b",
+             "pull_requests": [{"number": 2}]}).encode(),
+        "repos/acme/app/actions/artifacts/21/zip": blob,
+        "repos/acme/app/actions/artifacts/22/zip": blob,
+        "pr list acme/app": b"[]",
+        "repos/acme/app/contents/.exhibit-a/authors.yml": GhError("HTTP 404"),
+    }
+    gh = FakeGh(responses)
+    state = make_state(GitHubSource("acme/app", gh=gh))
+    _, _, body = api(state, "/api/repos?limit=1")
+    assert body["has_more"] is True
+    assert body["runs_considered"] == 1 and body["runs_total"] == 2
+    zips = sum(1 for c in gh.calls if c[0][-1].endswith("/zip"))
+    infos = sum(1 for c in gh.calls if "/actions/runs/" in " ".join(c[0]))
+    assert zips == 1 and infos == 0
+    _, _, more = api(state, "/api/repos?limit=2")
+    assert more["has_more"] is False
+    assert more["runs_considered"] == 2
+
+
 # -- repository aggregates ------------------------------------------------------
 
 
@@ -311,6 +344,15 @@ def test_repo_detail_aggregates_rates_costs_and_cumulative(tmp_path):
 
 
 # -- economics page contract ----------------------------------------------------
+
+
+def test_overview_paints_a_skeleton_and_offers_load_more():
+    js = (WEB_DIR / "views" / "index.js").read_text(encoding="utf-8")
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    css = (WEB_DIR / "dashboard.css").read_text(encoding="utf-8")
+    assert "Load more" in html and "has_more" in js and "loadMore" in js
+    assert 'aria-busy="true"' in html
+    assert ".sk{" in css.replace(" ", "") or ".sk {" in css or "@keyframes xa-sk" in css
 
 
 def test_economics_page_is_dynamic_and_marks_gaps():
