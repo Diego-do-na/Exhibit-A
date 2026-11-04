@@ -99,6 +99,28 @@ def test_js_graph_stages_where_mounts_stay_bindable(tmp_path, monkeypatch):
     assert "e.code" in builder
 
 
+def test_js_graph_staged_copy_is_world_readable(tmp_path):
+    import os
+    import shutil
+
+    import exhibit_a.graph.js_graph as js_graph
+
+    src = tmp_path / "src"
+    (src / "sub").mkdir(parents=True)
+    (src / "app.ts").write_text("export const x = 1;\n")
+    (src / "sub" / "lib.js").write_text("module.exports = {};\n")
+    dst = tmp_path / "staged"
+    shutil.copytree(src, dst, symlinks=True)
+    js_graph._make_world_readable(dst)
+    seen = 0
+    for dirpath, dirnames, filenames in os.walk(dst):
+        for name in (*dirnames, *filenames):
+            mode = os.stat(os.path.join(dirpath, name)).st_mode & 0o777
+            assert mode in (0o755, 0o644)
+            seen += 1
+    assert seen == 3
+
+
 @pytest.mark.docker
 def test_typescript_graph_runs_in_node_sandbox(tmp_path):
     (tmp_path / "helpers.ts").write_text(

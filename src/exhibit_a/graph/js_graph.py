@@ -35,6 +35,22 @@ def _staging_parent() -> Path:
     return parent
 
 
+def _make_world_readable(root: Path) -> None:
+    """Open staged-copy permissions so any container UID can read it.
+
+    Rootless daemons map the container root to an unprivileged host UID, and
+    ``TemporaryDirectory`` creates mode 0700 trees, so a container-side
+    readdir fails with EACCES even as root. Staged sources carry no secrets,
+    so directories become 0755 and files 0644; symlinks are left untouched.
+    """
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in (*dirnames, *filenames):
+            path = os.path.join(dirpath, name)
+            if os.path.islink(path):
+                continue
+            os.chmod(path, 0o755 if os.path.isdir(path) else 0o644)
+
+
 def _validate(raw: object) -> CodeGraph:
     if not isinstance(raw, dict) or raw.get("schema_version") != "1":
         raise ValueError("invalid JavaScript graph schema")
@@ -60,6 +76,8 @@ def build_js_graph(root: str | Path, *, image: str | None = None, timeout: float
     with tempfile.TemporaryDirectory(prefix="exhibit-a-js-stage-", dir=_staging_parent()) as staged_dir:
         staged_root = Path(staged_dir) / "repo"
         shutil.copytree(root, staged_root, symlinks=True)
+        os.chmod(staged_dir, 0o755)
+        _make_world_readable(staged_root)
         command = [
             "docker", "run", "--rm", "-i", "--network", "none", "--read-only",
             "--tmpfs", "/tmp:rw,size=64m,mode=1777", "--cap-drop", "ALL",
