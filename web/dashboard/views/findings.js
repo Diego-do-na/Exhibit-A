@@ -40,13 +40,13 @@ window.Component = class Component extends DCLogic {
       .catch(() => this.setState({ err: 'Could not load this repository.' }));
   }
   money(v) {
-    if (v == null) return 'not recorded';
+    if (v == null) return '';
     return '$' + Number(v).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
   }
   renderVals() {
     const VC = { proven: '#0f2557', discarded_unproven: '#c3cbd8', invalid_test: '#9aa3e0', flaky: '#d9b98f', env_failure: '#b7834f' };
     const VN = { proven: 'Proven', discarded_unproven: 'Discarded', invalid_test: 'Invalid test', flaky: 'Flaky', env_failure: 'Environment failure' };
-    const EN = { read: 'File read', write: 'File write', exec: 'Command exec', sql: 'SQL read', unspecified: 'Effect not recorded', unknown: 'Effect not recorded', '': 'Effect not recorded' };
+    const EN = { read: 'File read', write: 'File write', exec: 'Command exec', sql: 'SQL read', unspecified: 'Unspecified effect', unknown: 'Unspecified effect', '': 'Unspecified effect' };
     const st = this.state;
     const detail = st.detail;
     const m = (detail && detail.metrics) || {};
@@ -83,7 +83,7 @@ window.Component = class Component extends DCLogic {
 
     // Outcome by effect or by CWE, stacking recorded verdicts.
     const grp = {};
-    const keyOf = (it) => st.by === 'effect' ? (EN[it.effect] || it.effect || 'Effect not recorded') : (it.cwe || 'CWE not recorded');
+    const keyOf = (it) => st.by === 'effect' ? (EN[it.effect] || it.effect || 'Unspecified effect') : (it.cwe || 'Unspecified CWE');
     items.forEach((it) => {
       const k = keyOf(it);
       const cell = grp[k] || (grp[k] = {});
@@ -96,7 +96,7 @@ window.Component = class Component extends DCLogic {
       l: st.sc === 'abs' ? String(o[k]) : Math.round(o[k] / t * 100) + '%', t: VN[k] + ': ' + o[k] })) }));
     const effRate = {};
     items.forEach((it) => {
-      const k = EN[it.effect] || it.effect || 'Effect not recorded';
+      const k = EN[it.effect] || it.effect || 'Unspecified effect';
       const cell = effRate[k] || (effRate[k] = { p: 0, t: 0 });
       cell.t += 1;
       if (it.verdict === 'proven') cell.p += 1;
@@ -104,7 +104,7 @@ window.Component = class Component extends DCLogic {
     const ranked = Object.entries(effRate).map(([k, v]) => [k, v]).sort((a, b) => (b[1].p / b[1].t) - (a[1].p / a[1].t));
     const insights = ranked.slice(0, 3).map(([k, v]) => ({ v: v.p + ' / ' + v.t, l: k,
       d: v.p + ' of ' + v.t + ' recorded ' + k.toLowerCase() + ' suspicions were proven.' }));
-    while (insights.length < 3) insights.push({ v: '—', l: 'not recorded', d: 'No further recorded effects for this source.' });
+    // Do not pad with placeholder insight cards when fewer than three effects exist.
 
     // Why the oracle said no: recorded discard reasons, grouped by reason code.
     const whyGroups = {};
@@ -150,7 +150,7 @@ window.Component = class Component extends DCLogic {
       { v: this.money(spends[Math.floor(spends.length / 2)]), l: 'median per run' },
       { v: this.money(spends[spends.length - 1]), l: 'highest run' },
       { v: this.money(spends.reduce((a, b) => a + b, 0)), l: 'total recorded' },
-    ] : [{ v: 'not recorded', l: 'no recorded runs' }];
+    ] : [];
 
     // Run explorer with a real verdict filter: only recorded verdicts offered.
     const verdictsPresent = Object.keys(VN).filter((k) => (vt[k] || 0) > 0);
@@ -162,8 +162,8 @@ window.Component = class Component extends DCLogic {
       vs: [{ c: VC[it.verdict] || '#4a5873', t: VN[it.verdict] || it.verdict }],
       cls: 'frow' + (st.sel === it.id + '|' + it.run ? ' frow-on' : ''), pick: () => this.setState({ sel: it.id + '|' + it.run }) }));
     const s0 = items.find((it) => st.sel === it.id + '|' + it.run) || items[0];
-    const sel = s0 ? { verdict: VN[s0.verdict] || s0.verdict, effect: EN[s0.effect] || s0.effect || '—', cwe: s0.cwe || 'CWE not recorded',
-      cls: s0.cls, file: (s0.file || 'file not recorded') + (s0.line ? ':' + s0.line : ''), entry: s0.entry || 'entry point not recorded',
+    const sel = s0 ? { verdict: VN[s0.verdict] || s0.verdict, effect: EN[s0.effect] || s0.effect || '—', cwe: s0.cwe || '—',
+      cls: s0.cls, file: (s0.file || '—') + (s0.line ? ':' + s0.line : ''), entry: s0.entry || '—',
       n: '1', calls: this.money(s0.cost), cost: s0.fix ? s0.fix.replace(/_/g, ' ') : (s0.verdict === 'proven' ? 'recorded' : 'no fix proposed'),
       vs: [{ c: VC[s0.verdict] || '#4a5873', v: VN[s0.verdict] || s0.verdict, r: s0.reason }],
       href: s0.href, runLabel: 'Open run ' + (s0.run || '').slice(0, 20) } : null;
@@ -184,7 +184,7 @@ window.Component = class Component extends DCLogic {
     const verdicts = (it) => VN[it.verdict] || it.verdict;
     if (id === 'sus') {
       const sorted = items.slice().sort((a, b) => (a.id < b.id ? -1 : 1));
-      const rows = sorted.map((it) => ({ key: it.id + '|' + it.run, label: it.id, sub: (it.cwe || 'CWE not recorded') + ' · ' + (EN[it.effect] || '—'),
+      const rows = sorted.map((it) => ({ key: it.id + '|' + it.run, label: it.id, sub: (it.cwe || '—') + ' · ' + (EN[it.effect] || '—'),
         parts: [{ v: 1, color: VC[it.verdict] || '#4a5873', name: verdicts(it), text: EN[it.effect] || '', label: it.verdict }], value: verdicts(it) }));
       return { type: 'hbars', title: 'Recorded suspicions', aria: 'Every recorded suspicion by verdict', rowH: 40, labelW: 290, legend, groups: [{ rows, max: 1 }],
         rows: sorted.map((it) => ({ key: it.id + '|' + it.run, label: it.id, value: verdicts(it), n: 1 })) };
@@ -197,7 +197,7 @@ window.Component = class Component extends DCLogic {
       };
       const mk = (title, ents, pre) => ({ title, rows: ents.map(([n, o, t]) => ({ key: pre + n, label: n, sub: (o.proven || 0) + ' of ' + t + ' proven',
         parts: Object.keys(o).map((k) => ({ v: o[k], color: VC[k] || '#4a5873', name: VN[k] || k, label: String(o[k]) })), value: String(t) })) });
-      const g1 = mk('By effect', group((it) => EN[it.effect] || 'Effect not recorded'), 'e:');
+      const g1 = mk('By effect', group((it) => EN[it.effect] || 'Unspecified effect'), 'e:');
       const g2 = mk('By verdict detail', group((it) => VN[it.verdict] || it.verdict), 'v:');
       const rows = [];
       [g1, g2].forEach((g) => g.rows.forEach((r) => rows.push({ key: r.key, label: g.title + ' · ' + r.label, value: r.sub, n: Number(r.value) })));

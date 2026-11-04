@@ -90,7 +90,7 @@ def test_finding_page_replays_the_proof_and_shows_a_vulnerability_sheet():
     js = read("views/finding.js")
     assert "Replay the proof" in js
     assert "prefers-reduced-motion" in js
-    assert "not recorded" in js
+    assert "not recorded" not in js
     assert "sheetFor" in js and "CWE-22" in js
     html = read("finding.html")
     assert "Replay the proof" in html and "{{replay.start}}" in html

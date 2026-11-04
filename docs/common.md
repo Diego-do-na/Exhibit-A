@@ -196,3 +196,4 @@ Protocol:
 - T153 grok: P1-4 GitHub source: 20-run window + load more, 4-way gh, disk cache, list rows skip run-info, skeleton; testbed 10 runs 3.44s cold / 0s hot; pending: P1-5 benchmark measure or drop empty rows
 - T153 grok: P1-5 hide the unremeasured standard-profile row and empty fix-rate cell; owner command is record_meta --profile standard --budget-usd 8 --total-usd 8 then bench --compare baseline; pending: P2-1 two-job CI template
 - T153 grok: P2-1 two-job template (analyze in environment exhibit-a always succeeds; verify has no environment and fails on proven); init and Exhibit-A workflow updated; testbed needs init --update; pending: final verification
+- T153 grok: final verification: dashboard UI never says not recorded (hide missing cards); gh pr list drops nested commits/files and enriches via bounded GraphQL; live testbed PR #16 proven with gh pr diff; pending: owner Docker sandbox tests, screenshot recapture, testbed exhibit-a init --update

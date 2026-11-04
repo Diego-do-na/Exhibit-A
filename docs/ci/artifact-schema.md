@@ -10,8 +10,8 @@ and resource-limited sandbox.
 
 The zip is the only object the dashboard sees for a CI run. If a field the
 dashboard needs is not a **top-level** zip entry or a field of top-level
-`result.json`, the dashboard must treat it as **not recorded** (`""` / `null`),
-never invent a number.
+`result.json`, the dashboard must treat it as missing (`""` / `null`) and
+hide the card, never invent a number.
 
 ## Zip layout
 
@@ -32,7 +32,7 @@ open top-level names.
 | `test_exploit.ts` | no | 64 KiB (text) | Same for a TypeScript finding. |
 | `graph-summary.json` | no | 64 KiB (text) | Compact static-graph summary when a `scan_done` event exists. |
 
-Omitted optional files mean "not recorded". A skipped risk-gate run still
+Omitted optional files mean the matching card is hidden. A skipped risk-gate run still
 uploads `ledger.jsonl` (possibly empty) and `result.json` with
 `status: "skipped"`.
 
@@ -266,7 +266,7 @@ this is the graph the dashboard can show without rebuilding.
 | `source_file` | `""` |
 
 If the file is absent, `result.json` `graph_summary` is `null` and the
-dashboard graph views stay `"not recorded"` / `available: false` for
+dashboard graph views stay empty / `available: false` for
 GitHub-source runs that have no local tree.
 
 ## `summary.md` and `results.sarif`

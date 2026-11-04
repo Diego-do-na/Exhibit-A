@@ -40,7 +40,9 @@ from ..schemas import Event
 from .prs import (
     AUTHORS_YML,
     MAX_PRS,
+    PR_ENRICH_QUERY,
     PR_JSON_FIELDS,
+    enrich_pr_rows,
     parse_authors_yml,
     parse_pr_list,
 )
@@ -250,7 +252,7 @@ class _Result(BaseModel):
     @field_validator("provider", "model", "base_sha", "discussion_url", mode="before")
     @classmethod
     def _empty_for_null(cls, value: Any) -> Any:
-        # An explicit null is "not recorded", never a reason to drop the run.
+        # An explicit null is a missing value, never a reason to drop the run.
         return "" if value is None else value
 
     @field_validator("budget_usd", mode="before")
@@ -319,12 +321,12 @@ class _GraphSummary(BaseModel):
                      mode="before")
     @classmethod
     def _empty_for_null(cls, value: Any) -> Any:
-        # An explicit null is "not recorded", never a reason to drop the summary.
+        # An explicit null is a missing value, never a reason to drop the summary.
         return "" if value is None else value
 
 
 def parse_graph_summary(value: Any) -> dict[str, Any]:
-    """Validate a decoded ``graph-summary.json``; garbage means {} (not recorded)."""
+    """Validate a decoded ``graph-summary.json``; garbage means {}."""
     if not isinstance(value, dict):
         return {}
     try:
@@ -1017,6 +1019,22 @@ class GitHubSource:
             rows = parse_pr_list(raw, repo=self.repo, mapping=mapping)
         except ValueError as exc:
             raise GhError(str(exc)) from exc
+        owner, _, name = self.repo.partition("/")
+        try:
+            extra = self._call(
+                [
+                    "api", "graphql",
+                    "-f", f"query={PR_ENRICH_QUERY}",
+                    "-F", f"owner={owner}",
+                    "-F", f"name={name}",
+                ],
+                MAX_PR_LIST_BYTES,
+            )
+            payload = json.loads(extra.decode("utf-8"))
+        except (GhError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            enrich_pr_rows(rows, payload, mapping=mapping)
         with self._lock:
             self._prs = (self._clock(), rows)
         return rows

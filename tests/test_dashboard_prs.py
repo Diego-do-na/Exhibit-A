@@ -9,11 +9,13 @@ from exhibit_a.dashboard.prs import (
     KIND_BOT,
     KIND_HUMAN,
     KIND_UNCLASSIFIED,
+    PR_JSON_FIELDS,
     PR_LIST_COMMAND,
     attach_run_metrics,
     author_color,
     build_pr_index,
     classify_author,
+    enrich_pr_rows,
     parse_authors_yml,
     parse_coauthors,
     parse_pr_list,
@@ -108,6 +110,34 @@ def test_parse_pr_list_drops_untrusted_url_and_classifies():
     assert rows[0]["area"] == "memos.py"
     assert rows[1]["author_kind"] == KIND_BOT
     assert rows[1]["author_color"] == author_color("dependabot[bot]")
+
+
+def test_pr_list_json_fields_are_shallow():
+    assert "commits" not in PR_JSON_FIELDS.split(",")
+    assert "files" not in PR_JSON_FIELDS.split(",")
+
+
+def test_enrich_pr_rows_fills_coauthors_and_area_from_graphql():
+    rows = parse_pr_list(json.dumps([
+        gh_pr(15, "traversal in memos.py", "diego", files=[], body=""),
+    ]).encode(), repo="acme/app")
+    rows[0]["commits"] = 0
+    rows[0]["files"] = []
+    rows[0]["coauthors"] = []
+    rows[0]["area"] = ""
+    enrich_pr_rows(rows, {
+        "data": {"repository": {"pullRequests": {"nodes": [{
+            "number": 15,
+            "commits": {"nodes": [{"commit": {
+                "messageHeadline": "traversal",
+                "messageBody": "Co-authored-by: claude[bot] <claude[bot]@users.noreply.github.com>\n",
+            }}]},
+            "files": {"nodes": [{"path": "src/memos.py", "additions": 2, "deletions": 0}]},
+        }]}}},
+    })
+    assert rows[0]["coauthors"][0]["login"] == "claude[bot]"
+    assert rows[0]["area"] == "src"
+    assert rows[0]["files"] == ["src/memos.py"]
 
 
 def test_github_lists_pull_requests_from_gh_pr_list_and_caches(tmp_path):

@@ -85,7 +85,7 @@
             <h2 class="ct">Replay the proof</h2>
             <button type="button" class="btn btn-s no-print" data-ev-click="{{replay.start}}">{{replay.label}}</button>
           </div>
-          <p data-style="margin: 0; font-size: 14px; color: #3d4b68">Animated from this finding's ledger record. A step the ledger does not hold is marked "not recorded".</p>
+          <p data-style="margin: 0; font-size: 14px; color: #3d4b68">Animated from this finding's ledger record. Steps the ledger does not hold are omitted.</p>
           <sc-for list="{{replay.steps}}" as="s">
             <div data-style="display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid rgba(13,27,62,.07); opacity: {{s.op}}">
               <span data-style="width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: {{s.bg}}; color: #ffffff; border: 1.5px solid {{s.bd}}"><sc-if value="{{s.done}}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></sc-if></span>

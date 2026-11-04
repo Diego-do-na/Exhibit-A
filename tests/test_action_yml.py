@@ -434,7 +434,7 @@ def test_artifact_schema_doc_lists_dashboard_fields() -> None:
         "cost_usd",
         "discussion_url",
         "graph-summary.json",
-        "not recorded",
+        "hide the card",
         "isolated and resource-limited",
     ):
         assert needle in text

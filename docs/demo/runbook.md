@@ -70,7 +70,7 @@ The command uses the local `gh` authentication already configured on the
 machine. It reads artifacts through `gh`, serves on `127.0.0.1`, and prints a
 one-time browser link. Open the link once, select PR #1, show the proof trace,
 then select **Economics**. The Economics page must show the recorded run and
-spend; if a field is not in the ledger it must remain “not recorded”.
+spend; if a field is not in the ledger the matching card is hidden.
 
 ## Failure handling while recording
 
@@ -107,8 +107,8 @@ spend; if a field is not in the ledger it must remain “not recorded”.
 - [ ] PR #1 visibly shows the red check, proof comment, suggested fix, and
       **Commit suggestion** control.
 - [ ] The control and adversarial scenes show no false `proven`.
-- [ ] The dashboard shows real recorded spend and labels unavailable data as
-      “not recorded”.
+- [ ] The dashboard shows real recorded spend and hides cards whose fields
+      the ledger does not hold.
 - [ ] The chain limitation and green misses are included in narration or
       captions.
 - [ ] No key, token, personal folder, personal tab, or shell secret appeared.

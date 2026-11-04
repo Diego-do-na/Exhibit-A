@@ -38,9 +38,25 @@ AUTHOR_PALETTE = (
 PR_LIST_COMMAND = "gh pr list --state all"
 AUTHORS_YML = ".exhibit-a/authors.yml"
 MAX_PRS = 100
+# Nested ``commits`` / ``files`` connections on ``gh pr list --json`` blow the
+# GitHub GraphQL node cap on repos with many PRs. The list stays shallow; a
+# follow-up query (``PR_ENRICH_QUERY``) loads a bounded page of each.
 PR_JSON_FIELDS = (
     "number,title,author,createdAt,updatedAt,additions,deletions,"
-    "changedFiles,commits,url,state,mergedAt,headRefName,baseRefName,files"
+    "changedFiles,url,state,mergedAt,headRefName,baseRefName"
+)
+PR_ENRICH_QUERY = (
+    "query($owner: String!, $name: String!) {"
+    " repository(owner: $owner, name: $name) {"
+    "  pullRequests(first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {"
+    "   nodes {"
+    "    number"
+    "    commits(first: 8) { nodes { commit { messageHeadline messageBody } } }"
+    "    files(first: 20) { nodes { path additions deletions } }"
+    "   }"
+    "  }"
+    " }"
+    "}"
 )
 
 _COAUTHOR_RE = re.compile(
@@ -256,6 +272,68 @@ def parse_pr_list(raw: bytes, *, repo: str = "", mapping: dict[str, str] | None 
             "run_id": "",
         })
     return rows
+
+
+def enrich_pr_rows(
+    rows: list[dict[str, Any]],
+    payload: Any,
+    *,
+    mapping: dict[str, str] | None = None,
+) -> None:
+    """Fill Co-authored-by trailers and file paths from a bounded GraphQL page."""
+    nodes = (
+        ((payload or {}).get("data") or {}).get("repository") or {}
+    ).get("pullRequests", {})
+    if isinstance(nodes, dict):
+        nodes = nodes.get("nodes")
+    if not isinstance(nodes, list):
+        return
+    by_num = {int(row["number"]): row for row in rows}
+    table = mapping or {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        number = node.get("number")
+        row = by_num.get(number) if isinstance(number, int) else None
+        if row is None:
+            continue
+        commits = ((node.get("commits") or {}).get("nodes") or [])
+        if isinstance(commits, list) and commits:
+            row["commits"] = len(commits)
+            seen = {str(row.get("author") or "").lower()} if row.get("author") else set()
+            seen.discard("")
+            coauthors: list[dict[str, str]] = list(row.get("coauthors") or [])
+            for extra in coauthors:
+                seen.add(str(extra.get("login") or "").lower())
+            for item in commits:
+                commit = (item or {}).get("commit") if isinstance(item, dict) else {}
+                if not isinstance(commit, dict):
+                    continue
+                body = "\n".join(
+                    part for part in (commit.get("messageHeadline"), commit.get("messageBody")) if part
+                )
+                for name, is_bot in parse_coauthors(body):
+                    if name.lower() in seen:
+                        continue
+                    seen.add(name.lower())
+                    coauthors.append({
+                        "login": name[:100],
+                        "kind": classify_author(name, is_bot=is_bot, mapping=table),
+                        "color": author_color(name),
+                    })
+            row["coauthors"] = coauthors
+        files = ((node.get("files") or {}).get("nodes") or [])
+        if isinstance(files, list) and files:
+            paths = [
+                str(item.get("path") or "")[:400]
+                for item in files
+                if isinstance(item, dict) and item.get("path")
+            ][:20]
+            if paths:
+                row["files"] = paths
+                row["area"] = paths[0].split("/")[0] if "/" in paths[0] else paths[0]
+                if not row.get("changed_files"):
+                    row["changed_files"] = len(paths)
 
 
 def attach_run_metrics(prs: list[dict[str, Any]], run_rows: Iterable[dict[str, Any]]) -> None:

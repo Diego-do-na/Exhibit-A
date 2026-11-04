@@ -8,25 +8,25 @@ nothing is ever executed. The ledger is the single source of truth; the CI
 code, risk gate, skip reason).
 
 Data rule: a field the ledger and artifacts do not record is returned as
-`""` (strings) or `null` (numbers/objects) and the UI labels it
-**"not recorded"**. Nothing is estimated or invented. In particular:
+`""` (strings) or `null` (numbers/objects) and the UI hides that card.
+Nothing is estimated or invented. In particular:
 
-- `provider` is the `result.json` artifact's provider, `""` when the artifact
-  is silent: ledger events record `role` and `model` but no provider.
-- `budget_usd` is always `null`: no budget cap is stored in any ledger or
-  artifact (pass `--budget-usd` when running the engine; until the cap
-  itself is recorded, the API will not invent one).
-- `base_sha` is `""` unless a `pr_opened` event carries `base`/`base_sha`;
-  the Action ledger (for example run `41650269331`) records none, so the
-  base commit shows "not recorded" there.
+- `provider` is the `result.json` artifact's provider (or the `pr_opened`
+  payload), `""` when both are silent: ledger events record `role` and
+  `model` but older runs have no provider.
+- `budget_usd` comes from `result.json` / the `pr_opened` payload when the
+  engine recorded the cap; it is `null` on older runs and the budget card
+  is hidden.
+- `base_sha` is `""` unless a `pr_opened` event (or `result.json`) carries
+  `base`/`base_sha`; older Action ledgers record none, so the base-commit
+  card is hidden.
 - `artifacts.fix_patch` / `artifacts.exploit_test` are `null` unless the run
   folder or artifact carries `fix.patch` / `test_exploit.py`. The Action
   artifact (`action.yml`) uploads `ledger.jsonl`, `result.json`,
-  `summary.md` and `results.sarif` only, so Action runs report both as
-  "not recorded". Artifact texts are read as capped text and never executed.
-- The Action artifact schema doc has not landed yet: when it does, this API
-  will align with it and any field it adds that the ledger lacks stays
-  "not recorded".
+  `summary.md` and `results.sarif` only, so Action runs omit those cards.
+  Artifact texts are read as capped text and never executed.
+- See `docs/ci/artifact-schema.md` for the files the Action zip may contain.
+  Any field it does not list stays empty at the API and hidden in the UI.
 
 All examples below are real responses produced from a local run folder whose
 ledger mirrors Action run `41650269331` of
@@ -39,7 +39,7 @@ responses carry the full values within the documented display caps
 ## `GET /api/info`
 
 Source label and kind, artifact name (GitHub source only) and the budget cap
-(`null`: not recorded), plus the display caps.
+(`null` when the run did not record a cap), plus the display caps.
 
 ```json
 {

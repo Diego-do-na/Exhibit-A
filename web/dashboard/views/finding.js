@@ -94,14 +94,21 @@ window.Component = class Component extends DCLogic {
     };
   }
   replaySteps(item) {
-    const n = item.n || {}, nr = { t: 'not recorded', rec: false };
-    const step = (ok, t, d) => ok ? { t, d, rec: true } : { ...nr, d };
-    return [
-      step(n.vulnRuns > 0 && n.effectObserved, 'Exploit fails on vulnerable code', n.vulnRuns + ' run(s); oracle observed ' + item.effect),
-      step(n.fixApplied, 'Fix applied', item.fixPath || 'patch recorded in the package'),
-      step(n.fixedRuns > 0 && n.fixVerified, 'Exploit passes on fixed code', n.fixedRuns + ' run(s); baseline still green'),
-      step(n.bypassTried > 0 && n.bypassWon === 0, 'Bypass blocked', n.bypassTried + ' variant(s) tried, ' + n.bypassWon + ' got through'),
-    ];
+    const n = item.n || {};
+    const out = [];
+    if (n.vulnRuns > 0 && n.effectObserved) {
+      out.push({ t: 'Exploit fails on vulnerable code', d: n.vulnRuns + ' run(s); oracle observed ' + item.effect, rec: true });
+    }
+    if (n.fixApplied) {
+      out.push({ t: 'Fix applied', d: item.fixPath || 'patch recorded in the package', rec: true });
+    }
+    if (n.fixedRuns > 0 && n.fixVerified) {
+      out.push({ t: 'Exploit passes on fixed code', d: n.fixedRuns + ' run(s); baseline still green', rec: true });
+    }
+    if (n.bypassTried > 0 && n.bypassWon === 0) {
+      out.push({ t: 'Bypass blocked', d: n.bypassTried + ' variant(s) tried, ' + n.bypassWon + ' got through', rec: true });
+    }
+    return out;
   }
   startReplay() {
     const item = this.state.item;

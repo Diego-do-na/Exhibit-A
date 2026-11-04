@@ -2,9 +2,8 @@
  *
  * Every figure comes from the dashboard API for the current --source
  * (/api/repos, then /api/repos/<id>): the ledger is the single source of
- * truth. Anything the ledger and artifacts do not record reads
- * "not recorded", never an estimate. When the source holds no runs, the
- * page shows the onboarding steps instead of charts.
+ * truth. Missing fields are hidden, never estimated. When the source holds
+ * no runs, the page shows the onboarding steps instead of charts.
  */
 window.Component = class Component extends DCLogic {
   constructor(props) {
@@ -45,11 +44,11 @@ window.Component = class Component extends DCLogic {
     this.loadRepo(this.state.repoId);
   }
   money(v) {
-    if (v == null) return 'not recorded';
+    if (v == null) return '';
     return '$' + Number(v).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
   }
   num(v) {
-    if (v == null) return 'not recorded';
+    if (v == null) return '';
     return Number(v).toLocaleString('en-US');
   }
   dayOf(ts) {
@@ -77,7 +76,7 @@ window.Component = class Component extends DCLogic {
       { v: this.num(m.exploits_written), l: 'exploit tests written' },
       { v: this.num(m.runs), l: 'recorded runs' },
       { v: (detail.cost_by_model ? Object.keys(detail.cost_by_model).length : 0) + ' model' + (Object.keys(detail.cost_by_model || {}).length === 1 ? '' : 's'), l: 'recorded models' },
-      { v: m.median_duration_s != null ? m.median_duration_s + 's' : 'not recorded', l: 'median run duration' },
+      ...(m.median_duration_s != null ? [{ v: m.median_duration_s + 's', l: 'median run duration' }] : []),
       { v: this.num((m.tokens_in || 0) + (m.tokens_out || 0)), l: 'tokens in and out' },
     ] : [{ v: '…', l: 'loading recorded runs' }];
 
@@ -118,26 +117,24 @@ window.Component = class Component extends DCLogic {
       aria: isCost ? 'Recorded model spend per day' : 'Recorded runs per day, stacked by outcome',
       grid: ticks.map((v) => ({ y: ys(v), ty: ys(v) + 4, l: isCost ? this.money(v) : String(Math.round(v)) })) };
 
-    // Busiest day / median run / largest spend, all recorded.
-    let flow = [{ l: 'Busiest day', v: 'not recorded', d: 'No recorded runs with timestamps.' }, { l: 'Median run', v: 'not recorded', d: 'No recorded durations.' }, { l: 'Largest spend', v: 'not recorded', d: 'No recorded spend.' }];
+    // Busiest day / median run / largest spend; omit a card when the source has no value.
+    const flow = [];
     if (series.length) {
       const byDay = {};
       series.forEach((p) => { const d = this.dayOf(p.started_at); if (d) byDay[d] = (byDay[d] || 0) + 1; });
       const top3 = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0];
       const durs = series.map((p) => p.duration_s).filter((v) => typeof v === 'number').sort((a, b) => a - b);
       const big = series.slice().sort((a, b) => (b.cost_usd || 0) - (a.cost_usd || 0))[0];
-      flow = [
-        { l: 'Busiest day', v: top3 ? top3[0].slice(5) + ' · ' + top3[1] + ' runs' : 'not recorded', d: top3 ? 'The day with the most recorded runs.' : 'No recorded runs with timestamps.' },
-        { l: 'Median run', v: durs.length ? durs[Math.floor(durs.length / 2)] + 's' : 'not recorded', d: 'Median recorded run duration.' },
-        { l: 'Largest spend', v: big ? this.money(big.cost_usd) : 'not recorded', d: big ? 'Run ' + (big.run_id || '') + ' cost the most.' : 'No recorded spend.' },
-      ];
+      if (top3) flow.push({ l: 'Busiest day', v: top3[0].slice(5) + ' · ' + top3[1] + ' runs', d: 'The day with the most recorded runs.' });
+      if (durs.length) flow.push({ l: 'Median run', v: durs[Math.floor(durs.length / 2)] + 's', d: 'Median recorded run duration.' });
+      if (big && this.money(big.cost_usd)) flow.push({ l: 'Largest spend', v: this.money(big.cost_usd), d: 'Run ' + (big.run_id || '') + ' cost the most.' });
     }
 
     // Donut: by oracle effect (proven findings) or by verdict (all suspicions).
     const proven = (detail && detail.all_findings) || [];
     const vt = (detail && detail.verdict_totals) || {};
     const EFFC = { read: '#0f2557', write: '#2c4fc4', exec: '#6a8fd8', sql: '#9aa3e0', unspecified: '#c3cbd8' };
-    const EFFN = { read: 'File read', write: 'File write', exec: 'Command exec', sql: 'SQL read', unspecified: 'Effect not recorded' };
+    const EFFN = { read: 'File read', write: 'File write', exec: 'Command exec', sql: 'SQL read', unspecified: 'Unspecified effect' };
     const VERC = { proven: '#0f2557', discarded_unproven: '#9aa3e0', invalid_test: '#c3cbd8', flaky: '#d9b98f', env_failure: '#b7834f' };
     const VERN = { proven: 'Proven', discarded_unproven: 'Discarded', invalid_test: 'Invalid test', flaky: 'Flaky', env_failure: 'Environment failure' };
     let src = [], total = 0, cap = 'RECORDED';
@@ -166,7 +163,7 @@ window.Component = class Component extends DCLogic {
 
     const prs = ((detail && detail.pull_requests) || []).slice(0, 5).map((p) => ({
       id: p.pr ? 'PR ' + String(p.pr).replace(/^#/, '') : (p.run_id || '').slice(0, 12),
-      t: p.title || p.headline || p.run_id, a: (p.models && p.models[0]) || 'model not recorded',
+      t: p.title || p.headline || p.run_id, a: (p.models && p.models[0]) || '',
       aria: 'Open run ' + (p.run_id || ''), go: () => { window.location.href = 'pr.html?run=' + encodeURIComponent(p.run_id); },
     }));
     const files = (detail && detail.hot_files && detail.hot_files.files) || [];

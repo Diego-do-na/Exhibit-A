@@ -999,13 +999,13 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
         "model": row.get("model", ""),
         "budget_usd": row.get("budget_usd"),
         # Proof artifacts, read as text only (never executed); None means
-        # the run folder or artifact does not carry that file ("not recorded").
+        # the run folder or artifact does not carry that file.
         "artifacts": {
             "fix_patch": artifacts.get("fix.patch"),
             "exploit_test": artifacts.get("test_exploit.py"),
         },
         # Validated graph-summary.json (artifact-schema.md); None means the run
-        # folder or artifact does not carry one ("not recorded").
+        # folder or artifact does not carry one.
         "graph_summary": data.graph_summary or None,
         "pr_diff": pr_diff or None,
         "pr_diff_source": pr_diff_source,

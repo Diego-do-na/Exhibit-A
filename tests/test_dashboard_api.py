@@ -3,7 +3,7 @@
 Every figure the dashboard shows must be derived only from the ledger and
 the run artifacts, validated with schemas, and never executed. Anything the
 ledger does not record (provider, budget cap, base SHA, missing proof
-artifacts) surfaces as "" or null and the UI labels it "not recorded".
+artifacts) surfaces as "" or null and the UI hides the card.
 
 The ``memos`` fixture below mirrors the shape of the real Action run
 ``41650269331`` of ``github:Diego-do-na/exhibit-a-testbed`` (1 proven
@@ -395,6 +395,14 @@ def test_run_page_serves_payload_diff_and_hides_placeholder_copy(tmp_path):
     assert "Scrub the ledger" not in html and "Scrub the ledger" not in js
     assert "live.player" in html
     assert "gh pr diff" in html
+
+
+def test_dashboard_ui_never_says_not_recorded():
+    for path in sorted(WEB_DIR.rglob("*")):
+        if path.suffix.lower() not in {".js", ".html", ".css", ".md"}:
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert "not recorded" not in text, path.relative_to(WEB_DIR)
 
 
 def test_github_run_fills_pr_diff_from_gh():

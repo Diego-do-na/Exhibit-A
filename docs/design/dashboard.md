@@ -248,7 +248,7 @@ three explicitly labelled UI-only pieces:
 Replay (`/events`, `/replay`) streams recorded ledger events at a
 user-chosen pace; nothing is re-executed. The Economics page recomputes every
 figure from `/api` for the current `--source`; any field the ledger and
-artifacts do not record reads `not recorded`, never an estimate.
+artifacts do not record is hidden, never estimated.
 
 ## API (all GET, all under the session cookie)
 
