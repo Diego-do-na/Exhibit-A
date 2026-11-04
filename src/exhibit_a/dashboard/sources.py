@@ -36,6 +36,13 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ..schemas import Event
+from .prs import (
+    AUTHORS_YML,
+    MAX_PRS,
+    PR_JSON_FIELDS,
+    parse_authors_yml,
+    parse_pr_list,
+)
 
 # -- limits -------------------------------------------------------------------------
 
@@ -73,6 +80,10 @@ GH_TIMEOUT = 30.0
 CACHE_SIZE = 128
 #: Seconds a GitHub run listing stays fresh.
 LIST_TTL = 60.0
+#: Largest ``gh pr list --json`` stdout accepted, in bytes.
+MAX_PR_LIST_BYTES = 2 * 1024 * 1024
+#: Largest ``.exhibit-a/authors.yml`` accepted, in bytes.
+MAX_AUTHORS_YML_BYTES = 16 * 1024
 
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}\Z")
@@ -126,10 +137,10 @@ class RunData:
     diff: str = ""
     #: Proof-artifact texts by file name (``fix.patch``, ``test_exploit.py``), when the
     #: run folder or artifact carries them. Read as capped text only, never executed;
-    #: absent names simply have no entry ("not recorded").
+    #: absent names simply have no entry.
     artifacts: dict[str, str] = field(default_factory=dict)
     #: Validated ``graph-summary.json`` (artifact-schema.md), when the run folder
-    #: or artifact carries it; {} when absent or invalid ("not recorded").
+    #: or artifact carries it; {} when absent or invalid.
     graph_summary: dict[str, Any] = field(default_factory=dict)
 
 
@@ -452,6 +463,24 @@ class LocalRunsSource:
         self.label = f"local: {self.root.name or self.root}"
         self._cache = _Cache()
 
+    def list_pull_requests(self) -> list[dict[str, Any]]:
+        """Local run folders have no GitHub PR list; the UI shows ``PR_LIST_COMMAND``."""
+        return []
+
+    def author_mapping(self) -> dict[str, str]:
+        """Optional ``.exhibit-a/authors.yml`` next to the runs directory."""
+        for candidate in (
+            self.root / AUTHORS_YML,
+            self.root.parent / AUTHORS_YML,
+        ):
+            try:
+                raw = _read_capped(candidate, MAX_AUTHORS_YML_BYTES)
+            except SourceError:
+                continue
+            if raw:
+                return parse_authors_yml(raw.decode("utf-8", errors="replace"))
+        return {}
+
     def _index(self) -> dict[str, dict[str, Any]]:
         try:
             raw = _read_capped(self.root / INDEX_NAME, MAX_INDEX_BYTES)
@@ -547,7 +576,7 @@ class LocalRunsSource:
                 try:
                     raw_summary = _read_capped(folder / GRAPH_SUMMARY_NAME, MAX_ARTIFACT_TEXT)
                 except SourceError:
-                    raw_summary = None  # missing or unreadable means not recorded
+                    raw_summary = None  # missing or unreadable: no graph summary
                 data.graph_summary = _parse_summary_text(
                     raw_summary.decode("utf-8", errors="replace") if raw_summary else None)
         self._cache.put(stamp, data)
@@ -801,6 +830,8 @@ class GitHubSource:
         self._cache = _Cache()
         self._lock = threading.Lock()
         self._listed: tuple[float, dict[str, tuple[RunRef, _Artifact]]] | None = None
+        self._prs: tuple[float, list[dict[str, Any]]] | None = None
+        self._authors: tuple[float, dict[str, str]] | None = None
 
     def _call(self, argv: list[str], max_bytes: int = 4 * 1024 * 1024) -> bytes:
         return self._gh(argv, self._timeout, max_bytes)
@@ -849,6 +880,48 @@ class GitHubSource:
 
     def list_runs(self) -> list[RunRef]:
         return [ref for ref, _ in self._listing().values()]
+
+    def author_mapping(self) -> dict[str, str]:
+        """Optional ``.exhibit-a/authors.yml`` of this repository, via ``gh api``."""
+        with self._lock:
+            if self._authors is not None and self._clock() - self._authors[0] < LIST_TTL:
+                return self._authors[1]
+        try:
+            raw = self._call(
+                [
+                    "api", "--method", "GET",
+                    f"repos/{self.repo}/contents/{AUTHORS_YML}",
+                    "-H", "Accept: application/vnd.github.raw",
+                ],
+                MAX_AUTHORS_YML_BYTES,
+            )
+            mapping = parse_authors_yml(raw.decode("utf-8", errors="replace"))
+        except (GhError, UnicodeDecodeError):
+            mapping = {}
+        with self._lock:
+            self._authors = (self._clock(), mapping)
+        return mapping
+
+    def list_pull_requests(self) -> list[dict[str, Any]]:
+        """``gh pr list --state all`` for this repository, cached like the run listing."""
+        with self._lock:
+            if self._prs is not None and self._clock() - self._prs[0] < LIST_TTL:
+                return self._prs[1]
+        mapping = self.author_mapping()
+        raw = self._call(
+            [
+                "pr", "list", "--repo", self.repo, "--state", "all",
+                "--limit", str(MAX_PRS), "--json", PR_JSON_FIELDS,
+            ],
+            MAX_PR_LIST_BYTES,
+        )
+        try:
+            rows = parse_pr_list(raw, repo=self.repo, mapping=mapping)
+        except ValueError as exc:
+            raise GhError(str(exc)) from exc
+        with self._lock:
+            self._prs = (self._clock(), rows)
+        return rows
 
     def load_run(self, run_id: str) -> RunData:
         if not run_id.isdigit() or len(run_id) > 20:

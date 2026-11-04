@@ -36,7 +36,7 @@
         <a class="nav-a" href="benchmark.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Benchmark</a>
         <a class="nav-a" href="economics.html"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>Economics</a>
       </div>
-      <div class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">Diego-do-na/Exhibit-A · main</div>
+      <div data-xa-repo class="mono" data-style="margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.14); font-size: 11px; color: rgba(232,238,251,.75)">this source</div>
       <button type="button" class="theme-t pal-open" data-open-palette aria-label="Open search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><span>Search</span><span class="pal-kbd">⌘K</span></button>
       <button type="button" class="theme-t" data-theme-toggle aria-label="Toggle night mode"><svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"></path></svg><svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg><span class="t-night">Night mode</span><span class="t-day">Day mode</span></button>
     </nav>
@@ -44,13 +44,21 @@
     <div class="scroll"><main class="content">
       <div data-xa-source class="xa-src"></div>
       <header class="g-head" data-style="padding: 12px 4px 0">
-        <span class="lbl">src/exhibit_a · ast only</span>
+        <span class="lbl">ast only · this source</span>
         <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Code graph</h1>
-        <p class="lead" data-style="font-size: 19px">Which packages exist, how big each is, and what depends on what.</p>
+        <p class="lead" data-style="font-size: 19px">Which packages exist, how big each is, and what depends on what. Built from the checkout with exhibit-a scan --graph.</p>
       </header>
 
+      <sc-if value="{{noGraph}}">
+      <div class="card" data-style="padding: 28px; display: flex; flex-direction: column; gap: 14px; margin-top: 22px">
+        <span class="lbl">No code graph for this source</span>
+        <p data-style="margin: 0; font-size: 16px; line-height: 1.6; color: #26365a">{{graphNote}} Compute one from the repository checkout with:</p>
+        <div class="mono" data-style="font-size: 14px; background: rgba(13,27,62,.06); border: 1px solid rgba(13,27,62,.1); border-radius: 4px; padding: 12px 14px">{{graphCmd}}</div>
+      </div>
+      </sc-if>
+      <sc-if value="{{hasGraph}}">
       <section class="g-stats" data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Architecture</h2><p class="lead">Three layers: proof core, analysis and surfaces.</p></div></div>
+        <div class="sec-h"><span class="sec-n">01</span><div><h2 class="sec-t">Architecture</h2><p class="lead">Layers of this repository, counted from the checkout.</p></div></div>
         <div class="metric-grid" data-style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
           <sc-for list="{{tot}}" as="k" hint-placeholder-count="4">
             <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 10px">
@@ -61,7 +69,7 @@
           </sc-for>
         </div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 18px">
-          <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Lines of code by layer</h3><button type="button" class="ib" data-zoom data-zoom-id="layers" data-zoom-desc="How the 29.9k lines of Python split across the three layers of the engine." data-zoom-points="Proof core: oracle, sandbox, loop, models, ledger and schemas, 12,603 lines.|Surfaces: CLI, dashboard, reports, live view and the GitHub Action gate, 9,030 lines.|Analysis: call graph, advisories, findings, triage, audit, attestation and scan, 8,260 lines." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
+          <div data-style="display: flex; justify-content: space-between; align-items: center"><h3 class="ct">Lines of code by layer</h3><button type="button" class="ib" data-zoom data-zoom-id="layers" data-zoom-desc="Lines of code by layer, counted from the checkout of this source." data-zoom-points="Each bar is a package of this repository.|Layers come from the scan --graph builder, not a bundled snapshot." aria-label="Expand chart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"></path></svg></button></div>
           <div data-style="display: flex; height: 48px; gap: 3px">
             <sc-for list="{{layers}}" as="l"><div data-style="width: {{l.pct}}%; background: {{l.c}}; color: {{l.fg}}; display: flex; align-items: center; padding: 0 16px; font-family: 'JetBrains Mono', monospace; font-size: 14px">{{l.pctL}}</div></sc-for>
           </div>
@@ -132,7 +140,7 @@
       </section>
 
       <section class="g-after" data-style="display: flex; flex-direction: column; gap: 22px">
-        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Hotspots</h2><p class="lead">The schemas are the backbone; the oracle is both the largest module and among the most depended on.</p></div></div>
+        <div class="sec-h"><span class="sec-n">03</span><div><h2 class="sec-t">Hotspots</h2><p class="lead">Most depended-on, heaviest, and busiest modules of this checkout.</p></div></div>
         <div data-style="display: flex; flex-wrap: wrap; gap: 20px">
           <sc-for list="{{hot}}" as="h">
             <div class="card" data-style="flex: 1 1 300px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 6px">
@@ -145,6 +153,7 @@
           </sc-for>
         </div>
       </section>
+      </sc-if>
       <section class="g-after" data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
         <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Heatmap and attack paths</h2><p class="lead">{{heatNote}} Select a tile to focus its file in the graph above; select a proven path to highlight every step the oracle observed.</p></div></div>
         <sc-if value="{{heatEmpty}}">

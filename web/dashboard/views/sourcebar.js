@@ -24,12 +24,14 @@
   async function load(host) {
     const info = await get('/api/info');
     const runs = await get('/api/runs?per_page=1');
-    const source = (info && info.source) || 'not recorded';
+    const source = (info && info.source) || '';
     const first = runs && runs.runs && runs.runs[0];
-    const updated = (first && first.started_at) || 'not recorded';
+    const updated = (first && first.started_at) || '';
     host.textContent = '';
-    host.appendChild(text('span', 'Source: ' + source));
-    host.appendChild(text('span', 'Updated: ' + updated));
+    if (source) host.appendChild(text('span', 'Source: ' + source));
+    if (updated) host.appendChild(text('span', 'Updated: ' + updated));
+    const repoHosts = document.querySelectorAll('[data-xa-repo]');
+    for (const el of repoHosts) el.textContent = source || 'this source';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'xa-src-btn';

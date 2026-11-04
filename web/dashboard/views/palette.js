@@ -28,29 +28,21 @@
     return res.json();
   }
 
-  function loadPRData() {
-    if (window.XA_PRS) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'views/prdata.js';
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error('prdata'));
-      document.head.appendChild(s);
-    });
-  }
-
   async function loadItems() {
     const items = PAGES.map((p) => ({ group: 'Go to', title: p.t, detail: p.d, href: p.href }));
-    try { await loadPRData(); } catch (e) { /* palette still works without the PR list */ }
-    for (const r of window.XA_PRS || []) {
-      items.push({
-        group: 'Merged pull requests',
-        title: r[0] + ' · ' + r[1],
-        detail: r[3] + ' · ' + r[2] + ' · ' + r[9],
-        href: 'prs.html?pr=' + encodeURIComponent(r[0]),
-        keys: (r[0] + ' ' + r[1] + ' ' + r[3] + ' ' + r[9]).toLowerCase(),
-      });
-    }
+    try {
+      const body = await getJSON('/api/prs');
+      for (const r of (body && body.pull_requests) || []) {
+        const id = String(r.number || r.id);
+        items.push({
+          group: 'Pull requests',
+          title: '#' + id + ' · ' + (r.title || ''),
+          detail: (r.author || '') + ' · ' + (r.author_kind || 'unclassified'),
+          href: 'pr.html?pr=' + encodeURIComponent(id),
+          keys: (id + ' ' + (r.title || '') + ' ' + (r.author || '') + ' ' + (r.area || '')).toLowerCase(),
+        });
+      }
+    } catch (e) { /* palette still works without the PR list */ }
     try {
       const runs = await getJSON('/api/runs?per_page=100');
       for (const r of (runs && runs.runs) || []) {

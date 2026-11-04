@@ -154,7 +154,7 @@ def test_pr_report_follows_the_selected_pull_request():
     pr_html = (WEB_DIR / "pr.html").read_text(encoding="utf-8")
     assert "pr.html?pr=" in prs_js and 'href="{{sel.href}}"' in prs_html
     assert "views/prdata.js" in pr_html and "{{pr.title}}" in pr_html
-    assert "prRow()" in pr_js and "window.XA_PRS" in pr_js
+    assert "prRow()" in pr_js and "fetch('/api/prs'" in pr_js
 
 
 def test_pr_blast_graph_is_the_full_graph_with_damaged_route_in_red():

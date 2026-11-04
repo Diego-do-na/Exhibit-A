@@ -38,6 +38,10 @@ Endpoints (GET):
 - ``/api/benchmark``: ``bench/results`` aggregates for the Exhibit-A repo only;
   every other source gets ``available: false`` with reason
   ``no benchmark data for this source``.
+- ``/api/prs``: pull requests and authors of the chosen source (``gh pr list
+  --state all`` for GitHub, empty with that command for local).
+- ``/api/graph``: source-backed code graph (filled by a later task from
+  ``scan --graph``); empty with the scan command until then.
 """
 
 from __future__ import annotations
@@ -75,6 +79,7 @@ from .model import (
     run_row,
 )
 from .export import export_dashboard
+from .prs import PR_LIST_COMMAND, build_pr_index
 from .sources import RUN_ID_RE, LocalRunsSource, RunSource, SourceError, parse_source
 
 HOST = "127.0.0.1"
@@ -374,8 +379,7 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                     "source": state.source.label,
                     "source_kind": state.source.label.split(":", 1)[0],
                     "artifact": getattr(state.source, "artifact", None),
-                    # No budget cap is stored in any ledger or artifact:
-                    # None means "not recorded".
+                    # No budget cap is stored in any ledger or artifact.
                     "budget_usd": None,
                     "stages_note": "nothing could be proven is not safe",
                     "effect_schema": list(EFFECT_SCHEMA),
@@ -388,6 +392,10 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 self._repos()
             elif route == "/api/benchmark":
                 self._benchmark()
+            elif route == "/api/prs":
+                self._prs()
+            elif route == "/api/graph":
+                self._graph()
             elif _REPO_ROUTE.match(route):
                 rid = _REPO_ROUTE.match(route).group(1)
                 if not REPO_ID_RE.match(rid):
@@ -471,6 +479,52 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                 "repos": build_repo_index(entries),
                 "runs_considered": len(entries),
                 "runs_total": total,
+            })
+
+        def _prs(self) -> None:
+            lister = getattr(state.source, "list_pull_requests", None)
+            try:
+                raw = list(lister()) if callable(lister) else []
+            except SourceError as exc:
+                self._error(502, str(exc))
+                return
+            loaded = self._repo_entries()
+            rows = [row for row, _ in loaded[0]] if loaded else []
+            github = callable(lister) and bool(getattr(state.source, "repo", ""))
+            empty = (
+                ""
+                if raw
+                else (
+                    f"No pull requests in this repository. Refresh after `{PR_LIST_COMMAND}`."
+                    if github
+                    else f"Pull requests come from `{PR_LIST_COMMAND}`. "
+                    "Launch with --source github:owner/repo to load them."
+                )
+            )
+            self._json(build_pr_index(
+                raw,
+                source_label=state.source.label,
+                available=github,
+                empty_reason=empty,
+                run_rows=rows,
+            ))
+
+        def _graph(self) -> None:
+            """Placeholder: P0-2 fills this from ``scan --graph`` on the checkout."""
+            self._json({
+                "source": state.source.label,
+                "available": False,
+                "reason": "code graph is built from the repository checkout",
+                "command": "exhibit-a scan --graph",
+                "packages": [],
+                "modules": [],
+                "module_edges": [],
+                "package_edges": [],
+                "functions": {},
+                "uses": [],
+                "layers": [],
+                "hotspots": {},
+                "stats": {},
             })
 
         def _benchmark(self) -> None:

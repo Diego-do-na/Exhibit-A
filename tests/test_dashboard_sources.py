@@ -233,10 +233,26 @@ class FakeGh:
         self.responses = responses
         self.calls: list[tuple[list[str], float, int]] = []
 
+    @staticmethod
+    def key_for(argv: list[str]) -> str:
+        for item in argv:
+            if item.startswith("repos/"):
+                return item
+        if argv[:2] == ["pr", "list"]:
+            repo = ""
+            if "--repo" in argv:
+                idx = argv.index("--repo")
+                if idx + 1 < len(argv):
+                    repo = argv[idx + 1]
+            return f"pr list {repo}"
+        return " ".join(argv)
+
     def __call__(self, argv, timeout, max_bytes):
         self.calls.append((list(argv), timeout, max_bytes))
-        endpoint = next(a for a in argv if a.startswith("repos/"))
-        answer = self.responses[endpoint]
+        key = self.key_for(list(argv))
+        if key not in self.responses:
+            raise GhError(f"unexpected gh call: {key}")
+        answer = self.responses[key]
         if isinstance(answer, Exception):
             raise answer
         return answer
@@ -270,6 +286,8 @@ def fake_github(extra=None):
         "repos/acme/app/actions/artifacts/13/zip": artifact_zip(
             {"ledger.jsonl": SAMPLE_LEDGER, "result.json": b'{"schema_version": "1", "status": "completed"}', "other.txt": b"x"}
         ),
+        "pr list acme/app": b"[]",
+        "repos/acme/app/contents/.exhibit-a/authors.yml": GhError("HTTP 404"),
     }
     responses.update(extra or {})
     return FakeGh(responses)

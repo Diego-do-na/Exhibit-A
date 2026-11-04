@@ -2,7 +2,7 @@
 window.Component = class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { step: 0, acc: 0, el: 0, stamps: [], playing: true, speed: 1, status: null, confirm: false, cstep: 0, tag: null, bv: 'path', pos: null, evts: null, runId: '', safe: { show: false } };
+    this.state = { step: 0, acc: 0, el: 0, stamps: [], playing: true, speed: 1, status: null, confirm: false, cstep: 0, tag: null, bv: 'path', pos: null, evts: null, runId: '', safe: { show: false }, prs: [], authors: [], graph: null };
     this.timers = [];
   }
   runParam() {
@@ -14,9 +14,17 @@ window.Component = class Component extends DCLogic {
   prRow() {
     const id = this.prParam();
     if (!id) return null;
-    const row = (window.XA_PRS || []).find((r) => r[0] === id);
+    const list = this.state.prs || [];
+    const row = list.find((r) => String(r.number) === String(id) || String(r.id) === String(id));
     if (!row) return { id, missing: true };
-    return { id: row[0], title: row[1], when: row[2], author: row[3], commits: row[4], files: row[5], added: row[6], removed: row[7], tests: !!row[8], area: row[9], cycle: row[10] };
+    const when = (row.merged_at || row.created_at || '').slice(0, 16).replace('T', ' ');
+    return {
+      id: String(row.number || row.id), title: row.title, when,
+      author: row.author, commits: row.commits || 0, files: row.changed_files || (row.files || []).length,
+      added: row.additions || 0, removed: row.deletions || 0, tests: false,
+      area: row.area || '', cycle: 0, kind: row.author_kind || 'unclassified',
+      color: row.author_color || '#4a5873', url: row.url || '',
+    };
   }
   async loadRun() {
     const id = this.runParam();
@@ -62,11 +70,21 @@ window.Component = class Component extends DCLogic {
       }
     } catch (e) { /* no safe panel */ }
   }
+  async loadPrs() {
+    try {
+      const res = await fetch('/api/prs', { headers: { Accept: 'application/json' } });
+      if (!res.ok) return;
+      const body = await res.json();
+      this.setState({ prs: (body && body.pull_requests) || [], authors: (body && body.authors) || [] });
+    } catch (e) { /* empty PR list stays */ }
+  }
   componentDidMount() {
     this.iv = setInterval(() => this.tick(), 250);
     this.loadRun();
+    this.loadPrs();
+    const demo = !this.runParam() && !this.prParam();
     const host = document.getElementById('blast');
-    if (host && window.DCViz) {
+    if (demo && host && window.DCViz) {
       const A = '#a5703f', B = '#2c4fc4', G = '#4a5873';
       const chip = (id, x, y, kind, label, sub, extra) => Object.assign({ id, x, y, shape: 'chip', w: 164, h: 64, kind, label, sub, kindColor: G, r: 32 }, extra);
       const nodes = [
@@ -88,7 +106,7 @@ window.Component = class Component extends DCLogic {
       this.blast.set({ key: 'blast', layout: 'fixed', nodes, edges, curve: false });
     }
     const nh = document.getElementById('blastnet');
-    if (nh && window.DCNet && window.DCGraphData) {
+    if (demo && nh && window.DCNet && window.DCGraphData) {
       // The whole code graph (every module and function, as on the Code graph
       // page), not just the affected path: the possibly damaged route for the
       // selected pull request is marked red so its blast radius is visible in
@@ -548,7 +566,14 @@ window.Component = class Component extends DCLogic {
     ];
 
     const selPr = this.prRow();
-    const allPrs = (window.XA_PRS || []).map((r) => ({ id: r[0], title: r[1], when: r[2], author: r[3], commits: r[4], files: r[5], added: r[6], removed: r[7], tests: !!r[8], area: r[9], cycle: r[10], lines: r[6] + r[7] }));
+    const allPrs = (this.state.prs || []).map((r) => ({
+      id: String(r.number || r.id), title: r.title,
+      when: (r.merged_at || r.created_at || '').slice(0, 16).replace('T', ' '),
+      author: r.author, commits: r.commits || 0, files: r.changed_files || (r.files || []).length,
+      added: r.additions || 0, removed: r.deletions || 0, tests: false, area: r.area || '',
+      cycle: 0, lines: (r.additions || 0) + (r.deletions || 0),
+      kind: r.author_kind || 'unclassified', color: r.author_color || '#4a5873',
+    }));
     const median = (xs) => { const v = xs.slice().sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : 0; };
     const mean = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
     const medLines = median(allPrs.map((r) => r.lines)), avgLines = Math.round(mean(allPrs.map((r) => r.lines)));
@@ -556,7 +581,7 @@ window.Component = class Component extends DCLogic {
     const byWhen = allPrs.slice().sort((a, b) => (a.when < b.when ? -1 : a.when > b.when ? 1 : 0));
     const prIndex = selPr ? byWhen.findIndex((r) => r.id === selPr.id) : -1;
     const relLink = (r) => ({ id: r.id, title: r.title, href: 'pr.html?pr=' + encodeURIComponent(r.id), author: r.author,
-      ty: window.XA_authorType ? window.XA_authorType(r.author) : 'unattributed', c: (window.XA_AUTHOR_COLORS || {})[r.author] || '#4a5873', when: r.when });
+      ty: r.kind || 'unclassified', c: r.color || '#4a5873', when: r.when });
     const dayCounts = {};
     allPrs.forEach((r) => { const d = r.when.slice(0, 5); dayCounts[d] = (dayCounts[d] || 0) + 1; });
     const maxDay = Math.max(1, ...Object.values(dayCounts));
@@ -582,9 +607,9 @@ window.Component = class Component extends DCLogic {
     } : null;
     let pr = selPr && !selPr.missing
       ? { crumb: selPr.id, title: selPr.title, meta: selPr.id + ' · ' + selPr.author + ' · ' + selPr.when + ' · ' + selPr.files + ' files · ' + selPr.area,
-          lead: 'Merged pull request ' + selPr.id + '. Its recorded metadata is below; no proof analysis is attached to it.', author: selPr.author, authorType: window.XA_authorType ? window.XA_authorType(selPr.author) : 'unattributed', when: selPr.when, files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: selPr.area.replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'no test files', cycle: selPr.cycle, ...enriched }
+          lead: 'Pull request #' + selPr.id + ' from gh pr list --state all. Its recorded metadata is below.', author: selPr.author, authorType: selPr.kind || 'unclassified', when: selPr.when, files: selPr.files, added: selPr.added, removed: selPr.removed, commits: selPr.commits, areaShort: (selPr.area || '').replace(/^src\//, ''), testsLabel: selPr.tests ? 'touches tests' : 'listed files', cycle: selPr.cycle, ...enriched }
       : selPr
-        ? { crumb: selPr.id, title: selPr.id, meta: selPr.id + ' · not in the merged pull request list', lead: 'No merged pull request with this id exists in the demo data.' }
+        ? { crumb: selPr.id, title: selPr.id, meta: selPr.id + ' · not in gh pr list --state all for this source', lead: 'No pull request with this number is in the current source. List them with gh pr list --state all.' }
         : { crumb: 'nested-pamphlets', title: 'Allow nested folders in pamphlet names', meta: 'examples/action-demo · nested-pamphlets → main · patch 01-path-traversal',
             lead: 'Removes the check that kept requested names inside the shelf. Exhibit A tested what that allows, live, in a sandbox.' };
     if (isRun) {
