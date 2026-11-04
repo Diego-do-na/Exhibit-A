@@ -31,13 +31,16 @@ uses the same engine on a pull-request diff. A green result means
 
 ## Install in 3 steps
 
-1. Install Exhibit A in the repository environment:
+You do not clone Exhibit A into the app you want to scan. Install the
+package, then run the CLI from that app's directory.
+
+1. Install the CLI (GitHub; this package is not on PyPI yet):
 
    ```bash
-   python -m pip install -e .
+   python -m pip install "git+https://github.com/Diego-do-na/Exhibit-A.git"
    ```
 
-2. Generate the GitHub workflow:
+2. In the application repository, write the workflow:
 
    ```bash
    exhibit-a init
@@ -82,17 +85,16 @@ See the complete run table and links in
 
 ## The dashboard
 
-Run the local, read-only dashboard from any repository:
+From the application repository (the same folder you ran `init` in):
 
 ```bash
 exhibit-a dashboard
 ```
 
-It binds to `127.0.0.1`, prints a one-time local link, and shows data for the
-current repository. It has no Exhibit A account. By default it reads local
-`runs/` data when present, or detects the GitHub remote and reads the
-repository's Action artifacts through your authenticated `gh` CLI. You can
-choose explicitly:
+No path and no `--source` flag: it binds to `127.0.0.1`, prints a one-time
+link, and uses this directory. Local `runs/` wins when present; otherwise it
+reads the GitHub remote through your `gh` login. `--source` is only to point
+at a different tree:
 
 ```bash
 exhibit-a dashboard --source local:runs
