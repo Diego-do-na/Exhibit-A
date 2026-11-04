@@ -58,7 +58,8 @@ window.Component = class extends DCLogic {
     const detail = s.detail;
     const m = (detail && detail.metrics) || {};
     const repo = (detail && detail.repo) || {};
-    const subtitle = (info.source || 'Exhibit A') + (repo.name ? ' · ' + repo.name : '');
+    const src = info.source || 'Exhibit A';
+    const subtitle = src + (repo.name && !src.endsWith(repo.name) ? ' · ' + repo.name : '');
     const empty = !s.err && s.repos.length === 0;
     const cards = [
       { i: 'M12 2v20M16.5 6.5C15.8 5.4 14 4.5 12 4.5c-2.5 0-4.5 1.6-4.5 3.7 0 5 9 2.6 9 7.1 0 2.1-2 3.7-4.5 3.7-2 0-3.8-.9-4.5-2', l: 'Total spend', v: detail ? this.money(m.cost_usd) : '…', u: detail ? this.num(m.tokens_in + m.tokens_out) + ' tokens in and out' : 'loading recorded runs' },

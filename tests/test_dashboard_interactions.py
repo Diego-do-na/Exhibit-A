@@ -80,6 +80,14 @@ def test_night_mode_toggle_on_every_page_and_network_is_csp_safe():
     assert (WEB_DIR / "views/graphdata.js").is_file()
 
 
+def test_economics_subtitle_does_not_repeat_the_repo_name():
+    # The source label already ends with the repo ("github: owner/name"), so an
+    # unconditional "source + repo" subtitle printed the name twice.
+    js = read("views/economics.js")
+    assert "endsWith(repo.name)" in js
+    assert "repo.name ? ' · ' + repo.name" not in js
+
+
 def test_every_expandable_chart_has_a_full_version():
     ids = {"index": {"vel", "don", "fun"}, "prs": {"tl", "hist", "cyh"}, "findings": {"sus", "out", "cost"},
            "benchmark": {"sys", "abl", "roles", "auth"}, "graph": {"layers"}}
