@@ -23,7 +23,7 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # Skip generated/vendored trees that are not part of the deliverable docs.
-SKIPPED_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".hg"}
+SKIPPED_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".hg", "build", "dist"}
 
 # The append-only log keeps historical paths; see the module docstring.
 EXEMPT_FILES = {"docs/common.md"}

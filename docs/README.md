@@ -35,6 +35,7 @@ One line per document. Paths are relative to the repository root.
 - [ci/fix-pr.md](ci/fix-pr.md) — Verified fix pull requests: review suggestions and automated PR branches.
 - [ci/replay-determinism.md](ci/replay-determinism.md) — Why batch replay verdicts flipped under load, and the warm-up/sample and replay-timeout fixes.
 - [ci/artifact-schema.md](ci/artifact-schema.md) — GitHub Action artifact contents and schema.
+- [ci/ci-timing.md](ci/ci-timing.md) — sandbox job timeout, four docker shards, how to run one shard locally.
 
 ## bench/ — benchmark and costs
 
