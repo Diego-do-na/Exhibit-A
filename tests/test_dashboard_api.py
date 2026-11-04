@@ -194,6 +194,31 @@ def test_discharged_verdicts_keep_their_recorded_reason(tmp_path):
     assert item["reason_code"] == "sandbox_unreachable" and item["effect"] == "canary_read"
 
 
+def test_result_json_overlay_fills_base_sha_provider_model_budget(tmp_path):
+    from exhibit_a.dashboard.sources import LocalRunsSource
+
+    folder = write_memos_run(tmp_path)
+    extra = memos_result()
+    extra.update(provider="meta", model="muse-wonder-1.0",
+                 base_sha="868c371832071a7ef38280a9fd66ac28a3ad", budget_usd=8.0)
+    (folder / "result.json").write_text(json.dumps(extra))
+    state = make_state(LocalRunsSource(tmp_path))
+    _, _, runs = api(state, "/api/runs")
+    (row,) = runs["runs"]
+    assert row["base_sha"] == "868c371832071a7ef38280a9fd66ac28a3ad"
+    assert row["provider"] == "meta"
+    assert row["model"] == "muse-wonder-1.0"
+    assert row["budget_usd"] == 8.0
+    _, _, detail = api(state, "/api/runs/run-memos")
+    assert detail["provider"] == "meta"
+    assert detail["model"] == "muse-wonder-1.0"
+    assert detail["budget_usd"] == 8.0
+    _, _, repos = api(state, "/api/repos")
+    (entry,) = repos["repos"]
+    _, _, body = api(state, f"/api/repos/{entry['id']}")
+    assert body["budget_usd"] == 8.0
+
+
 def test_base_sha_is_recorded_when_the_ledger_has_it(tmp_path):
     from exhibit_a.dashboard.sources import LocalRunsSource
 
@@ -292,7 +317,8 @@ def test_economics_page_is_dynamic_and_marks_gaps():
     js = (WEB_DIR / "views" / "economics.js").read_text(encoding="utf-8")
     html = (WEB_DIR / "economics.html").read_text(encoding="utf-8")
     assert "fetch('/api/repos'" in js or 'fetch("/api/repos"' in js
-    assert "not recorded" in js
+    assert "not recorded" not in js
+    assert "budget_usd" in js
     for invented in ("$2.42", "223k", "30 proven", "muse-wonder-1.0"):
         assert invented not in js, invented
     assert "How to read it" in html and "Why it matters" in html

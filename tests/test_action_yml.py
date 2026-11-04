@@ -374,6 +374,9 @@ def test_assemble_step_copies_proof_files_and_dashboard_fields() -> None:
     assemble = _step(action, "Assemble ledger artifact")
     assert assemble["env"]["IN_PROVIDER"] == "${{ inputs.provider }}"
     assert assemble["env"]["IN_MODEL"] == "${{ inputs.model }}"
+    assert assemble["env"]["IN_BUDGET"] == "${{ inputs.budget-usd }}"
+    assert assemble["env"]["IN_BASE_SHA"] == "${{ inputs.base-sha }}"
+    assert assemble["env"]["EVENT_BASE_SHA"] == "${{ github.event.pull_request.base.sha }}"
     run = assemble["run"]
     assert "fix.patch" in run
     assert "test_exploit.py" in run
@@ -381,6 +384,8 @@ def test_assemble_step_copies_proof_files_and_dashboard_fields() -> None:
     assert 'result["provider"]' in run
     assert 'result["model"]' in run
     assert 'result["discussion_url"]' in run
+    assert 'result["budget_usd"]' in run
+    assert 'result["base_sha"]' in run
     assert "graph-summary.json" in run
     assert "graph_summary" in run
     assert "adversary" in run and "test_writer" in run and "fixer" in run and "defender" in run

@@ -125,6 +125,10 @@ on `result.json` when the summary step succeeded.
 | `tokens_by_role` | object | `{}` when no role was charged | Per-role `{tokens_in, tokens_out, cost_usd, events, models[]}`. Keys are `adversary`, `test_writer`, `fixer`, `defender`. Roles with zero events are omitted, not zero-filled. |
 | `discussion_url` | string | `""` when no review suggestion was posted | HTML URL of the review-suggestion discussion, **not** the pull-request page. |
 | `graph_summary` | object or null | `null` when the ledger has no usable `scan_done` | Same object as `graph-summary.json`. |
+| `base_sha` | string | `""` when the run did not record the PR base (older artifacts). | `run.base_sha`. Hide the base SHA chip when empty. |
+| `budget_usd` | number or null | `null` when `--budget-usd` / `budget-usd` was omitted. | Economics budget card. Hide the card when null. |
+
+`runs.jsonl` (the local run index) now also stores `base_sha`, `provider`, `model`, and `budget_usd` next to the head `commit`. Older lines without those keys still load; the dashboard hides the matching cards.
 
 `discussion_url` shape, when set:
 
@@ -179,12 +183,10 @@ Totals `tokens_in`, `tokens_out`, `cost_usd` on `result.json` remain the
 run sums (including engine events with no role). Per-role figures only
 count events that name a model role.
 
-**Still not recorded** in this artifact (leave `null` / `"not recorded"`):
-
-- `budget_usd` — the Action passes `--budget-usd` to the engine; the cap
-  itself is not stored in the ledger or this zip.
-- `base_sha` — PR-diff runs do not emit `pr_opened` with `base` /
-  `base_sha`.
+Older artifacts (uploaded before this contract) omit `base_sha` and
+`budget_usd`. The dashboard hides those cards rather than inventing
+values. New runs persist them on `result.json`, on `pr_opened` when the
+engine ran `--pr-diff BASE..HEAD`, and on each `runs.jsonl` line.
 
 ## `fix.patch` and the exploit test
 
@@ -294,9 +296,13 @@ exists. The dashboard does not parse SARIF.
 | Exploit test | top-level `test_exploit.py` (or `.js` / `.ts`) | Same; only `.py` is in `PROOF_TEXT_NAMES`. |
 | Tokens in/out per role | `result.json` `tokens_by_role` **or** sum ledger events by `role` | Already derived from the ledger; the result object is the CI copy. |
 | Model | `result.json` `model` and ledger `model` | Already derived from events (`run.models`). |
-| Provider | `result.json` `provider` | Always `""` today because the ledger has no provider. Read this key. |
+| Provider | `result.json` `provider` | Read this key. Empty when the run did not name a provider. |
+| Base SHA | `result.json` `base_sha` or ledger `pr_opened.payload.base` | Hide the chip when empty (older runs). |
+| Budget cap | `result.json` `budget_usd` | Hide the economics budget card when `null`. |
 | Cost per run | `result.json` `cost_usd` (also sum of ledger `cost_usd`) | Already derived. |
-| Review-suggestion discussion URL | `result.json` `discussion_url` | Today synthesized as `https://github.com/<repo>/pull/<n>` from repo+PR. Prefer the artifact field when it is a non-empty GitHub discussion/review URL; otherwise keep `"not recorded"`. Do not invent a PR-page stand-in for a missing discussion. |
+| Review-suggestion discussion URL | `result.json` `discussion_url` | Prefer the artifact field when it is a non-empty GitHub discussion/review URL; otherwise hide the card. Do not invent a PR-page stand-in for a missing discussion. |
 | Graph summary | `graph-summary.json` / `result.json` `graph_summary` | `/api/runs/<id>/graph` and `/codegraph` return `available: false` for GitHub-source runs (no tree). Use this summary when present; still do not rebuild a full AST graph from it. |
 
-Wording: missing, null, or empty → **"not recorded"** (API) / **"not available"** (UI). Never `0` as a stand-in. A run with `proven == 0` reads **"nothing could be proven"**, never "safe".
+Wording: missing, null, or empty → hide the card or chip. Never `0` as a
+stand-in. A run with `proven == 0` reads **"nothing could be proven"**,
+never "safe".

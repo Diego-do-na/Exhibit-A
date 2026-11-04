@@ -25,6 +25,10 @@ class RunRecord(StrictModel):
     repo: str
     pr: int | None = Field(default=None, ge=0)
     commit: str
+    base_sha: str = ""
+    provider: str = ""
+    model: str = ""
+    budget_usd: float | None = None
     ts: datetime  # timezone-aware, UTC
     status: Literal["completed", "aborted", "error"]
     verdict_counts: VerdictCounts  # proven counts unique findings (duplicate proofs grouped)

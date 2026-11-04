@@ -242,11 +242,16 @@ def test_pr_diff_with_nothing_reachable_makes_no_model_call(tmp_path, monkeypatc
     code = main(["run", "--repo", str(repo), "--pr-diff", f"{base}..{head}", "--out", str(out), "--slice"])
     assert code == 0
     assert json.loads(capsys.readouterr().out.splitlines()[-1])["slice"] == "nothing_reachable"
-    [event] = _events(out / "ledger.jsonl")
+    events = _events(out / "ledger.jsonl")
+    assert events[0]["type"] == "pr_opened"
+    assert events[0]["payload"]["base_sha"] == base
+    [event] = [e for e in events if e["type"] == "scan_done"]
     assert event["payload"]["status"] == "nothing_reachable"
     assert event["payload"]["changed"] == ["helpers:orphan"]
     result = json.loads((out / "result.json").read_text())
     assert result["proven"] == 0 and result["tokens_in"] == 0
+    assert result["base_sha"] == base
+    assert result["budget_usd"] is None
 
 
 def _archive_provider() -> tuple[Scripted, CaseMaterialsProvider]:
@@ -520,7 +525,9 @@ def test_explicit_canary_read_still_drops_a_sql_path(tmp_path, monkeypatch):
     code = main(["run", "--repo", str(repo), "--pr-diff", f"{base}..{head}", "--out", str(out),
                  "--slice", "--effect", "canary_read"])
     assert code == 0
-    [event] = _events(out / "ledger.jsonl")
+    events = _events(out / "ledger.jsonl")
+    assert events[0]["type"] == "pr_opened"
+    [event] = [e for e in events if e["type"] == "scan_done"]
     assert event["payload"]["status"] == "nothing_reachable"
     assert event["payload"]["effect"] == "canary_read"
     assert event["payload"]["paths_to_other_sinks"] == 1
@@ -557,7 +564,9 @@ def test_idor_is_not_faked_as_reachable(tmp_path, monkeypatch):
     out = tmp_path / "out"
     code = main(["run", "--repo", str(repo), "--pr-diff", f"{base}..{head}", "--out", str(out), "--slice"])
     assert code == 0
-    [event] = _events(out / "ledger.jsonl")
+    events = _events(out / "ledger.jsonl")
+    assert events[0]["type"] == "pr_opened"
+    [event] = [e for e in events if e["type"] == "scan_done"]
     assert event["payload"]["status"] == "nothing_reachable"
     assert event["payload"]["paths_to_other_sinks"] == 0
     assert "canary_access" in event["payload"]["reason"]

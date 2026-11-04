@@ -45,7 +45,7 @@
       <header data-style="padding: 12px 4px 0">
         <span class="lbl">{{subtitle}}</span>
         <h1 class="dsp" data-style="margin: 10px 0 0; font-size: 60px; font-weight: 500; line-height: 1; letter-spacing: -.035em">Economics</h1>
-        <p class="lead" data-style="font-size: 19px">What it costs to prove a vulnerability, and where the money goes. Every figure below is recomputed from the recorded ledgers of the current source; anything not recorded is labelled “not recorded”.</p>
+        <p class="lead" data-style="font-size: 19px">What it costs to prove a vulnerability, and where the money goes. Every figure below is recomputed from the recorded ledgers of the current source. Cards without a recorded value are hidden.</p>
       </header>
       <sc-if value="{{err}}" hint-placeholder-val="{{ false }}">
         <div class="card" data-style="padding: 22px; font-size: 16px">{{err}}</div>
@@ -94,7 +94,7 @@
           </sc-for>
           </sc-if>
           <sc-if value="{{ready}}" hint-placeholder-val="{{ false }}">
-          <p data-style="font-size: 13px; color: #3d4b68">Providers are not recorded in the ledger, so spend cannot be split by provider. Model names come from the recorded ledger events.</p>
+          <p data-style="font-size: 13px; color: #3d4b68">Spend is split by role and model name from the ledger. Provider is shown when result.json recorded it.</p>
           </sc-if>
         </div>
       </section>
@@ -129,17 +129,14 @@
         </div>
       </section>
 
+      <sc-if value="{{budgetKnown}}" hint-placeholder-val="{{ false }}">
       <section data-style="display: flex; flex-direction: column; gap: 22px; padding-bottom: 20px">
         <div class="sec-h"><span class="sec-n">04</span><div><h2 class="sec-t">Budget</h2><p class="lead">How to read it: recorded spend against the cap for this source. Why it matters: the cap is the only guardrail between a runaway loop and the invoice.</p></div></div>
         <div class="card" data-style="padding: 22px; display: flex; flex-direction: column; gap: 16px">
-          <sc-if value="{{budgetKnown}}" hint-placeholder-val="{{ false }}">
             <div><span class="lbl">Spent of cap</span><div class="dsp" data-style="font-size: 36px; font-weight: 500">{{budgetSpend}} of {{budgetCap}}</div></div>
-          </sc-if>
-          <sc-if value="{{budgetNote}}" hint-placeholder-val="{{ false }}">
-            <p data-style="font-size: 13px; color: #3d4b68">{{budgetNote}}</p>
-          </sc-if>
         </div>
       </section>
+      </sc-if>
     </main></div>
   </div>
 </template>

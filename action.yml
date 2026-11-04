@@ -535,9 +535,12 @@ runs:
         PY: ${{ steps.setup.outputs.python }}
         IN_PROVIDER: ${{ inputs.provider }}
         IN_MODEL: ${{ inputs.model }}
+        IN_BUDGET: ${{ inputs.budget-usd }}
+        IN_BASE_SHA: ${{ inputs.base-sha }}
+        EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       run: |
         set -euo pipefail
-        "$PY" - "$OUT/run" "$OUT/report" "$IN_PROVIDER" "$IN_MODEL" <<'PY'
+        "$PY" - "$OUT/run" "$OUT/report" "$IN_PROVIDER" "$IN_MODEL" "$IN_BUDGET" "$IN_BASE_SHA" "$EVENT_BASE_SHA" <<'PY'
         import json
         import shutil
         import sys
@@ -547,6 +550,8 @@ runs:
         report = Path(sys.argv[2])
         provider = sys.argv[3]
         model_input = sys.argv[4]
+        budget_raw = sys.argv[5] if len(sys.argv) > 5 else ""
+        base_sha = (sys.argv[6] if len(sys.argv) > 6 else "") or (sys.argv[7] if len(sys.argv) > 7 else "")
         ROLES = ("adversary", "test_writer", "fixer", "defender")
         EXPLOITS = ("test_exploit.py", "test_exploit.js", "test_exploit.ts")
         GRAPH_STATUSES = ("sliced", "nothing_reachable", "not_applicable", "no_suspicions")
@@ -745,6 +750,11 @@ runs:
         result["tokens_by_role"] = by_role
         result["discussion_url"] = discussion
         result["graph_summary"] = graph_summary
+        try:
+            result["budget_usd"] = float(budget_raw) if str(budget_raw).strip() else None
+        except ValueError:
+            result["budget_usd"] = None
+        result["base_sha"] = as_text(base_sha, 64)
         result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         PY
 

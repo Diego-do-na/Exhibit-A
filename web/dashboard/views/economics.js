@@ -3,8 +3,8 @@
  * Every figure comes from the dashboard API for the current --source
  * (/api/repos, then /api/repos/<id>): cumulative spend, cost per run and per
  * proven finding, tokens and cost per role and per model, and the spend trend
- * over time. Anything the ledger and artifacts do not record (provider,
- * budget cap, missing artifacts) is shown as "not recorded", never estimated.
+ * over time. Cards without a recorded value (budget cap, missing artifacts)
+ * are hidden rather than labelled.
  */
 window.Component = class extends DCLogic {
   constructor(props) {
@@ -37,12 +37,12 @@ window.Component = class extends DCLogic {
       .catch(() => this.setState({ err: 'Could not load this repository.' }));
   }
   money(v) {
-    if (v == null) return 'not recorded';
+    if (v == null) return '';
     const s = Number(v).toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
     return '$' + s;
   }
   num(v) {
-    if (v == null) return 'not recorded';
+    if (v == null) return '';
     return Number(v).toLocaleString('en-US');
   }
   fullSpec(id) {
@@ -65,8 +65,10 @@ window.Component = class extends DCLogic {
       { i: 'M12 2v20M16.5 6.5C15.8 5.4 14 4.5 12 4.5c-2.5 0-4.5 1.6-4.5 3.7 0 5 9 2.6 9 7.1 0 2.1-2 3.7-4.5 3.7-2 0-3.8-.9-4.5-2', l: 'Total spend', v: detail ? this.money(m.cost_usd) : '…', u: detail ? this.num(m.tokens_in + m.tokens_out) + ' tokens in and out' : 'loading recorded runs' },
       { i: 'M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3ZM8.8 12l2.2 2.2 4.3-4.4', l: 'Per proven finding', v: detail ? this.money(m.cost_per_proven) : '…', u: detail ? (m.proven || 0) + ' proven across ' + (m.runs || 0) + ' runs' : 'loading recorded runs' },
       { i: 'M4 6h16M4 12h10M4 18h13', l: 'Cost per run', v: detail ? this.money(m.cost_per_run) : '…', u: detail ? (m.runs || 0) + ' recorded runs' : 'loading recorded runs' },
-      { i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2', l: 'Budget', v: detail ? (detail.budget_usd == null ? 'not recorded' : this.money(detail.budget_usd)) : '…', u: 'budget caps are not stored in the ledger' },
     ];
+    if (detail && detail.budget_usd != null) {
+      cards.push({ i: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2', l: 'Budget', v: this.money(detail.budget_usd), u: 'hard cap recorded for this source' });
+    }
     const byRole = (detail && detail.cost_by_role) || {};
     const COLORS = { adversary: '#0f2557', test_writer: '#2c4fc4', fixer: '#6a8fd8', defender: '#9aa3e0' };
     const DESCS = { adversary: 'raises suspicions', test_writer: 'writes exploits', fixer: 'proposes patches', defender: 'tries to bypass fixes' };
@@ -84,7 +86,7 @@ window.Component = class extends DCLogic {
         : s.view === 'tokens' ? tokens.toLocaleString('en-US') + ' tokens' : this.money(cost);
       const tip = n + ': ' + this.money(cost) + ' (' + (totalCost ? Math.round(cost / totalCost * 100) : 0) + '% of ' +
         this.money(totalCost) + ') · ' + tokens.toLocaleString('en-US') + ' tokens · ' + (r.events || 0) +
-        ' events · models: ' + (((r.models || []).length && r.models.join(', ')) || 'not recorded');
+        ' events · models: ' + (((r.models || []).length && r.models.join(', ')) || 'no model name');
       return {
         n, v, c: COLORS[n] || '#4b3fa0', d: DESCS[n] || ((r.models || []).join(', ') || 'recorded role'),
         pct: s.view === 'share' ? (totalCost ? cost / totalCost * 100 : 0) : Math.max(v / max * 100, v > 0 ? 2 : 0),
@@ -100,8 +102,8 @@ window.Component = class extends DCLogic {
         return {
           n: name, cost: this.money(r.cost_usd),
           tok: ((r.tokens_in || 0) + (r.tokens_out || 0)).toLocaleString('en-US'),
-          ev: String(r.events || 0), roles: (r.roles || []).join(', ') || 'not recorded',
-          tip: name + ': ' + this.money(r.cost_usd) + ' · ' + ((r.tokens_in || 0) + (r.tokens_out || 0)).toLocaleString('en-US') + ' tokens · roles: ' + ((r.roles || []).join(', ') || 'not recorded'),
+          ev: String(r.events || 0), roles: (r.roles || []).join(', ') || '',
+          tip: name + ': ' + this.money(r.cost_usd) + ' · ' + ((r.tokens_in || 0) + (r.tokens_out || 0)).toLocaleString('en-US') + ' tokens · roles: ' + ((r.roles || []).join(', ') || 'none'),
         };
       });
     const series = (detail && detail.run_series) || [];
@@ -131,7 +133,7 @@ window.Component = class extends DCLogic {
       models: modelRows, hasModels: modelRows.length > 0,
       trend: trendRows, hasTrend: trendRows.length > 0,
       budgetKnown: budget != null, budgetSpend: this.money(m.cost_usd), budgetCap: this.money(budget),
-      budgetNote: budget != null ? '' : 'Budget caps are not stored in any ledger or run artifact, so this source reports “not recorded”. Set a cap with --budget-usd when you run the engine; until the cap itself is recorded, the dashboard will not invent one.',
+      budgetNote: budget != null ? '' : '',
       toggles, repoId: s.repoId, repoOpts, hasRepos: s.repos.length > 1,
       onRepo: (e) => this.loadRepo(e.target.value),
       err: s.err, empty, ready: !!detail,

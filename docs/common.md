@@ -192,3 +192,4 @@ Protocol:
 - T153 grok: P0-4 zero emojis in md/yml/html/js and CLI strings (docs/common.md exempt); titles "Exhibit A: PROVEN: …" / "NOT PROVEN: …"; pending: P1-1 CLI banner and layout
 - T153 grok: P1-1 CLI logo only on no-args/--version/init, one-line identity elsewhere, [ok]/[warn]/[fail]/[skip], Next steps, color/progress tty-only, colorless init/dashboard snapshots; pending: P1-2 idempotent init
 - T153 grok: P1-2 init is idempotent (short diff, --update with .bak, --force), runs scan into .exhibit-a/profile.json and graph-summary.json, unittest/node:test scan.supported matches the loop; pending: P1-3 persist base SHA
+- T153 grok: P1-3 persist base SHA, provider, model and budget on result.json, runs.jsonl and pr_opened; old runs hide the cards; pending: P1-4 GitHub source perf

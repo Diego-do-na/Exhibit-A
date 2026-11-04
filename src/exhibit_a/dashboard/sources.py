@@ -233,16 +233,31 @@ class _Result(BaseModel):
     risk: _Risk | None = None
     #: Which provider answered the model calls; "" when the artifact is silent.
     provider: str = Field(default="", max_length=120)
+    model: str = Field(default="", max_length=120)
+    base_sha: str = Field(default="", max_length=64)
+    budget_usd: float | None = None
     #: Review-suggestion thread URL (artifact-schema.md). Anything off-shape is
     #: dropped here; whether it names this run's repo and PR is checked by the
     #: caller, which knows the run.
     discussion_url: str = Field(default="", max_length=500)
 
-    @field_validator("provider", "discussion_url", mode="before")
+    @field_validator("provider", "model", "base_sha", "discussion_url", mode="before")
     @classmethod
     def _empty_for_null(cls, value: Any) -> Any:
         # An explicit null is "not recorded", never a reason to drop the run.
         return "" if value is None else value
+
+    @field_validator("budget_usd", mode="before")
+    @classmethod
+    def _budget_or_none(cls, value: Any) -> Any:
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
 
 #: A review-suggestion thread URL (artifact-schema.md): the pull-request page of

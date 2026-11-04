@@ -382,7 +382,7 @@ def make_handler(state: DashboardState) -> type[BaseHTTPRequestHandler]:
                     "source": state.source.label,
                     "source_kind": state.source.label.split(":", 1)[0],
                     "artifact": getattr(state.source, "artifact", None),
-                    # No budget cap is stored in any ledger or artifact.
+                    # Source-wide cap lives on each run row / repo detail, not here.
                     "budget_usd": None,
                     "stages_note": "nothing could be proven is not safe",
                     "effect_schema": list(EFFECT_SCHEMA),

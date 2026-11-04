@@ -3,19 +3,14 @@
     "VerdictCounts": {
       "additionalProperties": false,
       "properties": {
+        "proven": {
+          "minimum": 0,
+          "title": "Proven",
+          "type": "integer"
+        },
         "discarded_unproven": {
           "minimum": 0,
           "title": "Discarded Unproven",
-          "type": "integer"
-        },
-        "env_failure": {
-          "minimum": 0,
-          "title": "Env Failure",
-          "type": "integer"
-        },
-        "flaky": {
-          "minimum": 0,
-          "title": "Flaky",
           "type": "integer"
         },
         "invalid_test": {
@@ -23,9 +18,14 @@
           "title": "Invalid Test",
           "type": "integer"
         },
-        "proven": {
+        "flaky": {
           "minimum": 0,
-          "title": "Proven",
+          "title": "Flaky",
+          "type": "integer"
+        },
+        "env_failure": {
+          "minimum": 0,
+          "title": "Env Failure",
           "type": "integer"
         }
       },
@@ -42,27 +42,19 @@
   },
   "additionalProperties": false,
   "properties": {
-    "commit": {
-      "title": "Commit",
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
       "type": "string"
     },
-    "cost_usd": {
-      "minimum": 0,
-      "title": "Cost Usd",
-      "type": "number"
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
     },
-    "discarded_suspicions": {
-      "minimum": 0,
-      "title": "Discarded Suspicions",
-      "type": "integer"
-    },
-    "duration_s": {
-      "minimum": 0,
-      "title": "Duration S",
-      "type": "number"
-    },
-    "ledger_path": {
-      "title": "Ledger Path",
+    "repo": {
+      "title": "Repo",
       "type": "string"
     },
     "pr": {
@@ -78,6 +70,54 @@
       "default": null,
       "title": "Pr"
     },
+    "commit": {
+      "title": "Commit",
+      "type": "string"
+    },
+    "base_sha": {
+      "default": "",
+      "title": "Base Sha",
+      "type": "string"
+    },
+    "provider": {
+      "default": "",
+      "title": "Provider",
+      "type": "string"
+    },
+    "model": {
+      "default": "",
+      "title": "Model",
+      "type": "string"
+    },
+    "budget_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Budget Usd"
+    },
+    "ts": {
+      "format": "date-time",
+      "title": "Ts",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "aborted",
+        "error"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "verdict_counts": {
+      "$ref": "#/$defs/VerdictCounts"
+    },
     "proven_raw": {
       "anyOf": [
         {
@@ -90,21 +130,6 @@
       ],
       "default": null,
       "title": "Proven Raw"
-    },
-    "repo": {
-      "title": "Repo",
-      "type": "string"
-    },
-    "run_id": {
-      "minLength": 1,
-      "title": "Run Id",
-      "type": "string"
-    },
-    "schema_version": {
-      "const": "1",
-      "default": "1",
-      "title": "Schema Version",
-      "type": "string"
     },
     "severity": {
       "anyOf": [
@@ -124,14 +149,10 @@
       "default": null,
       "title": "Severity"
     },
-    "status": {
-      "enum": [
-        "completed",
-        "aborted",
-        "error"
-      ],
-      "title": "Status",
-      "type": "string"
+    "discarded_suspicions": {
+      "minimum": 0,
+      "title": "Discarded Suspicions",
+      "type": "integer"
     },
     "tokens_in": {
       "minimum": 0,
@@ -143,13 +164,19 @@
       "title": "Tokens Out",
       "type": "integer"
     },
-    "ts": {
-      "format": "date-time",
-      "title": "Ts",
-      "type": "string"
+    "cost_usd": {
+      "minimum": 0,
+      "title": "Cost Usd",
+      "type": "number"
     },
-    "verdict_counts": {
-      "$ref": "#/$defs/VerdictCounts"
+    "duration_s": {
+      "minimum": 0,
+      "title": "Duration S",
+      "type": "number"
+    },
+    "ledger_path": {
+      "title": "Ledger Path",
+      "type": "string"
     }
   },
   "required": [

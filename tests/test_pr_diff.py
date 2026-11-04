@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 
@@ -69,3 +70,16 @@ def test_zero_python_diff_writes_ledger_and_result(tmp_path: Path) -> None:
     ]) == 0
     assert (tmp_path / "out" / "ledger.jsonl").is_file()
     assert (tmp_path / "out" / "result.json").is_file()
+    result = json.loads((tmp_path / "out" / "result.json").read_text(encoding="utf-8"))
+    assert result["base_sha"] == base
+    assert result["head_sha"] == head
+    assert result["budget_usd"] is None
+    opened = [json.loads(line) for line in (tmp_path / "out" / "ledger.jsonl").read_text().splitlines()
+              if line.strip()]
+    assert opened[0]["type"] == "pr_opened"
+    assert opened[0]["payload"]["base_sha"] == base
+    index = (tmp_path / "out" / "runs.jsonl").read_text(encoding="utf-8")
+    record = json.loads(index.splitlines()[0])
+    assert record["commit"] == head
+    assert record["base_sha"] == base
+    assert record["budget_usd"] is None

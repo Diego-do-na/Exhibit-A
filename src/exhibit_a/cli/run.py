@@ -168,17 +168,49 @@ def _pr_roles(args: argparse.Namespace) -> Roles:
         Role.ADVERSARY, Role.TEST_WRITER, Role.FIXER, Role.DEFENDER)))
 
 
-def _write_result(out: Path, ledger: Ledger, run_id: str, code: int) -> dict[str, Any]:
+def _run_meta(args: argparse.Namespace, *, base: str = "", head: str = "") -> dict[str, Any]:
+    """Provider, model, budget and SHAs the dashboard should persist, never invent."""
+    budget = getattr(args, "budget_usd", None)
+    return {
+        "base_sha": str(base or ""),
+        "head_sha": str(head or ""),
+        "provider": str(getattr(args, "provider", None) or ""),
+        "model": str(getattr(args, "model", None) or ""),
+        "budget_usd": float(budget) if budget is not None else None,
+    }
+
+
+def _write_result(
+    out: Path,
+    ledger: Ledger,
+    run_id: str,
+    code: int,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     result = build_result(ledger.read_all(), run_id=run_id, engine_exit=code)
+    if extra:
+        result.update(extra)
     (out / "result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
 
 
-def _append_run_index(out: Path, result: dict[str, Any], repo: Path, head: str, started: float) -> None:
+def _append_run_index(
+    out: Path,
+    result: dict[str, Any],
+    repo: Path,
+    head: str,
+    started: float,
+    *,
+    base: str = "",
+    provider: str = "",
+    model: str = "",
+    budget_usd: float | None = None,
+) -> None:
     verdicts = result["verdicts"]
     status = "completed" if result["status"] == "completed" else "aborted"
     record = RunRecord(
         run_id=result["run_id"], repo=str(repo), commit=head,
+        base_sha=base, provider=provider, model=model, budget_usd=budget_usd,
         ts=datetime.now(timezone.utc),
         status=status,
         proven_raw=int(result.get("proven_raw", verdicts.get("proven", 0))),
@@ -480,6 +512,24 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
         changed = safe_changed
         ledger = Ledger(out / "ledger.jsonl")
         run_id = f"pr-{head[:12]}"
+        base = spec.split("..", 1)[0] if ".." in spec else ""
+        meta = _run_meta(args, base=base, head=head)
+        ledger.append(Event(
+            ts=datetime.now(timezone.utc).isoformat(),
+            run_id=run_id,
+            type=EventType.PR_OPENED,
+            payload={
+                "base": base,
+                "base_sha": base,
+                "head": head,
+                "commit": head,
+                "head_sha": head,
+                "provider": meta["provider"],
+                "model": meta["model"],
+                "budget_usd": meta["budget_usd"],
+                "language": language,
+            },
+        ))
         if not changed:
             kind = "JavaScript/TypeScript" if language in JS_LANGUAGES else "Python"
             ledger.append(Event(
@@ -488,8 +538,12 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
                 payload={"status": "not_applicable", "reason": f"no changed regular {kind} files",
                          "entries": len(entries), "language": language},
             ))
-            result = _write_result(out, ledger, run_id, 0)
-            _append_run_index(out, result, repo, head, started)
+            result = _write_result(out, ledger, run_id, 0, extra=meta)
+            _append_run_index(
+                out, result, repo, head, started,
+                base=meta["base_sha"], provider=meta["provider"],
+                model=meta["model"], budget_usd=meta["budget_usd"],
+            )
             return 0
         plans_by_effect: dict[str, dict[str, SlicePlan]] = {}
         graph: CodeGraph | None = None
@@ -509,8 +563,12 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
                 shown = args.effect or ",".join(PR_DERIVED_EFFECTS)
                 _emit_nothing_reachable(
                     ledger, run_id, graph, report, seconds, shown, derived=derived)
-                result = _write_result(out, ledger, run_id, 0)
-                _append_run_index(out, result, repo, head, started)
+                result = _write_result(out, ledger, run_id, 0, extra=meta)
+                _append_run_index(
+                    out, result, repo, head, started,
+                    base=meta["base_sha"], provider=meta["provider"],
+                    model=meta["model"], budget_usd=meta["budget_usd"],
+                )
                 print(json.dumps({"status": result["status"], "proven": result["proven"],
                                   "slice": NOTHING_REACHABLE}, sort_keys=True))
                 return 0
@@ -589,8 +647,12 @@ def _run_pr_diff(args: argparse.Namespace) -> int:
             if incomplete:
                 break
         code = 20 if incomplete else (10 if any_proven else 0)
-        result = _write_result(out, ledger, run_id, code)
-        _append_run_index(out, result, repo, head, started)
+        result = _write_result(out, ledger, run_id, code, extra=meta)
+        _append_run_index(
+            out, result, repo, head, started,
+            base=meta["base_sha"], provider=meta["provider"],
+            model=meta["model"], budget_usd=meta["budget_usd"],
+        )
         if not getattr(args, "quiet", False):
             print(json.dumps({"status": result["status"], "proven": result["proven"]}, sort_keys=True))
         if getattr(args, "verbose", 0):

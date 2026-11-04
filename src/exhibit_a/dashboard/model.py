@@ -285,6 +285,7 @@ def _ledger_meta(events: Sequence[Event]) -> dict[str, Any]:
             p = event.payload
             commit = _text(p.get("commit") or p.get("head_sha") or p.get("head"), 64)
             base = _text(p.get("base") or p.get("base_sha"), 64)
+            budget = p.get("budget_usd")
             return {
                 "repo": _text(p.get("repo"), 140),
                 "pr": _text(p.get("pr"), 64),
@@ -293,6 +294,9 @@ def _ledger_meta(events: Sequence[Event]) -> dict[str, Any]:
                 "branch": _text(p.get("branch") or p.get("head_branch"), 200),
                 "title": _text(p.get("title"), 200),
                 "synthetic": p.get("synthetic") is True,
+                "provider": _text(p.get("provider"), 120),
+                "model": _text(p.get("model"), 120),
+                "budget_usd": float(budget) if isinstance(budget, (int, float)) and not isinstance(budget, bool) else None,
             }
     return {}
 
@@ -442,8 +446,9 @@ def run_row(data: RunData) -> dict[str, Any]:
         "branch": ref.branch or meta.get("branch", ""),
         "title": meta.get("title", ""),
         "models": [],
-        # The ledger records model names but no provider: always "" ("not recorded").
         "provider": "",
+        "model": "",
+        "budget_usd": None,
         "repo_id": "",
         "url": ref.url,
         "synthetic": ref.synthetic or bool(meta.get("synthetic")),
@@ -531,7 +536,14 @@ def run_row(data: RunData) -> dict[str, Any]:
     # The artifact's review-thread URL wins when it names this run's repo and
     # PR; otherwise the synthesized PR page (or "" when nothing is recorded).
     extra = data.result or {}
-    row["provider"] = _text(extra.get("provider"), 120)
+    row["provider"] = _text(extra.get("provider"), 120) or _text(meta.get("provider"), 120)
+    row["model"] = _text(extra.get("model"), 120) or _text(meta.get("model"), 120)
+    if extra.get("base_sha"):
+        row["base_sha"] = _text(extra.get("base_sha"), 64)
+    budget = extra.get("budget_usd")
+    if not isinstance(budget, (int, float)) or isinstance(budget, bool):
+        budget = meta.get("budget_usd")
+    row["budget_usd"] = float(budget) if isinstance(budget, (int, float)) and not isinstance(budget, bool) else None
     row["discussion_url"] = (
         valid_discussion_url(extra.get("discussion_url"), row["repo"], row["pr"])
         or _discussion_url(row["repo"], row["pr"])
@@ -894,8 +906,7 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
     if row["error"]:
         return {"run": row, "stages": _stages([]), "proven": [], "discarded": [], "latency_ms": 0,
                 "trace": trace_to_dict(row["run_id"], []), "costs": _costs([]), "graph": graph,
-                # No provider or budget cap is recorded in the ledger or artifact.
-                "provider": "", "budget_usd": None,
+                "provider": "", "model": "", "budget_usd": None,
                 "artifacts": {"fix_patch": None, "exploit_test": None},
                 "graph_summary": None}
     events = data.events
@@ -984,10 +995,9 @@ def run_detail(data: RunData, *, with_graph: bool = True) -> dict[str, Any]:
         "trace": trace_to_dict(row["run_id"], steps),
         "costs": _costs(events),
         "graph": graph,
-        # The result artifact may name the provider; no budget cap is stored in
-        # the ledger or artifact: "" / None mean "not recorded".
         "provider": row.get("provider", ""),
-        "budget_usd": None,
+        "model": row.get("model", ""),
+        "budget_usd": row.get("budget_usd"),
         # Proof artifacts, read as text only (never executed); None means
         # the run folder or artifact does not carry that file ("not recorded").
         "artifacts": {
@@ -1446,8 +1456,11 @@ def build_repo_detail(rid: str, group: list[tuple[dict[str, Any], dict[str, Any]
             "tokens_out": tokens_out,
             "median_duration_s": median_duration_s,
         },
-        # No budget cap is stored in any ledger or artifact: None means "not recorded".
-        "budget_usd": None,
+        "budget_usd": next(
+            (row.get("budget_usd") for row, _ in readable_entries
+             if isinstance(row.get("budget_usd"), (int, float))),
+            None,
+        ),
         "cost_by_role": cost_by_role,
         "cost_by_model": cost_by_model,
         "verdict_totals": verdict_totals,

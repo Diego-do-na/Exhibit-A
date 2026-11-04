@@ -119,3 +119,23 @@ def test_schema_file_matches_model():
     on_disk = json.loads(SCHEMA_FILE.read_text())
     assert on_disk == RunRecord.model_json_schema(), (
         "regenerate run_index.schema.json from exhibit_a.schemas.run_index.RunRecord")
+
+
+def test_old_index_lines_default_base_provider_model_budget():
+    record = RunRecord.model_validate(make())
+    assert record.base_sha == ""
+    assert record.provider == ""
+    assert record.model == ""
+    assert record.budget_usd is None
+
+
+def test_index_round_trips_base_provider_model_budget():
+    record = RunRecord.model_validate(make(
+        base_sha="abc1234", provider="meta", model="muse-wonder-1.0", budget_usd=8.0,
+    ))
+    dumped = record.model_dump(mode="json")
+    again = RunRecord.model_validate(dumped)
+    assert again.base_sha == "abc1234"
+    assert again.provider == "meta"
+    assert again.model == "muse-wonder-1.0"
+    assert again.budget_usd == 8.0

@@ -91,6 +91,26 @@ def test_run_row_uses_result_provider_and_thread_url():
     assert row["discussion_url"] == THREAD
 
 
+def test_run_row_reads_base_sha_model_and_budget_from_result():
+    ref = RunRef("r", repo="acme/app", pr="7")
+    events = [_event("baseline_done", {"ok": True})]
+    row = run_row(RunData(
+        ref=ref, events=events,
+        result=parse_result(_result(
+            provider="meta", model="muse-wonder-1.0",
+            base_sha="868c371832071a7ef38280a9fd66ac28a3ad", budget_usd=8.0,
+        )),
+    ))
+    assert row["provider"] == "meta"
+    assert row["model"] == "muse-wonder-1.0"
+    assert row["base_sha"] == "868c371832071a7ef38280a9fd66ac28a3ad"
+    assert row["budget_usd"] == 8.0
+    old = run_row(RunData(ref=ref, events=events, result=parse_result(_result())))
+    assert old["base_sha"] == ""
+    assert old["model"] == ""
+    assert old["budget_usd"] is None
+
+
 def test_run_row_falls_back_when_thread_url_names_another_pr():
     ref = RunRef("r", repo="acme/app", pr="9")
     events = [_event("baseline_done", {"ok": True})]
