@@ -209,3 +209,4 @@ Protocol:
 - T160 muse: run pages link back to their PR with sibling runs (sibRuns/prHref in pr.js/pr.html); template tags balanced 47/47 and 26/26, node syntax OK, dashboard tests green; pending: owner pulls main, restarts dashboard, opens run 41933198547 to see the bridge, records video
 - docs antigravity: README banner + pipx install-vs-configure, removed 7 internal planning docs and their links, redrew docs/assets/mark.svg; pending: owner VIDEO_URL_PLACEHOLDER in README, push
 - T161 muse: run Merge card shows PR state (Merged into main) instead of run status; blast canvas draws recorded reachability proposals in neutral colors when nothing is proven; tests green; pending: owner pulls main, restarts dashboard, records video
+- ci antigravity: canary listener start wait 10s to 30s in oracle host connect path (likely cause of CI manifest_failed flake on loaded runner, unconfirmed); ASCII A in CLI logo and README banner; pending: owner CI re-run

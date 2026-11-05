@@ -706,7 +706,7 @@ def _run_connect(app_root: Path, test_path: Path, entry_points: set[str], timeou
             cwd=work,
         )
         try:
-            if not _wait_for_port(port, timeout=10.0):
+            if not _wait_for_port(port, timeout=30.0):
                 _stop(server)
                 return Judgement(
                     observed_effect=False, provenance_ok=False, test_outcome="error",
