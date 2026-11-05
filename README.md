@@ -4,7 +4,7 @@
 
 **Proof before accusation: Exhibit A only reports vulnerabilities it can prove.**
 
-[Video demo](VIDEO_URL_PLACEHOLDER)
+[Video demo](https://www.youtube.com/watch?v=E7cZDJf9k1w&t=15s)
 
 Exhibit A is a Python security-verification engine for pull requests. It turns a
 suspicion into a finding only when an exploit test fails for the intended
