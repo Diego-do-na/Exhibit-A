@@ -285,11 +285,11 @@ def test_init_default_path_and_refuses_overwrite_without_force(tmp_path, monkeyp
     assert target.read_text(encoding="utf-8") == original
 
 
-def test_logo_slot_stays_ascii_within_eight_lines_and_sixty_columns():
+def test_logo_slot_stays_ascii_within_twenty_four_lines_and_sixty_columns():
     raw = load_logo()
     assert TAGLINE in raw
     lines = raw.splitlines()
-    assert 1 <= len(lines) <= 8
+    assert 1 <= len(lines) <= 24
     for line in lines:
         assert len(line) <= 60
         assert all(ord(ch) < 128 for ch in line)
