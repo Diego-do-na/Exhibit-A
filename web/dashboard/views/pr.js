@@ -106,6 +106,18 @@ window.Component = class Component extends DCLogic {
       }
     }
     if (effect) push('ef', 'Effect', effect, (ev.effect && ev.effect.path) || 'observed', { kindColor: A, stroke: A, note: effect });
+    if (!nodes.length) {
+      // No proven path: draw the recorded reachability proposal instead, in
+      // neutral colors. The list below already labels it as a proposal.
+      const gs = (detail && detail.graph_summary) || {};
+      const gp0 = ((gs.available && gs.paths) || [])[0] || {};
+      const segs = String(gp0.path || '').split(' -> ').map((s) => s.trim()).filter(Boolean).slice(0, 6);
+      segs.forEach((seg, i) => {
+        const last = i === segs.length - 1;
+        push('p' + i, i === 0 ? 'Entry point' : (last ? 'Changed' : 'Calls'), seg, 'reachability proposal',
+          { kindColor: i === 0 ? B : G, note: seg + (last && gp0.vuln_class ? ' · ' + gp0.vuln_class : '') });
+      });
+    }
     const edges = [];
     for (let i = 0; i < nodes.length - 1; i += 1) edges.push({ a: nodes[i].id, b: nodes[i + 1].id, hot: true, w: 3 });
     return { nodes, edges };
@@ -493,7 +505,19 @@ window.Component = class Component extends DCLogic {
       }
       const toks = (R.tokens_in != null && R.tokens_out != null) ? this.int(R.tokens_in + R.tokens_out) + ' tokens' : '';
       const models = (R.models && R.models.length) ? R.models.join(', ') : '';
-      merge = { l: this.text(R.status, 'recorded'), d: [this.money(R.cost_usd), toks, models].filter(Boolean).join(' · ') };
+      // The Merge card answers whether the pull request merged, never the run
+      // status. Fall back to the recorded run status only when the PR is unknown.
+      const runPrNum = R.pr ? String(R.pr).replace(/^#/, '') : '';
+      const runPrRow = runPrNum ? (this.state.prs || []).find((r) => String(r.number || r.id) === runPrNum) : null;
+      const runPrRaw = runPrRow ? String(runPrRow.state || '').toUpperCase() : '';
+      const runPrMerged = !!runPrRow && (runPrRaw === 'MERGED' || !!runPrRow.merged_at);
+      merge = runPrMerged
+        ? { l: 'Merged', d: 'This pull request is already merged into main.' }
+        : runPrRaw === 'CLOSED'
+          ? { l: 'Closed', d: 'This pull request was closed without merging.' }
+          : runPrRaw
+            ? { l: 'Open', d: 'This pull request is still open.' }
+            : { l: this.text(R.status, 'recorded'), d: [this.money(R.cost_usd), toks, models].filter(Boolean).join(' · ') };
     }
     const stt = status === 'approved'
       ? { l: 'Ready', s: 'Fix committed', cls: 'state-done', isDone: true, bg: 'rgba(44,79,196,.12)', fg: '#16307a', bd: 'rgba(44,79,196,.3)' }

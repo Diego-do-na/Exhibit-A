@@ -268,6 +268,8 @@ def test_pr_view_lists_every_recorded_run_for_one_pr():
     assert "runList" in html
     assert "sibRuns" in js and "prHref" in js
     assert "sibRuns" in html and "prHref" in html
+    assert "reachability proposal" in js
+    assert "already merged into main" in js
     assert "not recorded" not in js and "not recorded" not in html
 
 
