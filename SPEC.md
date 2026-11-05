@@ -318,7 +318,7 @@ adapter is what allows a second language later.
 Resolved / updated:
 
 - First target project and CVE: resolved — the first real-case exercised end-to-end is
-  Starlette `StaticFiles` path traversal (CVE-2023-29159), see `docs/design/first-cve.md` and the
+  Starlette `StaticFiles` path traversal (CVE-2023-29159), see `docs/reference/first-cve.md` and the
   `bench/corpus/starlette-cve-2023-29159` case. The test package produced by the run is
   validated by `tests/test_e2e_cve.py`.
 

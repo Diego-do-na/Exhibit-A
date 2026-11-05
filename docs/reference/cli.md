@@ -102,7 +102,7 @@ exhibit-a scan . --graph --pr-diff main..HEAD
 
 Scan the current repository, compute the static call graph, and determine reachable paths from entry points to sinks for code modified between `main` and `HEAD`.
 
-See docs/design/code-graph.md for details on graph construction and reachability.
+See docs/reference/code-graph.md for details on graph construction and reachability.
 
 ## exhibit-a run
 
@@ -361,7 +361,7 @@ exhibit-a dashboard --source local:runs --export site --run run-20261029-123456
 
 The resulting `site/index.html` can be opened with `file://` or served by GitHub Pages. It contains the copied dashboard frontend, the selected raw ledger under `runs/<run-id>/`, and deterministic derived JSON under `data/`; it makes no network requests. Use `--open` only with live server mode to open its one-time browser URL automatically.
 
-See docs/design/dashboard.md for security model and architecture.
+See docs/reference/dashboard.md for security model and architecture.
 
 ## exhibit-a audit
 

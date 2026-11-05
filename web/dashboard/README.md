@@ -41,7 +41,7 @@ no build step and no third-party code.
 Every number comes from the dashboard API for the current `--source`
 (`local:<dir>` or `github:<owner/repo>`): the run ledger is the single source
 of truth. Missing fields are hidden, never estimated. See
-[docs/design/dashboard.md](../../docs/design/dashboard.md) for the sources,
+[docs/reference/dashboard.md](../../docs/reference/dashboard.md) for the sources,
 the data rule, and what is simulated.
 
 The unparameterised `pr.html` view is a recorded demo that replays a fixed

@@ -51,16 +51,13 @@ One line per document. Paths are relative to the repository root.
 - [security/oracle-redteam.md](security/oracle-redteam.md) — oracle red-team report: false-proof attacks found, recall gaps, what each layer stops.
 - [security/advisory.md](security/advisory.md) — advisory lookup (OSV): version-range matching as a suspicion hint, never a verdict.
 
-## design/ — architecture and surfaces
-
-- [design/architecture.md](design/architecture.md) — system architecture, component contracts, and the loop diagram in prose.
-- [design/code-graph.md](design/code-graph.md) — SCAN/SLICE code graph, reachability, and slicing: entry points from the graph, never from the model.
-- [design/dashboard.md](design/dashboard.md) — local read-only dashboard: sources, threat model, views.
-- [design/dashboard-api.md](design/dashboard-api.md) — dashboard API: every endpoint with a real example, per-source costs, hide missing fields.
-- [design/first-cve.md](design/first-cve.md) — first real CVE end to end: Starlette CVE-2023-29159 proven through the loop.
-
 ## reference/ — CLI and runtime details
 
+- [reference/architecture.md](reference/architecture.md) — system architecture, component contracts, and the loop diagram in prose.
+- [reference/code-graph.md](reference/code-graph.md) — SCAN/SLICE code graph, reachability, and slicing: entry points from the graph, never from the model.
+- [reference/dashboard.md](reference/dashboard.md) — local read-only dashboard: sources, threat model, views.
+- [reference/dashboard-api.md](reference/dashboard-api.md) — dashboard API: every endpoint with a real example, per-source costs, hide missing fields.
+- [reference/first-cve.md](reference/first-cve.md) — first real CVE end to end: Starlette CVE-2023-29159 proven through the loop.
 - [reference/cli.md](reference/cli.md) — CLI reference for every subcommand and flag.
 - [reference/cli-exit-codes.md](reference/cli-exit-codes.md) — exit codes: 0 nothing proven, 10 proven, 20 incomplete, 2 usage error.
 - [reference/models.md](reference/models.md) — model roles, providers (replay, ollama, openai-compatible, meta), budgets, recording and replay.

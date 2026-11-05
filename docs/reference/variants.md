@@ -150,7 +150,7 @@ constant paths and are not.
 ## Limits
 
 - The graph is static: dynamic dispatch, monkeypatching and framework magic it cannot
-  resolve cost recall (see `docs/design/code-graph.md`).
+  resolve cost recall (see `docs/reference/code-graph.md`).
 - The structural comparison and the parameter flow are heuristics that order and label
   candidates; they never decide a verdict.
 - Candidates are searched per run, not across runs, and only for findings of that run.

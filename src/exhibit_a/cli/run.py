@@ -279,7 +279,7 @@ NOTHING_REACHABLE = "nothing_reachable"
 
 #: Oracle effects a sliced PR run may derive when ``--effect`` is omitted.
 #: ``canary_access`` (IDOR) is not in this list: the graph has no sink call for it
-#: (docs/design/code-graph.md). ``canary_redirect`` is not derived here either.
+#: (docs/reference/code-graph.md). ``canary_redirect`` is not derived here either.
 PR_DERIVED_EFFECTS: tuple[str, ...] = (
     "canary_exec",
     "canary_sql",

@@ -24,4 +24,4 @@ recorded GitHub results; do not imply that a green check means safe.
   US$2.2727 cost. If the generated result changes before recording, replace
   the affected value with `pending` rather than estimating.
 - The dashboard's per-run example is recorded as US$0.062884 in
-  `docs/design/dashboard-api.md`; display the UI's recorded precision.
+  `docs/reference/dashboard-api.md`; display the UI's recorded precision.

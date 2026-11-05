@@ -325,20 +325,12 @@ verdicts, and history for the trends chart.
 
 ## Verification matrix and final captures
 
-`docs/design/screenshots-matrix/` holds 32 captures: the 8 pages
-(`index`, `prs`, `pr`, `findings`, `finding`, `graph`, `benchmark`,
-`economics`) at `1440x900` and `1728x1117`, in light and night mode. Every
-capture passes with 0 console errors and 0 horizontal overflow against both
-`--source github:Diego-do-na/exhibit-a-testbed` (real CI runs) and
-`--source local:runs`; `summary.json` records the per-capture result.
-
-`docs/design/screenshots-final/` holds three captures against the GitHub
-source with real data:
-
-- `overview-real-data.png`: the Overview with real testbed runs.
-- `pr-testbed-pr1.png`: `pr.html?run=` for testbed PR #1 (the proven
-  `canary_read` in `memos.py`).
-- `economics-real-spend.png`: the Economics page with real recorded spend.
+The 32-capture verification matrix (8 pages at `1440x900` and `1728x1117`,
+light and night mode, 0 console errors and 0 horizontal overflow against both
+`--source github:Diego-do-na/exhibit-a-testbed` and `--source local:runs`)
+and the three real-data captures were removed with `docs/design/`; the
+standing rule is that every dashboard test in `tests/test_dashboard_*.py`
+stays green and no view invents values.
 
 ## Requires (outside this task's scope)
 
