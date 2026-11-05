@@ -152,8 +152,11 @@ window.Component = class Component extends DCLogic {
     const segs = total ? src.map(([n, v, c]) => {
       const s = a, e = a + (v / total) * Math.PI * 2; a = e;
       const lg = e - s > Math.PI ? 1 : 0;
+      // A slice covering the whole ring would start and end at the same point,
+      // which SVG renders as nothing. Stop a hair short, as fullchart.js does.
+      const q = e - (v >= total ? 0.001 : 0);
       return { n, v, c, pc: Math.round(v / total * 100) + '%', t: n + ': ' + v,
-        d: 'M' + P(96, s) + ' A96 96 0 ' + lg + ' 1 ' + P(96, e) + ' L' + P(70, e) + ' A70 70 0 ' + lg + ' 0 ' + P(70, s) + ' Z' };
+        d: 'M' + P(96, s) + ' A96 96 0 ' + lg + ' 1 ' + P(96, q) + ' L' + P(70, q) + ' A70 70 0 ' + lg + ' 0 ' + P(70, s) + ' Z' };
     }) : [];
     const don = { segs, total, cap };
 

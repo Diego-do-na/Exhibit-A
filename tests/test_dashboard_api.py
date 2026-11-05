@@ -346,6 +346,13 @@ def test_repo_detail_aggregates_rates_costs_and_cumulative(tmp_path):
 # -- economics page contract ----------------------------------------------------
 
 
+def test_overview_donut_draws_a_full_ring_for_a_single_category():
+    # A 100% slice starts and ends at the same point, which SVG renders as
+    # nothing; the builder must stop a hair short, as fullchart.js does.
+    js = (WEB_DIR / "views" / "index.js").read_text(encoding="utf-8")
+    assert "0.001" in js
+
+
 def test_overview_paints_a_skeleton_and_offers_load_more():
     js = (WEB_DIR / "views" / "index.js").read_text(encoding="utf-8")
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
